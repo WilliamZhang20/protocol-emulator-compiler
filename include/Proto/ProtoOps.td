@@ -9,7 +9,7 @@ def Proto_DriveOp : Proto_Op<"drive"> {
     let summary = "drive a pin";
 
     let arguments = (ins
-        I32Attr:$pin
+        I32Attr:$pin,
         I1Attr:$value
     );
 

@@ -1,6 +1,6 @@
-include "mlir/IR/Dialectbase.td"
+include "mlir/IR/DialectBase.td"
 
-def Proto_Dialect : Diaelect {
+def Proto_Dialect : Dialect {
    let name = "proto";
    let cppNamespace = "::proto";
    

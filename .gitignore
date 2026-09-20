@@ -1,11 +1,44 @@
-_build
-_opam
-*.install
-.merlin
-*.byte
-*.native
-*.cmi
-*.cmo
-*.cmx
+# Build trees
+build/
+cmake-build-*/
+out/
+
+# CMake / Ninja
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+install_manifest.txt
+*.ninja
+.ninja_deps
+.ninja_log
+tablegen_compile_commands.yml
+
+# Compiled objects and libs
 *.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.lib
+
+# Generated TableGen / MLIR includes (live under build/)
+*.inc
+
+# Editor / IDE
+.cache/
+.clangd/
+.idea/
+.vscode/
+*.swp
+*~
 .DS_Store
+
+# Python (tests / helpers)
+__pycache__/
+*.py[cod]
+.venv/
+venv/

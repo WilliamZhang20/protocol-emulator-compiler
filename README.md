@@ -37,9 +37,9 @@ Pipeline:
 
 ## Build
 
-Will use MLIR in C++ for everything. OCaml will be deleted.
+Built with MLIR in C++.
 
-Why you may ask? Because MLIR is better for heterogenous sytems. It is also more established and has a better API.
+Why you may ask? Because MLIR is better for heterogeneous systems. It is also more established and has a better API.
 
 Mnemonics match `programs.py` / architecture.md:
 
