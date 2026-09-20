@@ -23,20 +23,7 @@ event bits, and the Phase C/D action engine are defined in protocol-emulator:
 Module names and encodings here follow those sources. Do not add
 protocol-shaped opcodes; new ISA work belongs on the action-engine path.
 
-## Layout
-
-```text
-lib/isa.ml           SRAM encodings (1024×8, R0–R7, events, action words)
-lib/asm_*.ml         Assembler lexer / parser / two-pass encode
-lib/assemble.ml      .peas → byte list
-lib/fe_*.ml          Frontend lexer / parser / AST / IR
-lib/fe_lower.ml      AST → frontend IR (not bytecode)
-bin/pec_asm.ml       pec-asm entrypoint
-bin/pec.ml           pec frontend entrypoint
-examples/            UART TX + DJNZ sketches
-```
-
-Pipeline (this skeleton vs later work):
+Pipeline:
 
 ```text
 .pe source  ── pec ──► AST ──► frontend IR
@@ -50,24 +37,9 @@ Pipeline (this skeleton vs later work):
 
 ## Build
 
-OCaml 4.14+ and Dune 3.x:
+Will use MLIR in C++ for everything. OCaml will be deleted.
 
-```sh
-dune build
-dune runtest
-```
-
-```sh
-dune exec -- pec-asm examples/uart_tx.peas --flat
-dune exec -- pec-asm examples/alu_djnz.peas --hex
-dune exec -- pec examples/uart_tx.pe --dump-ir
-dune exec -- pec examples/uart_tx.pe --dump-ast
-```
-
-`pec-asm` writes a listing or, with `-o FILE`, a raw image. It does not
-emit host commands `1`–`5` (nibble SRAM load); that is loader work.
-
-## Assembler (`.peas`)
+Why you may ask? Because MLIR is better for heterogenous sytems. It is also more established and has a better API.
 
 Mnemonics match `programs.py` / architecture.md:
 

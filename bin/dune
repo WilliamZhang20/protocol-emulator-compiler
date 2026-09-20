@@ -1,4 +1,0 @@
-(executables
- (names pec_asm pec_fe)
- (public_names pec-asm pec)
- (libraries pec))

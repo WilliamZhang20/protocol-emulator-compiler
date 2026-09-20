@@ -1,3 +1,0 @@
-(test
- (name isa_encode)
- (libraries pec))
