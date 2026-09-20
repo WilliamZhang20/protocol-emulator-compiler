@@ -1,0 +1,11 @@
+_build
+_opam
+*.install
+.merlin
+*.byte
+*.native
+*.cmi
+*.cmo
+*.cmx
+*.o
+.DS_Store
