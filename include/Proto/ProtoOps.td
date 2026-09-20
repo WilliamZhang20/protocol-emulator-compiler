@@ -17,3 +17,27 @@ def Proto_DriveOp : Proto_Op<"drive"> {
         $pin `,` $value attr-dict
     }];
 }
+
+def Proto_DelayOp : Proto_Op<"delay"> {
+    let summary = "Delay for a number of ASIC cyles";
+
+    let arguments = (ins
+        I32Attr:$cycles
+    );
+
+    let asemblyFormat = [{
+        $cycles: attr-dict
+    }];
+}
+
+def Proto_SampleOp : Proto_Op<"sample"> {
+    let summary = "sample a protocol pin";
+
+    let arguments = (ins
+       I32Attr:$pin
+    );
+
+    let assemblyFormat = [{
+       $pin attr-dict `:` type($value)
+    }];
+}
