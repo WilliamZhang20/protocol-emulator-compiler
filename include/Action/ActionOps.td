@@ -20,16 +20,18 @@ def Action_GpioOp : Action_Op<"gpio"> {
 
 def Action_SampleOp : Action_Op<"sample"> {
   let summary = "Sample a timed pin into the action result register";
-  let arguments = (ins I32Attr:$pin, I1Attr:$shift, I1Attr:$shift_left);
+  let arguments = (ins I32Attr:$pin, I1Attr:$accumulate,
+                       I1Attr:$msb_first);
   let results = (outs I1:$value);
-  let assemblyFormat = "$pin `,` $shift `,` $shift_left attr-dict `:` type($value)";
+  let assemblyFormat = "$pin `,` $accumulate `,` $msb_first attr-dict `:` type($value)";
 }
 
 def Action_ShiftOp : Action_Op<"shift"> {
-  let summary = "Shift one bit through the shared 16-bit shift register";
+  let summary = "Shift one bit through a lane's 16-bit shift register";
   let arguments = (ins I32Attr:$tx_pin, I32Attr:$rx_pin, I1Attr:$input,
-                       I1Attr:$msb_first, I1Attr:$duplex, I1Attr:$open_drain);
-  let assemblyFormat = "$tx_pin `,` $rx_pin `,` $input `,` $msb_first `,` $duplex `,` $open_drain attr-dict";
+                       I1Attr:$msb_first, I1Attr:$duplex, I1Attr:$open_drain,
+                       I1Attr:$byte_stream);
+  let assemblyFormat = "$tx_pin `,` $rx_pin `,` $input `,` $msb_first `,` $duplex `,` $open_drain `,` $byte_stream attr-dict";
 }
 
 def Action_CountOp : Action_Op<"count"> {
@@ -39,9 +41,10 @@ def Action_CountOp : Action_Op<"count"> {
   let assemblyFormat = "$mode `,` $immediate `,` $target `,` $finish attr-dict";
 }
 
-def Action_CrcOp : Action_Op<"crc"> {
-  let summary = "Feed the low shift-register byte to the CRC engine";
-  let assemblyFormat = "attr-dict";
+def Action_LfsrOp : Action_Op<"lfsr"> {
+  let summary = "Run a lane LFSR operation";
+  let arguments = (ins I32Attr:$mode, I1Attr:$high_byte, I32Attr:$data);
+  let assemblyFormat = "$mode `,` $high_byte `,` $data attr-dict";
 }
 
 def Action_NextOp : Action_Op<"next"> {
@@ -83,4 +86,13 @@ def Action_PushOp : Action_Op<"push"> {
   let summary = "Push a shifted result byte to the RX FIFO";
   let arguments = (ins I1Attr:$high_byte, I32Attr:$right_shift);
   let assemblyFormat = "$high_byte `,` $right_shift attr-dict";
+}
+
+def Action_ParallelOp : Action_Op<"parallel"> {
+  let summary = "Describe the upper bundle of a compound action slot";
+  let arguments = (ins I1Attr:$enable, I1Attr:$oe_we, I1Attr:$oe,
+                       I1Attr:$out_we, I1Attr:$out, I32Attr:$pin,
+                       I1Attr:$sample, I1Attr:$lfsr_update,
+                       I1Attr:$count_dec, I32Attr:$delay);
+  let assemblyFormat = "$enable `,` $oe_we `,` $oe `,` $out_we `,` $out `,` $pin `,` $sample `,` $lfsr_update `,` $count_dec `,` $delay attr-dict";
 }

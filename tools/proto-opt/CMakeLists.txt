@@ -4,11 +4,8 @@ set(LIBS
   ${dialect_libs}
   MLIROptLib
   ProtoDialect
+  ActionDialect
 )
-
-if(TARGET ProtoToAction)
-  list(APPEND LIBS ProtoToAction)
-endif()
 
 add_llvm_executable(proto-opt proto-opt.cpp)
 

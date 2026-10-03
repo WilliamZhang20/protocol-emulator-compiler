@@ -26,18 +26,23 @@ protocol-shaped opcodes; new ISA work belongs on the action-engine path.
 Pipeline:
 
 ```text
-.pe source  ── pec ──► AST ──► frontend IR
+.pe source  ── (planned pec parser) ──► AST ──► frontend IR
                               │
                               │  TODO: typecheck, DJNZ loops, action packing
                               ▼
                          (codegen backend — not here)
                               │
-.peas asm   ── pec-asm ───────► SRAM bytes ──► host load (protocol-emulator)
+.peas asm   ── (planned pec-asm) ─────► SRAM bytes ──► host load (protocol-emulator)
 ```
 
 ## Build
 
 Built with MLIR in C++.
+
+The current build provides `proto-opt`, the `proto` and `action` dialects,
+and source and assembly AST headers. It does not yet provide `pec` or
+`pec-asm`. See [the frontend contract](docs/frontend-design.md) for the
+protocol-neutral AST and target profile.
 
 Why you may ask? Because MLIR is better for heterogeneous systems. It is also more established and has a better API.
 
@@ -54,8 +59,7 @@ Mnemonics match `programs.py` / architecture.md:
 | `djnz Rn, LAB` | `88+n ll hh` |
 | `set Rn, IMM8` / `mov Rd, Rs` | `AA` / `AB` |
 | `add`/`sub`/`and`/`or`/`xor`/`shl`/`shr Rd, Rs` | `AC op rsrd` |
-| `wait_event MASK` | `D0 mask` (`EV_XFER_DONE`, `EV_TIMER_DONE`, `EV_REGION_DONE`, …) |
-| `start_xfer clk=…, tx=…, rx=…, bits=…, half=…` | `Cppp cfg pins half` (legacy Phase B) |
+| `wait_event MASK` | `D0 mask` (`EV_TIMER_DONE`, `EV_REGION_DONE`, …) |
 | `run_region` / `wait_region` / `prog_action` | Phase D CPU ↔ action interface |
 
 Registers are `r0`–`r7`. Jumps take labels. `#` is not a comment in
@@ -79,7 +83,8 @@ engine uart_tx {
 }
 ```
 
-`pec` only parses and lowers to IR. It does **not** produce SRAM bytes.
+The example is a sketch of the planned `.pe` syntax. Parsing and lowering
+are not implemented yet.
 
 ## Out of scope
 
