@@ -30,7 +30,7 @@ int64_t getImmediate(const Operand& operand) {
   }
 }
 
-// get the operand, which is immediate (if we expect an
+// get the operand, which is register operator r0-r7 (if we expect an
 // immediate operand but the casting fails, we don't have an immediate)
 unsigned getRegister(const Operand& operand) {
 
@@ -180,7 +180,7 @@ std::vector<uint8_t> encodeInstruction(const Instruction& instruction) {
   // cycle through all ALU operations
   for (const auto& alu : aluOperations) {
     if (mnemonic == alu.mnemonic) {
-      requireOperandCount(instruction, 2); // ALU operations need 2 instructions
+      requireOperandCount(instruction, 2); // ALU operations need 2 operands
 
       const unsigned rd = getRegister(instruction.operands[0]);
       const unsigned rs = getRegister(instruction.operands[1]);
