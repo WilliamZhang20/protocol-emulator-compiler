@@ -1,8 +1,8 @@
-add_library(ProtocolAssembler
+add_library(ProtocolAssemblerImpl
   Encoder.cpp
 )
 
-target_include_directories(ProtocolAssembler
+target_link_libraries(ProtocolAssemblerImpl
   PUBLIC
-  ${PROJECT_SOURCE_DIR}/include
+    ProtocolAssembler
 )
