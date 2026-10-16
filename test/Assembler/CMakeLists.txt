@@ -11,3 +11,12 @@ add_test(
   NAME ProtocolAssemblerTests
   COMMAND ProtocolAssemblerTests
 )
+
+add_executable(EmitProgram
+  EmitProgram.cpp
+)
+
+target_link_libraries(EmitProgram
+  PRIVATE
+    ProtocolAssemblerImpl
+)
