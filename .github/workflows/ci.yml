@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 21
+
+jobs:
+  compiler:
+    name: build + unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM/MLIR
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake clang-${LLVM_VERSION} \
+            llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev
+
+      # Debug on purpose: the unit tests use assert(), which Release (NDEBUG) compiles out.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
+            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DLLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm \
+            -DMLIR_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/mlir
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test proto-opt
+        run: build/bin/proto-opt --show-dialects
+
+      - name: Upload encoder test program
+        run: build/bin/EmitProgram > program.hex
+      - uses: actions/upload-artifact@v4
+        with:
+          name: program-hex
+          path: program.hex
+
+  # Encode a program with the assembler, load it into the chip RTL and check
+  # the pins. Covers the current (temporal, cmos5l) architecture only.
+  chip-cmos5l:
+    name: cocotb on chip (cmos5l)
+    needs: compiler
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check out chip branch
+        working-directory: protocol-emulator
+        run: |
+          git fetch --depth=1 origin cmos5l
+          git checkout --detach FETCH_HEAD
+          git log -1 --oneline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: program-hex
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install simulator and cocotb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+          pip install -r protocol-emulator/test/requirements.txt
+
+      - name: Run compiled program on chip
+        env:
+          PROGRAM_HEX: ${{ github.workspace }}/program.hex
+          PYTHONPATH: ${{ github.workspace }}/test/cocotb
+        run: |
+          make -C protocol-emulator/test SIM=icarus \
+            COCOTB_TEST_MODULES=test_compiled_program
+          ! grep -q "<failure" protocol-emulator/test/results.xml

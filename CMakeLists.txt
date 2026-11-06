@@ -71,9 +71,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 
 
+enable_testing()
 
 add_subdirectory(include)
-
 add_subdirectory(lib)
-
 add_subdirectory(tools)
+add_subdirectory(test)
