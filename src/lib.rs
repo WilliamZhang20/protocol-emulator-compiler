@@ -33,7 +33,7 @@ pub use diagnostic::{Error, Span};
 use std::collections::BTreeMap;
 
 /// The spatial RTL revision whose register layout this compiler targets.
-pub const HARDWARE_REVISION: &str = "4aa9c342f203d425fa83ef22629aaac610ba0845";
+pub const HARDWARE_REVISION: &str = "414f4a7a547b0796a1214ba839a443df209b6231";
 
 /// A compiled program.
 #[derive(Debug)]
