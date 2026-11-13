@@ -5,7 +5,7 @@ use crate::diagnostic::{Error, Result, Span};
 use crate::hardware::{self, Line, PinMode, config};
 use crate::logic::{self, Formula};
 use crate::px8::Assembler;
-use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, Stmt};
+use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, Stmt, StmtKind};
 use crate::value::{Env, Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -120,6 +120,8 @@ pub(crate) struct Chip<'a> {
     pub tiles: HashMap<String, &'a [Field]>,
     /// Each pin's declaration, so a program can release a pin and drive it again.
     pub pin_decls: HashMap<String, (&'a Name, &'a Name, Option<&'a Expr>)>,
+    /// Physical pad and edge direction to configurable edge-cell index.
+    pub edges: HashMap<(usize, bool), usize>,
 }
 
 pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
@@ -140,6 +142,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         fifos: vec![Fifo::default(); hardware::SHIFTERS],
         tiles: HashMap::new(),
         pin_decls: HashMap::new(),
+        edges: HashMap::new(),
     };
     let mut names: HashMap<String, Span> = HashMap::new();
     let mut counts = [0usize; 8];
@@ -230,6 +233,31 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         }
     }
     chip.pads = assign_pads(&pins)?;
+    // Assign edge cells after pad matching, before any configuration or
+    // controller lowering resolves an edge signal.
+    let mut edge_uses = Vec::new();
+    for item in items {
+        collect_item_edges(item, &mut edge_uses);
+    }
+    for (pin, falling, span) in edge_uses {
+        let Some(decl) = chip.decls.get(pin) else {
+            continue;
+        };
+        if decl.kind != Kind::Pin {
+            continue;
+        }
+        let pad = chip.pads[decl.index];
+        if !chip.edges.contains_key(&(pad, falling)) {
+            let index = chip.edges.len();
+            if index >= hardware::EDGE_CELLS {
+                return Err(Error::new(
+                    span,
+                    "the chip has only 8 edge cells; use fewer distinct pin rises and falls",
+                ));
+            }
+            chip.edges.insert((pad, falling), index);
+        }
+    }
 
     let mut streams = BTreeMap::new();
     for item in items {
@@ -398,6 +426,14 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         // without contexts retain their original byte images and write mask.
         asm.config(config::CONTEXT_WRITE, 3);
     }
+    let mut edges: Vec<_> = chip.edges.iter().collect();
+    edges.sort_by_key(|(_, index)| **index);
+    for (&(pad, falling), &index) in edges {
+        asm.config(
+            config::edge(index),
+            pad as u16 | if falling { 1 << 4 } else { 1 << 3 },
+        );
+    }
     for item in items {
         let writes = match item {
             Item::Pin {
@@ -559,6 +595,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     if byte_usage != 0 {
         usage.push(("byte tiles", byte_usage, hardware::BYTE_TILES));
     }
+    usage.push(("edge cells", chip.edges.len(), hardware::EDGE_CELLS));
     usage.push(("memory", image.len(), hardware::SRAM_BYTES));
     Ok(Design {
         clock_hz,
@@ -589,6 +626,138 @@ fn clock(expr: &Expr) -> Result<i128> {
             expr.span,
             "expected a frequency, such as `clock 50 MHz`",
         )),
+    }
+}
+
+fn collect_expr_edges<'a>(expr: &'a Expr, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match &expr.kind {
+        ExprKind::Field(object, field) => {
+            if (field.text == "rise" || field.text == "fall")
+                && let ExprKind::Name(name) = &object.kind
+            {
+                uses.push((name, field.text == "fall", field.span));
+            }
+            collect_expr_edges(object, uses);
+        }
+        ExprKind::Call(callee, args) => {
+            collect_expr_edges(callee, uses);
+            for arg in args {
+                collect_expr_edges(&arg.value, uses);
+            }
+        }
+        ExprKind::List(values) => {
+            for value in values {
+                collect_expr_edges(value, uses);
+            }
+        }
+        ExprKind::Unary(_, value) => collect_expr_edges(value, uses),
+        ExprKind::Binary(_, a, b) => {
+            collect_expr_edges(a, uses);
+            collect_expr_edges(b, uses);
+        }
+        ExprKind::If(a, b, c) => {
+            collect_expr_edges(a, uses);
+            collect_expr_edges(b, uses);
+            collect_expr_edges(c, uses);
+        }
+        _ => {}
+    }
+}
+
+fn collect_stmt_edges<'a>(stmt: &'a Stmt, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match &stmt.kind {
+        StmtKind::Wait { signal, .. } | StmtKind::Reply(signal) | StmtKind::Expr(signal) => {
+            collect_expr_edges(signal, uses)
+        }
+        StmtKind::Repeat { count, body } => {
+            collect_expr_edges(count, uses);
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::For { iter, body, .. } => {
+            collect_expr_edges(iter, uses);
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            collect_expr_edges(condition, uses);
+            for stmt in then.iter().chain(otherwise) {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::Expect { condition, .. } => collect_expr_edges(condition, uses),
+        StmtKind::Attach { peer, .. } => collect_expr_edges(peer, uses),
+        StmtKind::Wire { from, to }
+        | StmtKind::Assign {
+            target: from,
+            value: to,
+        } => {
+            collect_expr_edges(from, uses);
+            collect_expr_edges(to, uses);
+        }
+        StmtKind::Set { target, fields } => {
+            collect_expr_edges(target, uses);
+            for field in fields {
+                if let Some(value) = &field.value {
+                    collect_expr_edges(value, uses);
+                }
+            }
+        }
+        StmtKind::Fire(_) | StmtKind::Fail(_) => {}
+    }
+}
+
+fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match item {
+        Item::Contexts(expr) | Item::Clock(expr) | Item::Const { value: expr, .. } => {
+            collect_expr_edges(expr, uses)
+        }
+        Item::Context { index, body } => {
+            collect_expr_edges(index, uses);
+            for item in body {
+                collect_item_edges(item, uses);
+            }
+        }
+        Item::Pin { source, .. } => {
+            if let Some(expr) = source {
+                collect_expr_edges(expr, uses);
+            }
+        }
+        Item::Tile { fields, .. } => {
+            for field in fields {
+                if let Some(expr) = &field.value {
+                    collect_expr_edges(expr, uses);
+                }
+            }
+        }
+        Item::Reg {
+            init, on, value, ..
+        } => {
+            for expr in init.iter().chain(on).chain(std::iter::once(value)) {
+                collect_expr_edges(expr, uses);
+            }
+        }
+        Item::Stream { stages, .. } => {
+            for stage in stages {
+                for field in &stage.fields {
+                    if let Some(expr) = &field.value {
+                        collect_expr_edges(expr, uses);
+                    }
+                }
+            }
+        }
+        Item::Fn { body, .. } => {
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        Item::Event(_) | Item::Flag(_) | Item::Test { .. } | Item::Always { .. } => {}
     }
 }
 
@@ -709,8 +878,11 @@ impl Chip<'_> {
                 let (_, decl) = self.decl(object)?;
                 let k = decl.index;
                 Ok(match (decl.kind, field.text.as_str()) {
-                    (Kind::Pin, "rise") => Line::pin_rise(self.pads[k]),
-                    (Kind::Pin, "fall") => Line::pin_fall(self.pads[k]),
+                    (Kind::Pin, "rise" | "fall") => {
+                        let pad = self.pads[k];
+                        let falling = field.text == "fall";
+                        Line::edge(self.edges[&(pad, falling)])
+                    }
                     (Kind::Timer, "tick" | "rise") => Line::timer_rise(k),
                     (Kind::Timer, "fall") => Line::timer_fall(k),
                     (Kind::Timer, "out") => Line::timer_out(k),
@@ -720,8 +892,8 @@ impl Chip<'_> {
                     (Kind::Shifter, "busy") => Line::shifter_active(k),
                     (Kind::Counter, "reached") => Line::counter_reached(k),
                     (Kind::Counter, "at_least") => Line::counter_at_least(k),
-                    (Kind::Crc, "out") => Line::CRC_OUT,
-                    (Kind::Crc, "ok") => Line::CRC_OK,
+                    (Kind::Crc, "out") => Line::crc_out(k),
+                    (Kind::Crc, "ok") => Line::crc_ok(k),
                     (kind, _) => {
                         return Err(Error::new(
                             field.span,
@@ -856,7 +1028,7 @@ impl Chip<'_> {
             Kind::Timer => self.timer(name, decl.index, list),
             Kind::Shifter => self.shifter(name, decl.index, list),
             Kind::Counter => self.counter(name, decl.index, list),
-            Kind::Crc => self.crc(name, list),
+            Kind::Crc => self.crc(name, decl.index, list),
             kind => Err(Error::new(
                 name.span,
                 format!("a {} has no settings to change", kind.noun()),
@@ -926,7 +1098,7 @@ impl Chip<'_> {
         };
         let mut sync = 0;
         if let Some(resync) = f.get("resync") {
-            sync |= self.level(value(resync)?)?.level_select() | 1 << 5;
+            sync |= u16::from(self.signal(value(resync)?)?.0) | 1 << 6;
         }
         if let Some(hold) = f.get("hold") {
             let expr = value(hold)?;
@@ -934,7 +1106,7 @@ impl Chip<'_> {
                 ExprKind::Unary("!", inner) => (self.level(inner)?, 1),
                 _ => (self.level(expr)?, 0),
             };
-            sync |= line.level_select() << 6 | 1 << 11 | invert << 12;
+            sync |= line.level_select() << 7 | 1 << 12 | invert << 13;
         }
         Ok(vec![
             (config::timer(k, 0), reload),
@@ -1053,6 +1225,17 @@ impl Chip<'_> {
                 "end_on_packet",
                 "end",
                 "abort",
+                "stuff_after",
+                "stuff_ones",
+                "nrzi",
+                "code_received",
+                "arm_at_zero",
+                "invert_crc_tail",
+                "bit_strobe",
+                "crc_tail_bits",
+                "manchester",
+                "stuff_while",
+                "crc_skip_bits",
             ],
             "shifter",
         )?;
@@ -1179,6 +1362,68 @@ impl Chip<'_> {
                     | u16::from(abort.0) << 7,
             ));
         }
+        let coder_fields = [
+            "stuff_after",
+            "stuff_ones",
+            "nrzi",
+            "code_received",
+            "arm_at_zero",
+            "invert_crc_tail",
+            "bit_strobe",
+            "crc_tail_bits",
+            "manchester",
+            "stuff_while",
+            "crc_skip_bits",
+        ];
+        if coder_fields.iter().any(|key| f.contains_key(key)) {
+            let flag = |key: &str| -> Result<u16> {
+                match f.get(key) {
+                    None => Ok(0),
+                    Some(field) => field
+                        .value
+                        .as_ref()
+                        .map(|e| self.bit(e))
+                        .transpose()
+                        .map(|bit| bit.unwrap_or(1)),
+                }
+            };
+            let number = |key: &str, high: i128| -> Result<u16> {
+                match f.get(key) {
+                    None => Ok(0),
+                    Some(field) => {
+                        let expr = value(field)?;
+                        Self::ranged(expr, self.env.integer(expr)?, 0, high, key)
+                    }
+                }
+            };
+            let nrzi = flag("nrzi")?;
+            let manchester = flag("manchester")?;
+            let received = flag("code_received")?;
+            if manchester != 0 && (nrzi != 0 || received != 0) {
+                return Err(Error::new(
+                    name.span,
+                    "Manchester transmit cannot be combined with NRZI or receive coding",
+                ));
+            }
+            let coder = number("stuff_after", 7)?
+                | flag("stuff_ones")? << 3
+                | nrzi << 4
+                | received << 5
+                | flag("arm_at_zero")? << 6
+                | flag("invert_crc_tail")? << 7
+                | flag("bit_strobe")? << 8
+                | number("crc_tail_bits", 63)? << 9
+                | manchester << 15;
+            let gate = f
+                .get("stuff_while")
+                .map(|field| self.level(value(field)?))
+                .transpose()?;
+            let coder_gate = gate.map_or(0, Line::level_select)
+                | u16::from(gate.is_some()) << 5
+                | number("crc_skip_bits", 127)? << 6;
+            writes.push((config::shifter_coder(k), coder));
+            writes.push((config::shifter_coder_gate(k), coder_gate));
+        }
         Ok(writes)
     }
 
@@ -1239,7 +1484,7 @@ impl Chip<'_> {
     /// A CRC register fed bit by bit: `absorb` steps it with `data`, `emit`
     /// shifts its complemented check bits out on `.out`, and `.ok` compares
     /// it with `check`. `restart` reloads it; `start: zeros` starts it at 0.
-    fn crc(&self, name: &Name, list: &[&Field]) -> Result<Vec<(u8, u16)>> {
+    fn crc(&self, name: &Name, k: usize, list: &[&Field]) -> Result<Vec<(u8, u16)>> {
         let f = fields(
             list,
             &[
@@ -1253,6 +1498,7 @@ impl Chip<'_> {
                 "start",
                 "absorb_while",
                 "emit_while",
+                "link",
             ],
             "crc",
         )?;
@@ -1284,6 +1530,20 @@ impl Chip<'_> {
         };
         let absorb = line("absorb")?;
         let emit = line("emit")?;
+        let link = f
+            .get("link")
+            .map(|field| self.shifter_index(value(field)?))
+            .transpose()?;
+        if link.is_some()
+            && ["absorb", "data", "emit"]
+                .iter()
+                .any(|key| f.contains_key(key))
+        {
+            return Err(Error::new(
+                name.span,
+                "a linked CRC takes bits from its shifter; omit `absorb`, `data` and `emit`",
+            ));
+        }
         let restart = f
             .get("restart")
             .map(|e| self.pulse(value(e)?))
@@ -1312,17 +1572,23 @@ impl Chip<'_> {
             gates |= self.level(value(g)?)?.level_select() << 6 | 1 << 11;
         }
         Ok(vec![
-            (config::crc(0), poly as u16),
-            (config::crc(1), (poly >> 16) as u16),
-            (config::crc(2), check as u16),
-            (config::crc(3), (check >> 16) as u16),
-            (config::crc(6), (width - 1) as u16 | ones << 5),
+            (config::crc(k, 0), poly as u16),
+            (config::crc(k, 1), (poly >> 16) as u16),
+            (config::crc(k, 2), check as u16),
+            (config::crc(k, 3), (check >> 16) as u16),
             (
-                config::crc(5),
+                config::crc(k, 6),
+                (width - 1) as u16
+                    | ones << 5
+                    | u16::from(link.is_some()) << 6
+                    | (link.unwrap_or(0) as u16) << 7,
+            ),
+            (
+                config::crc(k, 5),
                 u16::from(emit.0) | u16::from(restart.0) << 6,
             ),
-            (config::crc(4), u16::from(absorb.0) | data << 6),
-            (config::crc(7), gates),
+            (config::crc(k, 4), u16::from(absorb.0) | data << 6),
+            (config::crc(k, 7), gates),
         ])
     }
 

@@ -24,6 +24,15 @@ Running tests also needs [uv](https://docs.astral.sh/uv/), git, make, a C++
 compiler and Verilator 5.036 or newer. The first run fetches and builds the RTL
 once into `~/.cache/spatial`.
 
+This branch targets the 8×4 RTL at the revision in `HARDWARE_REVISION`.
+For testing against a local architecture worktree, set
+`SPATIAL_RTL_DIR=/path/to/protocol-emulator` when running `spatial run`.
+The local checkout must contain `test/Makefile`; simulation builds that checkout
+and leaves the compiler repository's hardware pin unchanged.
+For RTL cycle occupancy, set `SPATIAL_PROFILE_RTL=1` as well; each test writes
+an `RTL_PROFILE` record to `target/simulation.log` with controller states,
+event/FIFO waits and shifter-active clocks. This probe is RTL-only.
+
 ## Examples
 
 - [`examples/loopback.spt`](examples/loopback.spt): the starter project.
@@ -31,6 +40,23 @@ once into `~/.cache/spatial`.
 - [`examples/spi.spt`](examples/spi.spt): an SPI controller with a host-callable `transfer`.
 - [`examples/i2c.spt`](examples/i2c.spt): an I2C controller with `write_read`, NACK reporting and clock stretching.
 - [`examples/usb.spt`](examples/usb.spt): a low-speed USB packet transmitter: NRZI, bit stuffing, CRC16 and end of packet in the fabric.
+
+The target map includes eight configurable pin-edge cells (shared by rise and
+fall requests), two CRC engines, counter hit pulses on lines 24–25, and the
+current timer resync/hold register layout. `spatial check` reports edge-cell
+usage and rejects programs requiring more than eight distinct pin edges.
+
+The shifter's bit coder can be configured with `stuff_after`, `stuff_ones`,
+`nrzi`, `code_received`, `arm_at_zero`, `invert_crc_tail`, `bit_strobe`,
+`crc_tail_bits`, `manchester`, `stuff_while` and `crc_skip_bits`. A CRC's
+`link: <shifter>` takes its absorb, data and emit signals directly from that
+shifter. The [coded Ethernet example](examples/ethernet_tx_coded.spt) uses
+Manchester transmit and a linked CRC32 tail; it compiles into 363 bytes and
+uses three logic cells and no counters. The original example uses eight cells,
+two counters and 433 bytes.
+Its full-length RTL tests pass the independent Ethernet peer's frame,
+FCS, Manchester, TP_IDL and repeated-session checks at 40 MHz; the accelerated
+link-gap tests pass as well.
 
 The language reference is the crate documentation: `cargo doc --open`.
 

@@ -10,11 +10,12 @@ pub(crate) const TIMERS: usize = 4;
 pub(crate) const SHIFTERS: usize = 2;
 pub(crate) const COUNTERS: usize = 2;
 pub(crate) const LOGIC_CELLS: usize = 8;
+pub(crate) const EDGE_CELLS: usize = 8;
 /// Controller `FIRE` pulse lines.
 pub(crate) const EVENTS: usize = 2;
 /// Controller flag levels.
 pub(crate) const FLAGS: usize = 2;
-pub(crate) const CRCS: usize = 1;
+pub(crate) const CRCS: usize = 2;
 /// Widest CRC register.
 pub(crate) const MAX_CRC_BITS: i128 = 32;
 pub(crate) const BYTE_STAGES: usize = 2;
@@ -67,11 +68,8 @@ impl Line {
     pub(crate) fn shifter_stop(k: usize) -> Line {
         Line(13 + 2 * k as u8)
     }
-    pub(crate) fn pin_rise(p: usize) -> Line {
-        Line(16 + p as u8)
-    }
-    pub(crate) fn pin_fall(p: usize) -> Line {
-        Line(24 + p as u8)
+    pub(crate) fn edge(k: usize) -> Line {
+        Line(16 + k as u8)
     }
     pub(crate) fn pin_level(p: usize) -> Line {
         Line(32 + p as u8)
@@ -89,10 +87,14 @@ impl Line {
         Line(48 + k as u8)
     }
     pub(crate) fn counter_reached(k: usize) -> Line {
-        Line(50 + k as u8)
+        Line(24 + k as u8)
     }
-    pub(crate) const CRC_OUT: Line = Line(52);
-    pub(crate) const CRC_OK: Line = Line(53);
+    pub(crate) fn crc_out(k: usize) -> Line {
+        Line(if k == 0 { 52 } else { 50 })
+    }
+    pub(crate) fn crc_ok(k: usize) -> Line {
+        Line(if k == 0 { 53 } else { 51 })
+    }
     pub(crate) fn flag(k: usize) -> Line {
         Line(54 + k as u8)
     }
@@ -112,6 +114,12 @@ pub(crate) mod config {
     pub(crate) fn shifter_burst(k: usize) -> u8 {
         0x32 + k as u8
     }
+    pub(crate) fn shifter_coder(k: usize) -> u8 {
+        0x36 + k as u8
+    }
+    pub(crate) fn shifter_coder_gate(k: usize) -> u8 {
+        0x38 + k as u8
+    }
     pub(crate) fn pin(p: usize) -> u8 {
         0x18 + p as u8
     }
@@ -124,8 +132,11 @@ pub(crate) mod config {
     pub(crate) fn byte_tile(tile: usize, register: u8) -> u8 {
         0x60 + 4 * tile as u8 + register
     }
-    pub(crate) fn crc(register: u8) -> u8 {
-        0x28 + register
+    pub(crate) fn crc(k: usize, register: u8) -> u8 {
+        (if k == 0 { 0x28 } else { 0x88 }) + register
+    }
+    pub(crate) fn edge(k: usize) -> u8 {
+        0x80 + k as u8
     }
     /// Controller flags, one bit each.
     pub(crate) const FLAGS: u8 = 0x30;
