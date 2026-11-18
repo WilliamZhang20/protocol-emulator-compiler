@@ -33,7 +33,7 @@ pub use diagnostic::{Error, Span};
 use std::collections::BTreeMap;
 
 /// The spatial RTL revision whose register layout this compiler targets.
-pub const HARDWARE_REVISION: &str = "414f4a7a547b0796a1214ba839a443df209b6231";
+pub const HARDWARE_REVISION: &str = "72ffb6458c7de989e2bb48e7d117d7426112a852";
 
 /// A compiled program.
 #[derive(Debug)]
@@ -44,10 +44,27 @@ pub struct Build {
     pub pins: BTreeMap<String, usize>,
     /// Hardware used, as `(name, used, available)`; `memory` is in bytes.
     pub usage: Vec<(&'static str, usize, usize)>,
+    /// Named hardware allocations and the signal-space lines they provide.
+    pub resources: Vec<ResourceAssignment>,
     /// Names of the program's tests, in source order.
     pub tests: Vec<String>,
     /// Everything the simulator needs to run the tests, as JSON.
     pub plan: serde_json::Value,
+}
+
+/// A source-level resource's physical location in the target tile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceAssignment {
+    /// Source name, or a generated name for an implicit resource such as an edge cell.
+    pub name: String,
+    /// Physical resource class, such as `timer` or `logic cell`.
+    pub kind: &'static str,
+    /// Physical tile index; pin cells use the actual pad number.
+    pub index: usize,
+    /// First configuration address for this resource, when it has one.
+    pub config: Option<u8>,
+    /// Named signal-space outputs as `(output name, line number)`.
+    pub outputs: Vec<(&'static str, u8)>,
 }
 
 /// Parse, check and compile a program.
@@ -65,6 +82,7 @@ pub fn compile(source: &str) -> Result<Build, Error> {
             .map(|(name, _, _)| name.text.clone())
             .collect(),
         usage: design.usage,
+        resources: design.resources,
         pins: design.pins,
         image: design.image,
         plan,

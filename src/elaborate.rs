@@ -1,5 +1,6 @@
 //! Resolve names, assign hardware, and turn declarations into configuration
 //! writes. This is where "does it fit on the chip?" is decided.
+use crate::ResourceAssignment;
 use crate::control::{self, Exports};
 use crate::diagnostic::{Error, Result, Span};
 use crate::hardware::{self, Line, PinMode, config};
@@ -106,6 +107,7 @@ pub(crate) struct Design<'a> {
     pub streams: BTreeMap<String, Stream>,
     pub exports: Exports,
     pub usage: Vec<(&'static str, usize, usize)>,
+    pub resources: Vec<ResourceAssignment>,
     pub tests: Vec<(&'a Name, &'a [Stmt], Option<&'a Expr>)>,
     pub invariants: Vec<(&'a Name, &'a Expr)>,
 }
@@ -513,10 +515,49 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     }
                     (name, chip.tile(name, &merged)?)
                 }
+                Item::Reg {
+                    name,
+                    init,
+                    on,
+                    value,
+                } => {
+                    let decl = chip.decls.get(&name.text).ok_or_else(|| {
+                        Error::new(
+                            name.span,
+                            "declare the shared reg before overriding it in a context",
+                        )
+                    })?;
+                    if decl.kind != Kind::Reg {
+                        return Err(Error::new(name.span, "a context reg must override a reg"));
+                    }
+                    // Only the formula must be restated. The start value and
+                    // update pulse retain their shared settings unless given.
+                    let (base_init, base_on) = items
+                        .iter()
+                        .find_map(|item| match item {
+                            Item::Reg {
+                                name: base_name,
+                                init: base_init,
+                                on: base_on,
+                                ..
+                            } if base_name.text == name.text => Some((base_init, base_on)),
+                            _ => None,
+                        })
+                        .expect("declared reg has a shared definition");
+                    (
+                        name,
+                        chip.reg(
+                            name,
+                            init.as_ref().or(base_init.as_ref()),
+                            on.as_ref().or(base_on.as_ref()),
+                            value,
+                        )?,
+                    )
+                }
                 _ => {
                     return Err(Error::new(
                         index.span,
-                        "a context body only overrides existing pins, timers, shifters or counters",
+                        "a context body only overrides existing pins, timers, shifters, counters or regs",
                     ));
                 }
             };
@@ -571,6 +612,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         .iter()
         .map(|(name, _)| (name.text.clone(), chip.pads[chip.decls[&name.text].index]))
         .collect();
+    let resources = resource_map(&chip.decls, &chip.pads, &chip.edges, items, &streams);
     let kinds = [
         Kind::Pin,
         Kind::Timer,
@@ -605,9 +647,125 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         streams,
         exports,
         usage,
+        resources,
         tests,
         invariants,
     })
+}
+
+/// Keep the compiler's allocation report tied to the same encoding helpers
+/// used to emit RTL configuration and signal selectors.
+fn resource_map(
+    decls: &HashMap<String, Decl>,
+    pads: &[usize],
+    edges: &HashMap<(usize, bool), usize>,
+    items: &[Item],
+    streams: &BTreeMap<String, Stream>,
+) -> Vec<ResourceAssignment> {
+    let mut resources = Vec::new();
+    for (name, decl) in decls {
+        let k = decl.index;
+        let (kind, index, config, outputs) = match decl.kind {
+            Kind::Pin => {
+                let pad = pads[k];
+                (
+                    "pin cell",
+                    pad,
+                    Some(config::pin(pad)),
+                    vec![("level", Line::pin_level(pad).0)],
+                )
+            }
+            Kind::Timer => (
+                "timer",
+                k,
+                Some(config::timer(k, 0)),
+                vec![
+                    ("tick", Line::timer_rise(k).0),
+                    ("fall", Line::timer_fall(k).0),
+                    ("out", Line::timer_out(k).0),
+                ],
+            ),
+            Kind::Shifter => (
+                "shifter",
+                k,
+                Some(config::shifter(k, 0)),
+                vec![
+                    ("word", Line::shifter_word(k).0),
+                    ("done", Line::shifter_stop(k).0),
+                    ("out", Line::shifter_out(k).0),
+                    ("busy", Line::shifter_active(k).0),
+                ],
+            ),
+            Kind::Counter => (
+                "counter",
+                k,
+                Some(config::counter(k, 0)),
+                vec![
+                    ("reached", Line::counter_reached(k).0),
+                    ("at_least", Line::counter_at_least(k).0),
+                ],
+            ),
+            Kind::Reg => (
+                "logic cell",
+                k,
+                Some(config::logic(k, 0)),
+                vec![("value", Line::logic(k).0)],
+            ),
+            Kind::Crc => (
+                "CRC",
+                k,
+                Some(config::crc(k, 0)),
+                vec![("out", Line::crc_out(k).0), ("ok", Line::crc_ok(k).0)],
+            ),
+            Kind::Event => ("event", k, None, vec![("fire", Line::fire(k).0)]),
+            Kind::Flag => ("flag", k, None, vec![("value", Line::flag(k).0)]),
+        };
+        resources.push(ResourceAssignment {
+            name: name.clone(),
+            kind,
+            index,
+            config,
+            outputs,
+        });
+    }
+    for (&(pad, falling), &index) in edges {
+        let edge_name = if falling { "fall" } else { "rise" };
+        resources.push(ResourceAssignment {
+            name: format!("uio{pad}.{edge_name}"),
+            kind: "edge cell",
+            index,
+            config: Some(config::edge(index)),
+            outputs: vec![(edge_name, Line::edge(index).0)],
+        });
+    }
+    for item in items {
+        let Item::Stream { name, stages, .. } = item else {
+            continue;
+        };
+        let stream = &streams[&name.text];
+        let receive = stream.direction == Direction::FromChip;
+        for (stage, declaration) in stages.iter().enumerate() {
+            let index = 4 * stream.channel + 2 * usize::from(receive) + stage;
+            let kind = match declaration.kind.text.as_str() {
+                "pass" => "byte pass",
+                "escape" => "byte escape",
+                "unescape" => "byte unescape",
+                "checksum" => "byte checksum",
+                "tag" => "byte tag",
+                "filter" => "byte filter",
+                _ => "byte stage",
+            };
+            resources.push(ResourceAssignment {
+                name: format!("{}.stage{}", name.text, stage),
+                kind,
+                index,
+                config: Some(config::byte_tile(index, 0)),
+                outputs: Vec::new(),
+            });
+        }
+    }
+    resources.sort_by(|a, b| (a.kind, a.index, &a.name).cmp(&(b.kind, b.index, &b.name)));
+    resources
 }
 
 fn clock(expr: &Expr) -> Result<i128> {

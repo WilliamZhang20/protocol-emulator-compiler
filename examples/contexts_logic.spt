@@ -1,0 +1,38 @@
+// One UART output, with a logic-cell formula switched between two paths.
+clock 50 MHz
+const BIT = 64 cycles
+
+pin tx: out = tx_drive
+pin unused_rx: in
+pin mode: out = use_two_cells
+pin probe: out = inverted
+flag use_two_cells = 0
+
+reg inverted init 0 = !sender.out
+reg tx_drive init 1 = sender.out
+timer bit { every: BIT, first: BIT - 2 cycles, pulse, run: sender.busy until sender.done }
+shifter sender { frame: [0, data(8), 1], idle: 1, shift: bit.tick }
+contexts(use_two_cells) {
+    context 0 { reg tx_drive = sender.out }
+    context 1 { reg tx_drive = !inverted }
+}
+// The second formula adds one register of delay. At an inverted-edge, the
+// context-1 TX output still holds the old bit and equals the new probe level.
+// Context 0 would instead have TX opposite to probe on that same edge.
+always "context one uses the delayed logic path" {
+    (mode == 1 && probe.changed) implies tx == probe
+}
+export stream send: host -> sender
+export fn two_cell_path() { set_flags(use_two_cells) }
+
+test "shared logic-cell path" {
+    attach uart_device(from_chip: tx, to_chip: unused_rx, bit: BIT) as terminal
+    send.write([0x00, 0x55, 0xFF])
+    expect terminal.read(3) == [0x00, 0x55, 0xFF]
+}
+test "context one changes the logic formula" {
+    attach uart_device(from_chip: tx, to_chip: unused_rx, bit: BIT) as terminal
+    two_cell_path()
+    send.write([0x00, 0xA5, 0xFF])
+    expect terminal.read(3) == [0x00, 0xA5, 0xFF]
+}

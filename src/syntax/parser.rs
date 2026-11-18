@@ -125,7 +125,8 @@ impl Parser {
         // both context blocks remain explicit configuration writes.
         let mut names = std::collections::HashSet::new();
         for item in &items {
-            if let Item::Pin { name, .. } | Item::Tile { name, .. } = item {
+            if let Item::Pin { name, .. } | Item::Tile { name, .. } | Item::Reg { name, .. } = item
+            {
                 names.insert(name.text.clone());
             }
         }
@@ -135,7 +136,8 @@ impl Parser {
                 && matches!(index.kind, ExprKind::Int(0))
             {
                 for resource in body {
-                    if let Item::Pin { name, .. } | Item::Tile { name, .. } = resource
+                    if let Item::Pin { name, .. } | Item::Tile { name, .. } | Item::Reg { name, .. } =
+                        resource
                         && names.insert(name.text.clone())
                     {
                         declarations.push(resource.clone());

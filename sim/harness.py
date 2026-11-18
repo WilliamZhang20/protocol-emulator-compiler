@@ -256,6 +256,10 @@ class Session:
                 self.profile["wait_fifo"] += 1
             if int(core.s_active.value):
                 self.profile["shifter_active"] += 1
+            active_shifters = int(core.s_active.value).bit_count()
+            self.profile[f"active_shifters_{active_shifters}"] += 1
+            self.profile["max_concurrent_shifters"] = max(
+                self.profile["max_concurrent_shifters"], active_shifters)
             if int(core.armed.value):
                 self.profile["armed"] += 1
 
@@ -363,7 +367,7 @@ async def run_test(dut, plan, test, period_ps):
     error = session.connect(test["wires"], test["peers"])
     if error:
         session.stop()
-        return error, 0
+        return error, 0, None
     started = get_sim_time("ps")
     line = test["line"]
     try:
@@ -378,7 +382,7 @@ async def run_test(dut, plan, test, period_ps):
         if session.profile:
             print(f"RTL_PROFILE {test['name']} {json.dumps(session.profile)}", flush=True)
         session.stop()
-    return error, int(get_sim_time("ps") - started) // period_ps
+    return error, int(get_sim_time("ps") - started) // period_ps, (dict(session.profile) or None)
 
 
 async def console(dut, plan, period_ps, requests_path, replies_path):
@@ -418,6 +422,12 @@ async def spatial(dut):
     results = []
     for test in plan["tests"]:
         if not only or test["name"] == only:
-            error, cycles = await run_test(dut, plan, test, period_ps)
-            results.append({"name": test["name"], "error": error, "cycles": cycles})
+            error, cycles, profile = await run_test(dut, plan, test, period_ps)
+            result = {"name": test["name"], "error": error, "cycles": cycles}
+            # The optional RTL-only probe measures controller occupancy and
+            # concurrent shifter use for this test. Keep it in the machine
+            # readable result as well as the simulator log.
+            if profile is not None:
+                result["profile"] = profile
+            results.append(result)
     Path(os.environ["SPATIAL_RESULTS"]).write_text(json.dumps(results))

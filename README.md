@@ -19,6 +19,11 @@ spatial run --test
 | `spatial run --test` | Build, then run every `test` in RTL simulation (`--test=NAME` for one) |
 | `spatial run` | Build, then type test statements at the program on a simulated chip |
 
+`spatial check` and `spatial build` show both resource totals and the physical
+assignment for each named tile: tile index, configuration address, and the
+pulse or level lines it drives. Pin-edge cells appear under their generated
+`uioN.rise` or `uioN.fall` names.
+
 Commands find the nearest `main.spt`, or take a file: `spatial run --test examples/spi.spt`.
 Running tests also needs [uv](https://docs.astral.sh/uv/), git, make, a C++
 compiler and Verilator 5.036 or newer. The first run fetches and builds the RTL
@@ -29,9 +34,12 @@ For testing against a local architecture worktree, set
 `SPATIAL_RTL_DIR=/path/to/protocol-emulator` when running `spatial run`.
 The local checkout must contain `test/Makefile`; simulation builds that checkout
 and leaves the compiler repository's hardware pin unchanged.
-For RTL cycle occupancy, set `SPATIAL_PROFILE_RTL=1` as well; each test writes
-an `RTL_PROFILE` record to `target/simulation.log` with controller states,
-event/FIFO waits and shifter-active clocks. This probe is RTL-only.
+For RTL cycle occupancy, set `SPATIAL_PROFILE_RTL=1` as well. The run report
+then includes per-test sequencer event/FIFO wait share, shifter-active share,
+and maximum concurrent shifters. Full state occupancy is retained as an
+`RTL_PROFILE` record in `target/simulation.log`. This probe is RTL-only and
+does not report physical wire locality; use routed implementation reports for
+that.
 
 ## Examples
 
@@ -107,18 +115,21 @@ changes. State (shifted bits, counters, timers) is shared: switching contexts
 does not reset it. Switch framing between transactions unless the protocol is
 designed for a mid-transfer change.
 
-This first version permits overrides of existing **pins, timers, shifters and
-counters**. Omitted tile fields inherit the shared declaration (or context 0 when the
-resource is declared there). Pin overrides
-specify the complete mode/source; pad assignments remain shared. CRC and byte
-tiles have no hardware context banks. Logic-cell context overrides and
-context-specific runtime writes are not exposed yet. Runtime `.set`, `.drive`
+Contexts permit overrides of existing **pins, timers, shifters, counters and
+logic cells (`reg`s)**. Omitted tile fields inherit the shared declaration (or
+context 0 when the resource is declared there). A `reg` override supplies a
+new formula; its `init` and `on` settings inherit unless restated. Its output
+flop retains its value when the context switches while the fabric is running.
+Pin overrides specify the complete mode/source; pad assignments remain shared. CRC and byte
+tiles have no hardware context banks. Context-specific runtime writes are not
+exposed yet. Runtime `.set`, `.drive`
 and `.release` operations update both banks; `.drive()` restores the shared pin
 declaration (or its context 0 declaration) in both banks.
 
 See [`examples/contexts.spt`](examples/contexts.spt) for 8N1/8E1 UART framing
 and paired pin switching, and [`examples/contexts_initial_one.spt`](examples/contexts_initial_one.spt)
-for starting directly in context 1. The UART test peer accepts optional `parity: "even"`
+for starting directly in context 1. [`examples/contexts_logic.spt`](examples/contexts_logic.spt)
+switches a logic-cell formula while sending UART bytes. The UART test peer accepts optional `parity: "even"`
 or `parity: "odd"`; its default remains 8N1. Run:
 
 ```sh

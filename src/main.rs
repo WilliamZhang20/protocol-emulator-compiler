@@ -132,6 +132,38 @@ fn summary(build: &spatial::Build, on: bool) -> String {
             ));
         }
     }
+    if !build.resources.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "  {}",
+            paint(on, "1", "Hardware map (P = pulse line, L = level line)")
+        ));
+        for resource in &build.resources {
+            let location = resource.config.map_or_else(
+                || "controller".to_owned(),
+                |address| format!("cfg 0x{address:02X}"),
+            );
+            let outputs = resource
+                .outputs
+                .iter()
+                .map(|(name, line)| {
+                    let line = if *line < 32 {
+                        format!("P{line}")
+                    } else {
+                        format!("L{line}")
+                    };
+                    format!("{name}={line}")
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.push(format!(
+                "    {:<11} {:<18} {:<13} {outputs}",
+                format!("{}[{}]", resource.kind, resource.index),
+                resource.name,
+                location,
+            ));
+        }
+    }
     out.join("\n")
 }
 
@@ -201,6 +233,17 @@ fn report(
         };
         let micros = outcome.cycles as f64 * 1e6 / clock_hz;
         println!("  test {} {dots} {status}  ({micros:.1} us)", outcome.name);
+        if let Some(profile) = &outcome.profile {
+            let count = |key: &str| profile[key].as_u64().unwrap_or(0);
+            println!(
+                "    RTL profile: {} cycles; sequencer event-wait {}%, FIFO-wait {}%; shifter active {}%; max concurrent shifters {}",
+                count("cycles"),
+                percent(count("wait_event"), count("cycles")),
+                percent(count("wait_fifo"), count("cycles")),
+                percent(count("shifter_active"), count("cycles")),
+                count("max_concurrent_shifters"),
+            );
+        }
     }
     let failed: Vec<_> = outcomes
         .iter()
@@ -245,6 +288,14 @@ fn report(
         }
     }
     false
+}
+
+fn percent(part: u64, total: u64) -> u64 {
+    if total == 0 {
+        0
+    } else {
+        part.saturating_mul(100) / total
+    }
 }
 
 fn run() -> AppResult<bool> {

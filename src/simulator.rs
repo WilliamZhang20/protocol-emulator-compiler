@@ -45,6 +45,8 @@ pub(crate) struct Outcome {
     pub name: String,
     pub error: Option<Failure>,
     pub cycles: u64,
+    #[serde(default)]
+    pub profile: Option<Json>,
 }
 
 /// Why a test failed, and the source line it failed on.

@@ -95,6 +95,64 @@ fn context_order_does_not_allocate_extra_hardware() {
 }
 
 #[test]
+fn logic_cells_can_change_formula_without_reallocating_or_losing_mode() {
+    let build = compile(
+        "flag phase = 0 event tick pin a: in \
+         contexts(phase) { \
+           context 0 { reg selected init 1 on tick = a } \
+           context 1 { reg selected = !a } \
+         } \
+         pin out: out = selected",
+    )
+    .unwrap();
+    assert!(build.usage.contains(&("logic cells", 1, 8)));
+    let has_write = |address: u8, value: u16| {
+        build
+            .image
+            .windows(3)
+            .any(|bytes| bytes == [address, value as u8, (value >> 8) as u8])
+    };
+    assert!(has_write(0x40, 0xaaaa));
+    assert!(has_write(0x40, 0x5555));
+    // The context-1 formula inherits the shared start value and update pulse.
+    assert_eq!(
+        build
+            .image
+            .windows(3)
+            .filter(|bytes| bytes[0] == 0x43 && bytes[1] == (2 | 1 << 5) && bytes[2] == 0)
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn context_one_cannot_introduce_a_logic_cell() {
+    reject(
+        "flag phase contexts(phase) { context 0 {} context 1 { reg missing = 1 } }",
+        "declare the shared reg",
+    );
+}
+
+#[test]
+fn logic_cell_declared_in_context_zero_can_follow_context_one_in_source() {
+    let build = compile(
+        "flag phase pin a: in contexts(phase) { \
+         context 1 { reg selected = !a } \
+         context 0 { reg selected = a } } \
+         pin out: out = selected",
+    )
+    .unwrap();
+    assert!(build.usage.contains(&("logic cells", 1, 8)));
+}
+
+#[test]
+fn logic_context_uart_example_fits_two_cells() {
+    let build = compile(include_str!("../examples/contexts_logic.spt")).unwrap();
+    assert!(build.usage.contains(&("logic cells", 2, 8)));
+    assert_eq!(build.tests.len(), 2);
+}
+
+#[test]
 fn validates_flag_initializers() {
     reject("flag a = 2", "0 or 1");
     compile("flag a = 0, b = 1").unwrap();
