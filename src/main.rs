@@ -202,10 +202,11 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 "infeasible"
             };
             out.push(format!(
-                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} controller-service-cycles={:?} input-interval-cycles={:?}{}",
+                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} actor-cycles={:?} controller-service-cycles={:?} input-interval-cycles={:?}{}",
                 candidate.implementation,
                 candidate.parallel_actors,
                 candidate.local_channel_connections,
+                candidate.actor_pipeline_cycles,
                 candidate.controller_service_cycles,
                 candidate.minimum_input_interval_cycles,
                 paint(on, "32", selected),

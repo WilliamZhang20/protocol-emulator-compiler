@@ -119,6 +119,8 @@ pub struct ProtocolPlacementCandidate {
     pub local_channel_connections: usize,
     /// Protocol actors active concurrently in this implementation.
     pub parallel_actors: usize,
+    /// Actor pipeline latency when this option uses spatial actors.
+    pub actor_pipeline_cycles: Option<usize>,
     /// Best-case PX8 controller service cycles for an input transition.
     pub controller_service_cycles: Option<usize>,
     /// Minimum spacing between source input pulses, when statically known.

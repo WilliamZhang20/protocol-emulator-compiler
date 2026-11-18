@@ -179,6 +179,33 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
 }
 
 #[test]
+fn compiler_evaluates_controller_alongside_a_fitting_actor() {
+    let build = compile(
+        r#"
+        timer request { every: 16 cycles, pulse, run: 1 }
+        protocol handshake on request.tick {
+            transition 0 low -> 0
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 1
+        }
+        "#,
+    )
+    .expect("the two-state graph maps to an actor");
+    let mapping = &build.protocol_mappings[0];
+    assert_eq!(mapping.implementation, "spatial actor");
+    assert_eq!(mapping.actor_pipeline_cycles, Some(1));
+    assert_eq!(mapping.placement_candidates_evaluated, 3);
+    assert_eq!(build.protocol_placement_search.selected, Some(0));
+    let controller = &build.protocol_placement_search.candidates[2];
+    assert_eq!(controller.implementation, "PX8 controller");
+    assert!(controller.feasible);
+    assert_eq!(controller.parallel_actors, 0);
+    assert_eq!(controller.controller_service_cycles, Some(10));
+    assert_eq!(controller.minimum_input_interval_cycles, Some(16));
+}
+
+#[test]
 fn controller_fallback_rejects_pulses_faster_than_its_service_rate() {
     let error = compile(
         r#"

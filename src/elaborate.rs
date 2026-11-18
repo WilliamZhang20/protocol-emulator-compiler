@@ -261,6 +261,7 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), actor)],
                     local_channel_connections: preferences[0][actor],
                     parallel_actors: 1,
+                    actor_pipeline_cycles: Some(1),
                     controller_service_cycles: None,
                     minimum_input_interval_cycles: None,
                 })
@@ -279,6 +280,7 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
                     local_channel_connections: direct,
                     parallel_actors: 2,
+                    actor_pipeline_cycles: Some(1),
                     controller_service_cycles: None,
                     minimum_input_interval_cycles: None,
                 },
@@ -288,6 +290,7 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
                     local_channel_connections: swapped,
                     parallel_actors: 2,
+                    actor_pipeline_cycles: Some(1),
                     controller_service_cycles: None,
                     minimum_input_interval_cycles: None,
                 },
@@ -651,6 +654,19 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         let actor = chip.decls[&name.text].index;
         match crate::protocol::map_actor(&graph, actor) {
             Ok(mapping) => {
+                if protocol_count == 1 {
+                    for candidate in &mut actor_search.report.candidates {
+                        candidate.minimum_input_interval_cycles = minimum_input_interval_cycles;
+                    }
+                    if let Some(candidate) = protocol_controller_candidate(
+                        &graph,
+                        minimum_input_interval_cycles,
+                        protocol_count,
+                        has_exported_function,
+                    ) {
+                        actor_search.report.candidates.push(candidate);
+                    }
+                }
                 chip.protocol_action_lines.insert(
                     name.text.clone(),
                     mapping.action_lines.map(|line| Some(Line(line))),
@@ -676,28 +692,13 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             Err(crate::protocol::ActorIneligible::TooManyStates(_)) => {
                 let optimized = crate::protocol::minimized(&graph)
                     .map_err(|reason| Error::new(name.span, reason.to_string()))?;
-                // FIRE drives P2 and P3, so using either as this graph's input
-                // would make its own actions retrigger the controller loop.
-                let pulse_input = (2..=25).contains(&optimized.input_line)
-                    && !matches!(optimized.input_line, 2 | 3);
-                let low_rows_hold = optimized
-                    .transitions
-                    .iter()
-                    .all(|row| row.input_high || (row.to == row.from && row.action.is_none()));
-                let actions_fit = optimized
-                    .transitions
-                    .iter()
-                    .all(|row| row.action.is_none_or(|action| action <= 2));
                 let controller_service_cycles = controller_service_cycles(&optimized);
-                let interval_is_safe = minimum_input_interval_cycles
-                    .is_some_and(|interval| interval > controller_service_cycles);
-                if protocol_count != 1
-                    || has_exported_function
-                    || !pulse_input
-                    || !low_rows_hold
-                    || !actions_fit
-                    || !interval_is_safe
-                {
+                let Some(controller_candidate) = protocol_controller_candidate(
+                    &optimized,
+                    minimum_input_interval_cycles,
+                    protocol_count,
+                    has_exported_function,
+                ) else {
                     return Err(Error::new(
                         name.span,
                         format!(
@@ -705,23 +706,12 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                             name.text, optimized.states
                         ),
                     ));
-                }
+                };
                 for candidate in &mut actor_search.report.candidates {
                     candidate.feasible = false;
                 }
                 let selected = actor_search.report.candidates.len();
-                actor_search
-                    .report
-                    .candidates
-                    .push(crate::ProtocolPlacementCandidate {
-                        implementation: "PX8 controller",
-                        feasible: true,
-                        assignments: Vec::new(),
-                        local_channel_connections: 0,
-                        parallel_actors: 0,
-                        controller_service_cycles: Some(controller_service_cycles),
-                        minimum_input_interval_cycles,
-                    });
+                actor_search.report.candidates.push(controller_candidate);
                 actor_search.report.selected = Some(selected);
                 chip.protocol_action_lines.insert(
                     name.text.clone(),
@@ -1065,6 +1055,47 @@ fn controller_service_cycles(graph: &crate::protocol::ProtocolGraph) -> usize {
         })
         .max()
         .unwrap_or(wait_bytes + 3)
+}
+
+fn protocol_controller_candidate(
+    graph: &crate::protocol::ProtocolGraph,
+    minimum_input_interval_cycles: Option<usize>,
+    protocol_count: usize,
+    has_exported_function: bool,
+) -> Option<crate::ProtocolPlacementCandidate> {
+    let graph = crate::protocol::minimized(graph).ok()?;
+    let input_line = graph.input_line;
+    let has_pulse_input = (4..=25).contains(&input_line);
+    let low_rows_hold = graph
+        .transitions
+        .iter()
+        .all(|row| row.input_high || (row.to == row.from && row.action.is_none()));
+    let actions_fit = graph
+        .transitions
+        .iter()
+        .all(|row| row.action.is_none_or(|action| action <= 2));
+    let service_cycles = controller_service_cycles(&graph);
+    let interval_is_safe =
+        minimum_input_interval_cycles.is_some_and(|interval| interval > service_cycles);
+    if protocol_count != 1
+        || has_exported_function
+        || !has_pulse_input
+        || !low_rows_hold
+        || !actions_fit
+        || !interval_is_safe
+    {
+        return None;
+    }
+    Some(crate::ProtocolPlacementCandidate {
+        implementation: "PX8 controller",
+        feasible: true,
+        assignments: Vec::new(),
+        local_channel_connections: 0,
+        parallel_actors: 0,
+        actor_pipeline_cycles: None,
+        controller_service_cycles: Some(service_cycles),
+        minimum_input_interval_cycles,
+    })
 }
 
 /// Find a statically bounded pulse interval for a timer tick input. The PX8
