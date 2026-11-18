@@ -174,6 +174,29 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 "Protocol mapping (actor stage latency; channel-local signal pairs)"
             )
         ));
+        for (index, candidate) in build
+            .protocol_placement_search
+            .candidates
+            .iter()
+            .enumerate()
+        {
+            let assignments = candidate
+                .assignments
+                .iter()
+                .map(|(name, actor)| format!("{name}->actor{actor}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let selected = if build.protocol_placement_search.selected == Some(index) {
+                " selected"
+            } else {
+                ""
+            };
+            out.push(format!(
+                "    candidate {index}: {assignments} local-pairs={}{}",
+                candidate.local_channel_connections,
+                paint(on, "32", selected),
+            ));
+        }
         for mapping in &build.protocol_mappings {
             let input = if mapping.input_line < 32 {
                 format!("P{}", mapping.input_line)

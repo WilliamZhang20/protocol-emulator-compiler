@@ -86,4 +86,14 @@ fn actor_placement_follows_the_shifter_using_its_action() {
         .expect("mapping report contains the graph");
     assert_eq!(first.local_channel_connections, 1);
     assert_eq!(first.placement_candidates_evaluated, 2);
+    assert_eq!(build.protocol_placement_search.selected, Some(1));
+    assert_eq!(
+        build
+            .protocol_placement_search
+            .candidates
+            .iter()
+            .map(|candidate| candidate.local_channel_connections)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
 }

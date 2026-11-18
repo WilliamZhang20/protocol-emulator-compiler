@@ -49,6 +49,8 @@ pub struct Build {
     pub resources: Vec<ResourceAssignment>,
     /// Protocol graphs, chosen actor implementations, and mapping estimates.
     pub protocol_mappings: Vec<ProtocolMapping>,
+    /// Actor placement candidates considered by the protocol mapper.
+    pub protocol_placement_search: ProtocolPlacementSearch,
     /// Names of the program's tests, in source order.
     pub tests: Vec<String>,
     /// Everything the simulator needs to run the tests, as JSON.
@@ -91,6 +93,24 @@ pub struct ProtocolMapping {
     pub actor_pipeline_cycles: usize,
 }
 
+/// Alternative actor placement and its locality score.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolPlacementCandidate {
+    /// `(protocol graph, actor index)` assignments in this candidate.
+    pub assignments: Vec<(String, usize)>,
+    /// Direct input/action signal connections placed beside their shifter.
+    pub local_channel_connections: usize,
+}
+
+/// Search trace for the protocol actor placement decision.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProtocolPlacementSearch {
+    /// Candidates in deterministic evaluation order.
+    pub candidates: Vec<ProtocolPlacementCandidate>,
+    /// Index of the selected candidate, when any protocol graph exists.
+    pub selected: Option<usize>,
+}
+
 /// Parse, check and compile a program.
 ///
 /// # Errors
@@ -108,6 +128,7 @@ pub fn compile(source: &str) -> Result<Build, Error> {
         usage: design.usage,
         resources: design.resources,
         protocol_mappings: design.protocol_mappings,
+        protocol_placement_search: design.protocol_placement_search,
         pins: design.pins,
         image: design.image,
         plan,

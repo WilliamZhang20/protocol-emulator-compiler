@@ -113,6 +113,7 @@ pub(crate) struct Design<'a> {
     pub usage: Vec<(&'static str, usize, usize)>,
     pub resources: Vec<ResourceAssignment>,
     pub protocol_mappings: Vec<crate::ProtocolMapping>,
+    pub protocol_placement_search: crate::ProtocolPlacementSearch,
     pub tests: Vec<(&'a Name, &'a [Stmt], Option<&'a Expr>)>,
     pub invariants: Vec<(&'a Name, &'a Expr)>,
 }
@@ -134,7 +135,12 @@ pub(crate) struct Chip<'a> {
 /// Score actor-to-shifter locality for both possible physical actor orders.
 /// Actor `k` sits beside shifter channel `k`; every direct signal connection
 /// between a protocol graph and a shifter contributes one local match.
-fn protocol_actor_slots(items: &[Item]) -> HashMap<String, (usize, usize)> {
+struct ProtocolActorSearch {
+    slots: HashMap<String, (usize, usize)>,
+    report: crate::ProtocolPlacementSearch,
+}
+
+fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
     fn mentions_protocol_action(expr: &Expr, name: &str) -> bool {
         match &expr.kind {
             ExprKind::Field(object, field) => {
@@ -241,16 +247,35 @@ fn protocol_actor_slots(items: &[Item]) -> HashMap<String, (usize, usize)> {
         .collect();
 
     let mut assignment = HashMap::new();
+    let mut report = crate::ProtocolPlacementSearch::default();
     match protocols.len() {
         0 => {}
         1 => {
+            report.candidates = (0..crate::protocol::ACTORS)
+                .map(|actor| crate::ProtocolPlacementCandidate {
+                    assignments: vec![(protocols[0].0.clone(), actor)],
+                    local_channel_connections: preferences[0][actor],
+                })
+                .collect();
             let actor = usize::from(preferences[0][1] > preferences[0][0]);
+            report.selected = Some(actor);
             assignment.insert(protocols[0].0.clone(), (actor, preferences[0][actor]));
         }
         _ => {
             let direct = preferences[0][0] + preferences[1][1];
             let swapped = preferences[0][1] + preferences[1][0];
+            report.candidates = vec![
+                crate::ProtocolPlacementCandidate {
+                    assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
+                    local_channel_connections: direct,
+                },
+                crate::ProtocolPlacementCandidate {
+                    assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
+                    local_channel_connections: swapped,
+                },
+            ];
             let slots = if swapped > direct { [1, 0] } else { [0, 1] };
+            report.selected = Some(usize::from(swapped > direct));
             for (i, (name, _)) in protocols.iter().take(crate::protocol::ACTORS).enumerate() {
                 assignment.insert(name.clone(), (slots[i], preferences[i][slots[i]]));
             }
@@ -259,7 +284,10 @@ fn protocol_actor_slots(items: &[Item]) -> HashMap<String, (usize, usize)> {
             }
         }
     }
-    assignment
+    ProtocolActorSearch {
+        slots: assignment,
+        report,
+    }
 }
 
 pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
@@ -284,7 +312,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     };
     let mut names: HashMap<String, Span> = HashMap::new();
     let mut counts = [0usize; 9];
-    let actor_slots = protocol_actor_slots(items);
+    let actor_search = protocol_actor_slots(items);
     let mut pins = Vec::new();
     let mut tests = Vec::new();
     let mut invariants = Vec::new();
@@ -297,7 +325,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         }
         if let Some(kind) = kind {
             let index = if kind == Kind::Protocol {
-                actor_slots[&name.text].0
+                actor_search.slots[&name.text].0
             } else {
                 counts[kind as usize]
             };
@@ -618,8 +646,8 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     input_line: graph.input_line,
                     states: graph.states,
                     transitions: graph.transitions.len(),
-                    local_channel_connections: actor_slots[&name.text].1,
-                    placement_candidates_evaluated: crate::protocol::ACTORS,
+                    local_channel_connections: actor_search.slots[&name.text].1,
+                    placement_candidates_evaluated: actor_search.report.candidates.len(),
                     actor_pipeline_cycles: 1,
                 });
                 mapping.writes
@@ -823,6 +851,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         usage,
         resources,
         protocol_mappings,
+        protocol_placement_search: actor_search.report,
         tests,
         invariants,
     })
