@@ -21,7 +21,7 @@ pub struct ProtocolGraph {
     pub name: String,
     /// The signal-space line sampled by the actor, from 0 through 63.
     pub input_line: u8,
-    /// Number of logical states, from 1 through 4 for actor mapping.
+    /// Number of source states, from 1 through [`MAX_LOGICAL_STATES`].
     pub states: usize,
     /// State in which the actor starts after reset or disable.
     pub initial_state: usize,
