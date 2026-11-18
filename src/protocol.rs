@@ -495,6 +495,35 @@ mod tests {
     }
 
     #[test]
+    fn remaps_a_nonzero_initial_state_to_the_actor_reset_state() {
+        let graph = ProtocolGraph {
+            name: "nonzero-initial".into(),
+            input_line: 44,
+            states: 3,
+            initial_state: 2,
+            transitions: vec![
+                Transition {
+                    from: 2,
+                    input_high: true,
+                    to: 1,
+                    action: Some(1),
+                },
+                Transition {
+                    from: 1,
+                    input_high: false,
+                    to: 2,
+                    action: Some(2),
+                },
+            ],
+        };
+        let mapping = map_actor(&graph, 0).expect("initial state is remapped");
+        for word in 0..64 {
+            let input: Vec<_> = (0..6).map(|bit| word & (1 << bit) != 0).collect();
+            assert_eq!(mapped_trace(&mapping, &input), source_trace(&graph, &input));
+        }
+    }
+
+    #[test]
     fn rejects_ambiguous_state_input_pairs() {
         let mut graph = handshake();
         graph.transitions.push(Transition {
