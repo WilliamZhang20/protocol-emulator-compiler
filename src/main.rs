@@ -204,13 +204,22 @@ fn summary(build: &spatial::Build, on: bool) -> String {
             } else {
                 format!("L{}", mapping.input_line)
             };
+            let parallel_actors = build
+                .protocol_placement_search
+                .selected
+                .and_then(|selected| build.protocol_placement_search.candidates.get(selected))
+                .map_or(0, |candidate| candidate.parallel_actors);
             out.push(format!(
-                "    {:<18} actor{} input={input:<4} states={} rows={} candidates={} local-pairs={} actor-cycles={}",
+                "    {:<18} actor{} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={}",
                 mapping.name,
                 mapping.actor,
-                mapping.states,
-                mapping.transitions,
+                mapping.source_states,
+                mapping.mapped_states,
+                mapping.states_reduced,
+                mapping.source_transitions,
+                mapping.mapped_transitions,
                 mapping.placement_candidates_evaluated,
+                parallel_actors,
                 mapping.local_channel_connections,
                 mapping.actor_pipeline_cycles,
             ));

@@ -61,10 +61,12 @@ protocol handshake on request {
 }
 ```
 
-The 8×4 target has two actors. Each graph supports up to four states, one
-selected signal-space line, and three pulse outputs (`handshake.action1`
-through `.action3`). A state/input pair can appear once; omitted rows hold
-their state without an action. `spatial check` reports actor placement and
+The 8×4 target has two actors. Each mapped graph supports up to four states,
+one selected signal-space line, and three pulse outputs (`handshake.action1`
+through `.action3`). Before fitting, the compiler removes unreachable states
+and merges behaviorally equivalent states; it reports source and mapped state
+counts. A state/input pair can appear once; omitted rows hold their state
+without an action. `spatial check` reports actor placement and
 action lines. The mapper tries the available actor assignments and favors the
 actor beside a shifter when that graph reads the shifter's lines or drives its
 `start` signal. The report shows these channel-local signal pairs and the

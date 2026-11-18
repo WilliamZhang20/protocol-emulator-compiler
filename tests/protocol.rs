@@ -58,6 +58,59 @@ fn protocol_mapper_rejects_duplicate_input_rows() {
 }
 
 #[test]
+fn compiler_minimizes_protocol_states_before_actor_allocation() {
+    let build = compile(
+        r#"
+        pin request: in
+        protocol reduced on request {
+            transition 0 low -> 2
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 1
+            transition 2 low -> 2
+            transition 2 high -> 2
+            transition 3 low -> 3
+            transition 3 high -> 3
+            transition 4 low -> 4
+            transition 4 high -> 4
+        }
+        "#,
+    )
+    .expect("unreachable and behaviorally equal states are removed");
+    let mapping = &build.protocol_mappings[0];
+    assert_eq!(mapping.source_states, 5);
+    assert_eq!(mapping.mapped_states, 2);
+    assert_eq!(mapping.states_reduced, 3);
+}
+
+#[test]
+fn compiler_rejects_a_five_state_machine_that_cannot_be_minimized() {
+    let error = compile(
+        r#"
+        pin request: in
+        protocol chain on request {
+            transition 0 low -> 0
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 2
+            transition 2 low -> 2
+            transition 2 high -> 3
+            transition 3 low -> 3
+            transition 3 high -> 4
+            transition 4 low -> 4
+            transition 4 high -> 4 action 2
+        }
+        "#,
+    )
+    .expect_err("five observable states exceed one actor");
+    assert!(
+        error
+            .to_string()
+            .contains("states exceed the actor's four-state capacity")
+    );
+}
+
+#[test]
 fn actor_placement_follows_the_shifter_using_its_action() {
     let build = compile(
         r#"

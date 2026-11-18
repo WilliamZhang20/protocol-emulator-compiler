@@ -81,10 +81,16 @@ pub struct ProtocolMapping {
     pub actor: usize,
     /// Selected input line in the 64-line fabric.
     pub input_line: u8,
-    /// Number of states used by the graph.
-    pub states: usize,
-    /// Number of explicitly declared transition rows.
-    pub transitions: usize,
+    /// Source states before minimization.
+    pub source_states: usize,
+    /// States left after unreachable-state removal and minimization.
+    pub mapped_states: usize,
+    /// Number of source transition rows.
+    pub source_transitions: usize,
+    /// Explicit transition rows remaining after minimization.
+    pub mapped_transitions: usize,
+    /// Source states removed or merged by the optimizer.
+    pub states_reduced: usize,
     /// Signal connections placed beside the matching shifter channel.
     pub local_channel_connections: usize,
     /// Actor assignments evaluated by the mapper for this allocation.

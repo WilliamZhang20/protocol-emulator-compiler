@@ -647,8 +647,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     name: name.text.clone(),
                     actor: mapping.actor,
                     input_line: graph.input_line,
-                    states: graph.states,
-                    transitions: graph.transitions.len(),
+                    source_states: graph.states,
+                    mapped_states: mapping.mapped_states,
+                    source_transitions: graph.transitions.len(),
+                    mapped_transitions: mapping.mapped_transitions,
+                    states_reduced: mapping.states_reduced,
                     local_channel_connections: actor_search.slots[&name.text].1,
                     placement_candidates_evaluated: actor_search.report.candidates.len(),
                     actor_pipeline_cycles: 1,
@@ -873,13 +876,13 @@ fn protocol_graph(
             let value = chip.env.integer(expr)?;
             usize::try_from(value)
                 .ok()
-                .filter(|&value| value < crate::protocol::ACTOR_STATES)
+                .filter(|&value| value < crate::protocol::MAX_LOGICAL_STATES)
                 .ok_or_else(|| {
                     Error::new(
                         expr.span,
                         format!(
                             "protocol state must be in 0..{}",
-                            crate::protocol::ACTOR_STATES - 1
+                            crate::protocol::MAX_LOGICAL_STATES - 1
                         ),
                     )
                 })
