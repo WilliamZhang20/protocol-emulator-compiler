@@ -192,7 +192,8 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 ""
             };
             out.push(format!(
-                "    candidate {index}: {assignments} local-pairs={}{}",
+                "    candidate {index}: {assignments} parallel={} local-pairs={}{}",
+                candidate.parallel_actors,
                 candidate.local_channel_connections,
                 paint(on, "32", selected),
             ));

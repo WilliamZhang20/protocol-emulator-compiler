@@ -96,4 +96,13 @@ fn actor_placement_follows_the_shifter_using_its_action() {
             .collect::<Vec<_>>(),
         [0, 2]
     );
+    assert_eq!(
+        build
+            .protocol_placement_search
+            .candidates
+            .iter()
+            .map(|candidate| candidate.parallel_actors)
+            .collect::<Vec<_>>(),
+        [2, 2]
+    );
 }

@@ -100,6 +100,8 @@ pub struct ProtocolPlacementCandidate {
     pub assignments: Vec<(String, usize)>,
     /// Direct input/action signal connections placed beside their shifter.
     pub local_channel_connections: usize,
+    /// Protocol actors active concurrently in this implementation.
+    pub parallel_actors: usize,
 }
 
 /// Search trace for the protocol actor placement decision.

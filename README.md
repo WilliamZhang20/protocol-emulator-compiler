@@ -69,8 +69,9 @@ action lines. The mapper tries the available actor assignments and favors the
 actor beside a shifter when that graph reads the shifter's lines or drives its
 `start` signal. The report shows these channel-local signal pairs and the
 number of actor assignments evaluated, plus the actor's one-cycle registered
-stage. Candidate assignments and locality scores are shown to make the choice
-auditable; routed wire length still needs physical implementation data. Graphs
+stage. Candidate assignments, concurrent actor count, and locality scores are
+shown to make the choice auditable; routed wire length still needs physical
+implementation data. Graphs
 that exceed actor limits currently fail with a mapping diagnostic; selecting
 a PX8 implementation for those graphs is a remaining compiler step.
 

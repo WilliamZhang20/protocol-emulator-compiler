@@ -255,6 +255,7 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                 .map(|actor| crate::ProtocolPlacementCandidate {
                     assignments: vec![(protocols[0].0.clone(), actor)],
                     local_channel_connections: preferences[0][actor],
+                    parallel_actors: 1,
                 })
                 .collect();
             let actor = usize::from(preferences[0][1] > preferences[0][0]);
@@ -268,10 +269,12 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                 crate::ProtocolPlacementCandidate {
                     assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
                     local_channel_connections: direct,
+                    parallel_actors: 2,
                 },
                 crate::ProtocolPlacementCandidate {
                     assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
                     local_channel_connections: swapped,
+                    parallel_actors: 2,
                 },
             ];
             let slots = if swapped > direct { [1, 0] } else { [0, 1] };
