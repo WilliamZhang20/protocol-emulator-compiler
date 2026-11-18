@@ -6,7 +6,7 @@ use crate::diagnostic::{Error, Result, Span};
 use crate::hardware::{self, Line, PinMode, config};
 use crate::logic::{self, Formula};
 use crate::px8::Assembler;
-use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, Stmt, StmtKind};
+use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, ProtocolTransition, Stmt, StmtKind};
 use crate::value::{Env, Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -22,6 +22,7 @@ pub(crate) enum Kind {
     Event,
     Flag,
     Crc,
+    Protocol,
 }
 
 impl Kind {
@@ -35,6 +36,7 @@ impl Kind {
             Kind::Event => "event",
             Kind::Flag => "flag",
             Kind::Crc => "crc",
+            Kind::Protocol => "protocol actor",
         }
     }
 
@@ -47,6 +49,7 @@ impl Kind {
             Kind::Counter => "`.reached` (pulse) or `.at_least` (level)",
             Kind::Crc => "`.out` (its next check bit) or `.ok` (the check matches), both levels",
             Kind::Reg | Kind::Event | Kind::Flag => "its name",
+            Kind::Protocol => "`.action1`, `.action2` or `.action3` (pulses)",
         }
     }
 
@@ -60,6 +63,7 @@ impl Kind {
             Kind::Event => (hardware::EVENTS, "events"),
             Kind::Flag => (hardware::FLAGS, "flags"),
             Kind::Crc => (hardware::CRCS, "crc"),
+            Kind::Protocol => (crate::protocol::ACTORS, "protocol actors"),
         }
     }
 }
@@ -147,7 +151,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         edges: HashMap::new(),
     };
     let mut names: HashMap<String, Span> = HashMap::new();
-    let mut counts = [0usize; 8];
+    let mut counts = [0usize; 9];
     let mut pins = Vec::new();
     let mut tests = Vec::new();
     let mut invariants = Vec::new();
@@ -180,6 +184,9 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     for item in items {
         match item {
             Item::Clock(_) | Item::Contexts(_) | Item::Context { .. } => {}
+            Item::Protocol { name, .. } => {
+                declare(name, Some(Kind::Protocol), &mut chip)?;
+            }
             Item::Const { name, value } => {
                 declare(name, None, &mut chip)?;
                 chip.env.defs.insert(name.text.clone(), value.span);
@@ -451,6 +458,24 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                 on,
                 value,
             } => chip.reg(name, init.as_ref(), on.as_ref(), value)?,
+            Item::Protocol {
+                name,
+                input,
+                transitions,
+            } => {
+                let graph = protocol_graph(name, input, transitions, &chip)?;
+                let mapping = crate::protocol::map_actor(&graph, chip.decls[&name.text].index)
+                    .map_err(|reason| {
+                        Error::new(
+                            name.span,
+                            format!(
+                                "protocol `{}` cannot map to an 8x4 actor: {reason}",
+                                name.text
+                            ),
+                        )
+                    })?;
+                mapping.writes
+            }
             _ => Vec::new(),
         };
         for (address, value) in writes {
@@ -622,6 +647,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         Kind::Reg,
         Kind::Event,
         Kind::Flag,
+        Kind::Protocol,
     ];
     let mut usage: Vec<_> = kinds
         .iter()
@@ -650,6 +676,68 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         resources,
         tests,
         invariants,
+    })
+}
+
+fn protocol_graph(
+    name: &Name,
+    input: &Expr,
+    source: &[ProtocolTransition],
+    chip: &Chip<'_>,
+) -> Result<crate::protocol::ProtocolGraph> {
+    let mut transitions = Vec::with_capacity(source.len());
+    let mut states = 1usize;
+    for transition in source {
+        let state = |expr: &Expr| -> Result<usize> {
+            let value = chip.env.integer(expr)?;
+            usize::try_from(value)
+                .ok()
+                .filter(|&value| value < crate::protocol::ACTOR_STATES)
+                .ok_or_else(|| {
+                    Error::new(
+                        expr.span,
+                        format!(
+                            "protocol state must be in 0..{}",
+                            crate::protocol::ACTOR_STATES - 1
+                        ),
+                    )
+                })
+        };
+        let from = state(&transition.from)?;
+        let to = state(&transition.to)?;
+        states = states.max(from + 1).max(to + 1);
+        let action = transition
+            .action
+            .as_ref()
+            .map(|expr| {
+                let value = chip.env.integer(expr)?;
+                usize::try_from(value)
+                    .ok()
+                    .filter(|&value| (1..=crate::protocol::ACTOR_ACTIONS).contains(&value))
+                    .ok_or_else(|| {
+                        Error::new(
+                            expr.span,
+                            format!(
+                                "protocol action must be in 1..={}",
+                                crate::protocol::ACTOR_ACTIONS
+                            ),
+                        )
+                    })
+            })
+            .transpose()?;
+        transitions.push(crate::protocol::Transition {
+            from,
+            input_high: transition.input_high,
+            to,
+            action,
+        });
+    }
+    Ok(crate::protocol::ProtocolGraph {
+        name: name.text.clone(),
+        input_line: chip.signal(input)?.0,
+        states,
+        initial_state: 0,
+        transitions,
     })
 }
 
@@ -719,6 +807,16 @@ fn resource_map(
             ),
             Kind::Event => ("event", k, None, vec![("fire", Line::fire(k).0)]),
             Kind::Flag => ("flag", k, None, vec![("value", Line::flag(k).0)]),
+            Kind::Protocol => (
+                "protocol actor",
+                k,
+                Some(0x90 + (k * 8) as u8),
+                vec![
+                    ("action1", 26 + (k * 3) as u8),
+                    ("action2", 27 + (k * 3) as u8),
+                    ("action3", 28 + (k * 3) as u8),
+                ],
+            ),
         };
         resources.push(ResourceAssignment {
             name: name.clone(),
@@ -915,6 +1013,7 @@ fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>)
                 collect_stmt_edges(stmt, uses);
             }
         }
+        Item::Protocol { input, .. } => collect_expr_edges(input, uses),
         Item::Event(_) | Item::Flag(_) | Item::Test { .. } | Item::Always { .. } => {}
     }
 }
@@ -1022,6 +1121,10 @@ impl Chip<'_> {
                     Kind::Reg => Ok(Line::logic(decl.index)),
                     Kind::Event => Ok(Line::fire(decl.index)),
                     Kind::Flag => Ok(Line::flag(decl.index)),
+                    Kind::Protocol => Err(Error::new(
+                        expr.span,
+                        "a protocol actor has action pulses; use `.action1`, `.action2` or `.action3`",
+                    )),
                     kind => Err(Error::new(
                         expr.span,
                         format!(
@@ -1052,6 +1155,9 @@ impl Chip<'_> {
                     (Kind::Counter, "at_least") => Line::counter_at_least(k),
                     (Kind::Crc, "out") => Line::crc_out(k),
                     (Kind::Crc, "ok") => Line::crc_ok(k),
+                    (Kind::Protocol, "action1") => Line(26 + (k * 3) as u8),
+                    (Kind::Protocol, "action2") => Line(27 + (k * 3) as u8),
+                    (Kind::Protocol, "action3") => Line(28 + (k * 3) as u8),
                     (kind, _) => {
                         return Err(Error::new(
                             field.span,

@@ -25,6 +25,7 @@ mod elaborate;
 mod hardware;
 mod logic;
 mod plan;
+pub mod protocol;
 mod px8;
 mod syntax;
 mod value;
@@ -33,7 +34,7 @@ pub use diagnostic::{Error, Span};
 use std::collections::BTreeMap;
 
 /// The spatial RTL revision whose register layout this compiler targets.
-pub const HARDWARE_REVISION: &str = "72ffb6458c7de989e2bb48e7d117d7426112a852";
+pub const HARDWARE_REVISION: &str = "7dd2f41c3cc3065129ad6ee69599057834ad5f28";
 
 /// A compiled program.
 #[derive(Debug)]

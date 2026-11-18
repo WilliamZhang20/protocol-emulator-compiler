@@ -48,6 +48,25 @@ that.
 - [`examples/spi.spt`](examples/spi.spt): an SPI controller with a host-callable `transfer`.
 - [`examples/i2c.spt`](examples/i2c.spt): an I2C controller with `write_read`, NACK reporting and clock stretching.
 - [`examples/usb.spt`](examples/usb.spt): a low-speed USB packet transmitter: NRZI, bit stuffing, CRC16 and end of packet in the fabric.
+- [`examples/protocol_control.spt`](examples/protocol_control.spt): a two-state protocol graph mapped onto a spatial control actor.
+
+Protocol actors use a fixed signal line and two-valued transitions:
+
+```text
+protocol handshake on request {
+    transition 0 low -> 0
+    transition 0 high -> 1 action 1
+    transition 1 low -> 0 action 2
+    transition 1 high -> 1
+}
+```
+
+The 8×4 target has two actors. Each graph supports up to four states, one
+selected signal-space line, and three pulse outputs (`handshake.action1`
+through `.action3`). A state/input pair can appear once; omitted rows hold
+their state without an action. `spatial check` reports actor placement and
+action lines. Graphs that exceed these limits currently fail with a mapping
+diagnostic; mapping those graphs to PX8 is the next compiler step.
 
 The target map includes eight configurable pin-edge cells (shared by rise and
 fall requests), two CRC engines, counter hit pulses on lines 24–25, and the

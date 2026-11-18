@@ -1,6 +1,9 @@
 //! Recursive-descent parser. Newlines are insignificant; every construct is
 //! self-delimiting, and commas between fields and statements are optional.
-use super::ast::{Arg, ByteStage, Expr, ExprKind, Field, Item, Name, Param, Stmt, StmtKind, Type};
+use super::ast::{
+    Arg, ByteStage, Expr, ExprKind, Field, Item, Name, Param, ProtocolTransition, Stmt, StmtKind,
+    Type,
+};
 use super::lexer::{Kind, Token};
 use crate::diagnostic::{Error, Result, Span};
 
@@ -282,6 +285,42 @@ impl Parser {
                 }
                 Item::Flag(flags)
             }
+            "protocol" => {
+                let name = self.name()?;
+                self.expect("on")?;
+                let input = self.expr()?;
+                self.expect("{")?;
+                let mut transitions = Vec::new();
+                while !self.eat("}") {
+                    self.expect("transition")?;
+                    let from = self.expr()?;
+                    let input_high = if self.eat("low") {
+                        false
+                    } else if self.eat("high") {
+                        true
+                    } else {
+                        return Err(self.unexpected("`low` or `high`"));
+                    };
+                    self.expect("->")?;
+                    let to = self.expr()?;
+                    let action = if self.eat("action") {
+                        Some(self.expr()?)
+                    } else {
+                        None
+                    };
+                    transitions.push(ProtocolTransition {
+                        from,
+                        input_high,
+                        to,
+                        action,
+                    });
+                }
+                Item::Protocol {
+                    name,
+                    input,
+                    transitions,
+                }
+            }
             "export" if self.is("stream") || self.is("packets") => {
                 let packets = self.eat("packets");
                 if !packets {
@@ -336,7 +375,7 @@ impl Parser {
                     keyword.span,
                     format!(
                         "expected a declaration (clock, const, pin, timer, shifter, counter, crc, \
-                         reg, event, flag, contexts, context, fn, export, test or always), found `{}`",
+                         reg, event, flag, protocol, contexts, context, fn, export, test or always), found `{}`",
                         keyword.text
                     ),
                 ));
