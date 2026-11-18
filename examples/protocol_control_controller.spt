@@ -1,7 +1,7 @@
 // A five-state protocol is too large for one four-state actor. The mapper
 // lowers its pulse-driven graph to the PX8 controller and fires the shifter.
 const BIT = 64 cycles
-timer control_tick { every: 8 cycles, pulse, run: 1 }
+timer control_tick { every: 16 cycles, pulse, run: 1 }
 timer tx_bit { every: BIT, pulse, run: sender.busy until sender.done }
 
 protocol handshake on control_tick.tick {

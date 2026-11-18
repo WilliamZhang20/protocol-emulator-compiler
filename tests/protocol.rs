@@ -140,7 +140,7 @@ fn controller_fallback_rejects_its_own_fire_lines_as_inputs() {
 fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
     let build = compile(
         r#"
-        timer request { every: 8 cycles, pulse, run: 1 }
+        timer request { every: 16 cycles, pulse, run: 1 }
         protocol chain on request.tick {
             transition 0 low -> 0
             transition 0 high -> 1 action 1
@@ -161,8 +161,8 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
     assert_eq!(mapping.actor, None);
     assert_eq!(mapping.mapped_states, 5);
     assert_eq!(mapping.input_line, 4);
-    assert_eq!(mapping.controller_service_cycles, Some(5));
-    assert_eq!(mapping.minimum_input_interval_cycles, Some(8));
+    assert_eq!(mapping.controller_service_cycles, Some(10));
+    assert_eq!(mapping.minimum_input_interval_cycles, Some(16));
     assert!(
         build.protocol_placement_search.candidates[0..2]
             .iter()
@@ -182,7 +182,7 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
 fn controller_fallback_rejects_pulses_faster_than_its_service_rate() {
     let error = compile(
         r#"
-        timer request { every: 5 cycles, pulse, run: 1 }
+        timer request { every: 10 cycles, pulse, run: 1 }
         protocol chain on request.tick {
             transition 0 low -> 0
             transition 0 high -> 1 action 1
@@ -201,7 +201,7 @@ fn controller_fallback_rejects_pulses_faster_than_its_service_rate() {
     assert!(
         error
             .to_string()
-            .contains("minimum input interval greater than 5")
+            .contains("minimum input interval greater than 10")
     );
 }
 

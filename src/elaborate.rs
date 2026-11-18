@@ -1048,11 +1048,12 @@ fn protocol_graph(
     })
 }
 
-/// Maximum emitted bytes for one PX8 protocol transition: WEV plus its operand
-/// prefix, an optional FIRE, and the fixed three-byte jump.
+/// Worst-case PX8 service time from a pulse to the next WEV in execute state.
+/// PX8 instructions each take two cycles; a WEV already waiting for a pulse
+/// retires in its current execute cycle.
 fn controller_service_cycles(graph: &crate::protocol::ProtocolGraph) -> usize {
     let wait_bytes = if graph.input_line < 16 { 1 } else { 2 };
-    (0..graph.states)
+    2 * (0..graph.states)
         .map(|state| {
             let action_bytes = graph
                 .transitions
