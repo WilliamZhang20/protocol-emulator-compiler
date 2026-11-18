@@ -76,15 +76,19 @@ stage. Candidate assignments, concurrent actor count, and locality scores are
 shown to make the choice auditable; routed wire length still needs physical
 implementation data. If minimization still leaves more than four states, the
 mapper evaluates a PX8 controller implementation for a single graph when it
-is driven by a pulse line (P4–P25), low-input rows hold state, there are at
-most two actions, and no exported functions need the controller. The compiler
+is driven by a free-running timer tick pulse (P4–P25), low-input rows hold state,
+there are at most two actions, and no exported functions need the controller.
+The timer's first and repeating intervals must both exceed the controller's
+worst transition service time, so sticky pulse events cannot collapse while
+the previous transition is executing. The compiler
 reports actor candidates as infeasible and the controller candidate as
 selected. Controller actions use the PX8 `FIRE` outputs on P2 and P3; this
 implementation is serialized by the controller and does not run in parallel
 with another controller function. The report includes its worst-case encoded
-instruction bytes per input event as a code-size proxy; this is not a
-clock-accurate latency estimate. Level-triggered graphs and graphs outside
-these constraints still fail with a mapping diagnostic.
+service cycles per input event, excluding time waiting for an input. This is a
+clock-level estimate based on the encoded PX8 instructions; the report also
+shows the minimum input interval it verified. Level-triggered graphs and
+graphs outside these constraints still fail with a mapping diagnostic.
 
 The target map includes eight configurable pin-edge cells (shared by rise and
 fall requests), two CRC engines, counter hit pulses on lines 24–25, and the

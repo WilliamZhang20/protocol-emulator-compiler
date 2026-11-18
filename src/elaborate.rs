@@ -261,7 +261,8 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), actor)],
                     local_channel_connections: preferences[0][actor],
                     parallel_actors: 1,
-                    controller_step_bytes: None,
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
                 })
                 .collect();
             let actor = usize::from(preferences[0][1] > preferences[0][0]);
@@ -278,7 +279,8 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
                     local_channel_connections: direct,
                     parallel_actors: 2,
-                    controller_step_bytes: None,
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
                 },
                 crate::ProtocolPlacementCandidate {
                     implementation: "spatial actor",
@@ -286,7 +288,8 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
                     assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
                     local_channel_connections: swapped,
                     parallel_actors: 2,
-                    controller_step_bytes: None,
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
                 },
             ];
             let slots = if swapped > direct { [1, 0] } else { [0, 1] };
@@ -644,6 +647,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             continue;
         };
         let graph = protocol_graph(name, input, transitions, &chip)?;
+        let minimum_input_interval_cycles = timer_input_interval(input, &chip)?;
         let actor = chip.decls[&name.text].index;
         match crate::protocol::map_actor(&graph, actor) {
             Ok(mapping) => {
@@ -664,7 +668,8 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     local_channel_connections: actor_search.slots[&name.text].1,
                     placement_candidates_evaluated: actor_search.report.candidates.len(),
                     actor_pipeline_cycles: Some(1),
-                    controller_step_bytes: None,
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles,
                 });
                 protocol_writes.insert(name.text.clone(), mapping.writes);
             }
@@ -683,16 +688,20 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     .transitions
                     .iter()
                     .all(|row| row.action.is_none_or(|action| action <= 2));
+                let controller_service_cycles = controller_service_cycles(&optimized);
+                let interval_is_safe = minimum_input_interval_cycles
+                    .is_some_and(|interval| interval > controller_service_cycles);
                 if protocol_count != 1
                     || has_exported_function
                     || !pulse_input
                     || !low_rows_hold
                     || !actions_fit
+                    || !interval_is_safe
                 {
                     return Err(Error::new(
                         name.span,
                         format!(
-                            "protocol `{}` cannot fit a spatial actor ({} minimized states), and its graph is not eligible for the PX8 controller backend; that backend requires one protocol, no exported functions, a pulse input on P4..P25, hold-only low rows, and at most two actions",
+                            "protocol `{}` cannot fit a spatial actor ({} minimized states), and its graph is not eligible for the PX8 controller backend; that backend requires one protocol, no exported functions, a timer tick pulse on P4..P25, hold-only low rows, at most two actions, and a minimum input interval greater than {controller_service_cycles} controller service cycles",
                             name.text, optimized.states
                         ),
                     ));
@@ -710,7 +719,8 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                         assignments: Vec::new(),
                         local_channel_connections: 0,
                         parallel_actors: 0,
-                        controller_step_bytes: Some(controller_step_bytes(&optimized)),
+                        controller_service_cycles: Some(controller_service_cycles),
+                        minimum_input_interval_cycles,
                     });
                 actor_search.report.selected = Some(selected);
                 chip.protocol_action_lines.insert(
@@ -731,7 +741,8 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     local_channel_connections: 0,
                     placement_candidates_evaluated: actor_search.report.candidates.len(),
                     actor_pipeline_cycles: None,
-                    controller_step_bytes: Some(controller_step_bytes(&optimized)),
+                    controller_service_cycles: Some(controller_service_cycles),
+                    minimum_input_interval_cycles,
                 });
             }
             Err(reason) => {
@@ -1039,7 +1050,7 @@ fn protocol_graph(
 
 /// Maximum emitted bytes for one PX8 protocol transition: WEV plus its operand
 /// prefix, an optional FIRE, and the fixed three-byte jump.
-fn controller_step_bytes(graph: &crate::protocol::ProtocolGraph) -> usize {
+fn controller_service_cycles(graph: &crate::protocol::ProtocolGraph) -> usize {
     let wait_bytes = if graph.input_line < 16 { 1 } else { 2 };
     (0..graph.states)
         .map(|state| {
@@ -1053,6 +1064,58 @@ fn controller_step_bytes(graph: &crate::protocol::ProtocolGraph) -> usize {
         })
         .max()
         .unwrap_or(wait_bytes + 3)
+}
+
+/// Find a statically bounded pulse interval for a timer tick input. The PX8
+/// controller fallback relies on this bound to avoid collapsing pulses while
+/// it is executing the previous transition.
+fn timer_input_interval(input: &Expr, chip: &Chip<'_>) -> Result<Option<usize>> {
+    let ExprKind::Field(object, field) = &input.kind else {
+        return Ok(None);
+    };
+    if !matches!(field.text.as_str(), "tick" | "rise") {
+        return Ok(None);
+    }
+    let ExprKind::Name(timer_name) = &object.kind else {
+        return Ok(None);
+    };
+    let Some(decl) = chip.decls.get(timer_name) else {
+        return Ok(None);
+    };
+    if decl.kind != Kind::Timer {
+        return Ok(None);
+    }
+    let Some(fields) = chip.tiles.get(timer_name) else {
+        return Ok(None);
+    };
+    if !fields.iter().any(|item| item.name.text == "pulse")
+        || fields.iter().any(|item| item.name.text == "resync")
+    {
+        return Ok(None);
+    }
+    let free_running = fields
+        .iter()
+        .find(|item| item.name.text == "run")
+        .and_then(|item| item.value.as_ref())
+        .is_some_and(|expr| matches!(expr.kind, ExprKind::Int(1)));
+    if !free_running {
+        return Ok(None);
+    }
+    let cycles = |field_name: &str| -> Result<Option<usize>> {
+        let Some(field) = fields.iter().find(|item| item.name.text == field_name) else {
+            return Ok(None);
+        };
+        let Some(expr) = field.value.as_ref() else {
+            return Ok(None);
+        };
+        let value = chip.env.cycles(expr, "timer interval is {}", true)?;
+        Ok(usize::try_from(value).ok())
+    };
+    let Some(every) = cycles("every")? else {
+        return Ok(None);
+    };
+    let first = cycles("first")?.unwrap_or(every);
+    Ok(Some(every.min(first)))
 }
 
 /// Keep the compiler's allocation report tied to the same encoding helpers

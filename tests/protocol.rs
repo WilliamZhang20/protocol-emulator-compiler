@@ -130,15 +130,18 @@ fn controller_fallback_rejects_its_own_fire_lines_as_inputs() {
         "#,
     )
     .expect_err("controller FIRE outputs must not feed its own input");
-    assert!(error.to_string().contains("pulse input on P4..P25"));
+    assert!(
+        error.to_string().contains("timer tick pulse on P4..P25"),
+        "unexpected diagnostic: {error}"
+    );
 }
 
 #[test]
 fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
     let build = compile(
         r#"
-        pin request: in
-        protocol chain on request.rise {
+        timer request { every: 8 cycles, pulse, run: 1 }
+        protocol chain on request.tick {
             transition 0 low -> 0
             transition 0 high -> 1 action 1
             transition 1 low -> 1
@@ -157,8 +160,9 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
     assert_eq!(mapping.implementation, "PX8 controller");
     assert_eq!(mapping.actor, None);
     assert_eq!(mapping.mapped_states, 5);
-    assert_eq!(mapping.input_line, 16);
-    assert_eq!(mapping.controller_step_bytes, Some(6));
+    assert_eq!(mapping.input_line, 4);
+    assert_eq!(mapping.controller_service_cycles, Some(5));
+    assert_eq!(mapping.minimum_input_interval_cycles, Some(8));
     assert!(
         build.protocol_placement_search.candidates[0..2]
             .iter()
@@ -172,6 +176,33 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
         .unwrap();
     assert_eq!(resource.kind, "PX8 protocol controller");
     assert_eq!(resource.outputs, [("action1", 2), ("action2", 3)]);
+}
+
+#[test]
+fn controller_fallback_rejects_pulses_faster_than_its_service_rate() {
+    let error = compile(
+        r#"
+        timer request { every: 5 cycles, pulse, run: 1 }
+        protocol chain on request.tick {
+            transition 0 low -> 0
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 2
+            transition 2 low -> 2
+            transition 2 high -> 3
+            transition 3 low -> 3
+            transition 3 high -> 4
+            transition 4 low -> 4
+            transition 4 high -> 4 action 2
+        }
+        "#,
+    )
+    .expect_err("a new pulse must not arrive before the controller can re-arm its wait");
+    assert!(
+        error
+            .to_string()
+            .contains("minimum input interval greater than 5")
+    );
 }
 
 #[test]

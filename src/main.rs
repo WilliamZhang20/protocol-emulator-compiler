@@ -202,11 +202,12 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 "infeasible"
             };
             out.push(format!(
-                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} controller-step-bytes={:?}{}",
+                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} controller-service-cycles={:?} input-interval-cycles={:?}{}",
                 candidate.implementation,
                 candidate.parallel_actors,
                 candidate.local_channel_connections,
-                candidate.controller_step_bytes,
+                candidate.controller_service_cycles,
+                candidate.minimum_input_interval_cycles,
                 paint(on, "32", selected),
             ));
         }
@@ -222,7 +223,7 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 .and_then(|selected| build.protocol_placement_search.candidates.get(selected))
                 .map_or(0, |candidate| candidate.parallel_actors);
             out.push(format!(
-                "    {:<18} {} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={:?} controller-step-bytes={:?}",
+                "    {:<18} {} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={:?} controller-service-cycles={:?} input-interval-cycles={:?}",
                 mapping.name,
                 mapping.actor.map_or(String::from("PX8"), |actor| format!("actor{actor}")),
                 mapping.source_states,
@@ -234,7 +235,8 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 parallel_actors,
                 mapping.local_channel_connections,
                 mapping.actor_pipeline_cycles,
-                mapping.controller_step_bytes,
+                mapping.controller_service_cycles,
+                mapping.minimum_input_interval_cycles,
             ));
         }
     }

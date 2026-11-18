@@ -99,9 +99,11 @@ pub struct ProtocolMapping {
     pub placement_candidates_evaluated: usize,
     /// Actor pipeline stages from observed input to action output.
     pub actor_pipeline_cycles: Option<usize>,
-    /// Worst-case encoded PX8 instruction bytes per protocol input event.
-    /// This is a code-size proxy, not a clock-cycle latency estimate.
-    pub controller_step_bytes: Option<usize>,
+    /// Best-case PX8 controller service cycles from a pulse to the next wait.
+    /// This excludes time waiting for an input event.
+    pub controller_service_cycles: Option<usize>,
+    /// Minimum spacing between source input pulses, when statically known.
+    pub minimum_input_interval_cycles: Option<usize>,
 }
 
 /// An implementation or placement option evaluated by the mapper.
@@ -117,8 +119,10 @@ pub struct ProtocolPlacementCandidate {
     pub local_channel_connections: usize,
     /// Protocol actors active concurrently in this implementation.
     pub parallel_actors: usize,
-    /// Worst-case encoded PX8 instruction bytes for a controller transition.
-    pub controller_step_bytes: Option<usize>,
+    /// Best-case PX8 controller service cycles for an input transition.
+    pub controller_service_cycles: Option<usize>,
+    /// Minimum spacing between source input pulses, when statically known.
+    pub minimum_input_interval_cycles: Option<usize>,
 }
 
 /// Search trace for the protocol implementation and actor placement decision.
