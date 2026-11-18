@@ -47,6 +47,8 @@ pub struct Build {
     pub usage: Vec<(&'static str, usize, usize)>,
     /// Named hardware allocations and the signal-space lines they provide.
     pub resources: Vec<ResourceAssignment>,
+    /// Protocol graphs, chosen actor implementations, and mapping estimates.
+    pub protocol_mappings: Vec<ProtocolMapping>,
     /// Names of the program's tests, in source order.
     pub tests: Vec<String>,
     /// Everything the simulator needs to run the tests, as JSON.
@@ -68,6 +70,25 @@ pub struct ResourceAssignment {
     pub outputs: Vec<(&'static str, u8)>,
 }
 
+/// A mapped protocol-control graph and the metrics available to the oracle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolMapping {
+    /// Source graph name.
+    pub name: String,
+    /// Physical protocol actor, 0 or 1.
+    pub actor: usize,
+    /// Selected input line in the 64-line fabric.
+    pub input_line: u8,
+    /// Number of states used by the graph.
+    pub states: usize,
+    /// Number of explicitly declared transition rows.
+    pub transitions: usize,
+    /// Signal connections placed beside the matching shifter channel.
+    pub local_channel_connections: usize,
+    /// Actor pipeline stages from observed input to action output.
+    pub actor_pipeline_cycles: usize,
+}
+
 /// Parse, check and compile a program.
 ///
 /// # Errors
@@ -84,6 +105,7 @@ pub fn compile(source: &str) -> Result<Build, Error> {
             .collect(),
         usage: design.usage,
         resources: design.resources,
+        protocol_mappings: design.protocol_mappings,
         pins: design.pins,
         image: design.image,
         plan,

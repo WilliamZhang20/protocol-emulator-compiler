@@ -112,6 +112,7 @@ pub(crate) struct Design<'a> {
     pub exports: Exports,
     pub usage: Vec<(&'static str, usize, usize)>,
     pub resources: Vec<ResourceAssignment>,
+    pub protocol_mappings: Vec<crate::ProtocolMapping>,
     pub tests: Vec<(&'a Name, &'a [Stmt], Option<&'a Expr>)>,
     pub invariants: Vec<(&'a Name, &'a Expr)>,
 }
@@ -128,6 +129,137 @@ pub(crate) struct Chip<'a> {
     pub pin_decls: HashMap<String, (&'a Name, &'a Name, Option<&'a Expr>)>,
     /// Physical pad and edge direction to configurable edge-cell index.
     pub edges: HashMap<(usize, bool), usize>,
+}
+
+/// Score actor-to-shifter locality for both possible physical actor orders.
+/// Actor `k` sits beside shifter channel `k`; every direct signal connection
+/// between a protocol graph and a shifter contributes one local match.
+fn protocol_actor_slots(items: &[Item]) -> HashMap<String, (usize, usize)> {
+    fn mentions_protocol_action(expr: &Expr, name: &str) -> bool {
+        match &expr.kind {
+            ExprKind::Field(object, field) => {
+                (matches!(&object.kind, ExprKind::Name(n) if n == name)
+                    && matches!(field.text.as_str(), "action1" | "action2" | "action3"))
+                    || mentions_protocol_action(object, name)
+            }
+            ExprKind::Call(callee, args) => {
+                mentions_protocol_action(callee, name)
+                    || args
+                        .iter()
+                        .any(|arg| mentions_protocol_action(&arg.value, name))
+            }
+            ExprKind::List(values) => values
+                .iter()
+                .any(|value| mentions_protocol_action(value, name)),
+            ExprKind::Unary(_, value) => mentions_protocol_action(value, name),
+            ExprKind::Binary(_, left, right) => {
+                mentions_protocol_action(left, name) || mentions_protocol_action(right, name)
+            }
+            ExprKind::If(condition, yes, no) => {
+                mentions_protocol_action(condition, name)
+                    || mentions_protocol_action(yes, name)
+                    || mentions_protocol_action(no, name)
+            }
+            ExprKind::Int(_) | ExprKind::Quantity(_, _) | ExprKind::Str(_) | ExprKind::Name(_) => {
+                false
+            }
+        }
+    }
+
+    fn mentions_shifter(expr: &Expr, shifter: &str) -> bool {
+        match &expr.kind {
+            ExprKind::Field(object, _) => {
+                matches!(&object.kind, ExprKind::Name(n) if n == shifter)
+                    || mentions_shifter(object, shifter)
+            }
+            ExprKind::Call(callee, args) => {
+                mentions_shifter(callee, shifter)
+                    || args.iter().any(|arg| mentions_shifter(&arg.value, shifter))
+            }
+            ExprKind::List(values) => values.iter().any(|value| mentions_shifter(value, shifter)),
+            ExprKind::Unary(_, value) => mentions_shifter(value, shifter),
+            ExprKind::Binary(_, left, right) => {
+                mentions_shifter(left, shifter) || mentions_shifter(right, shifter)
+            }
+            ExprKind::If(condition, yes, no) => {
+                mentions_shifter(condition, shifter)
+                    || mentions_shifter(yes, shifter)
+                    || mentions_shifter(no, shifter)
+            }
+            ExprKind::Int(_) | ExprKind::Quantity(_, _) | ExprKind::Str(_) | ExprKind::Name(_) => {
+                false
+            }
+        }
+    }
+
+    let shifters: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Tile { kind, name, .. } if kind.text == "shifter" => Some(name.text.as_str()),
+            _ => None,
+        })
+        .take(crate::protocol::ACTORS)
+        .collect();
+    let protocols: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Protocol { name, input, .. } => Some((name.text.clone(), input)),
+            _ => None,
+        })
+        .collect();
+    let preferences: Vec<[usize; crate::protocol::ACTORS]> = protocols
+        .iter()
+        .map(|(protocol, input)| {
+            let mut score = [0; crate::protocol::ACTORS];
+            for (channel, shifter) in shifters.iter().enumerate() {
+                if mentions_shifter(input, shifter) {
+                    score[channel] += 1;
+                }
+                for item in items {
+                    if let Item::Tile {
+                        kind,
+                        name: tile_name,
+                        fields,
+                    } = item
+                        && kind.text == "shifter"
+                        && tile_name.text == *shifter
+                    {
+                        for field in fields {
+                            if field
+                                .value
+                                .as_ref()
+                                .is_some_and(|expr| mentions_protocol_action(expr, protocol))
+                            {
+                                score[channel] += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            score
+        })
+        .collect();
+
+    let mut assignment = HashMap::new();
+    match protocols.len() {
+        0 => {}
+        1 => {
+            let actor = usize::from(preferences[0][1] > preferences[0][0]);
+            assignment.insert(protocols[0].0.clone(), (actor, preferences[0][actor]));
+        }
+        _ => {
+            let direct = preferences[0][0] + preferences[1][1];
+            let swapped = preferences[0][1] + preferences[1][0];
+            let slots = if swapped > direct { [1, 0] } else { [0, 1] };
+            for (i, (name, _)) in protocols.iter().take(crate::protocol::ACTORS).enumerate() {
+                assignment.insert(name.clone(), (slots[i], preferences[i][slots[i]]));
+            }
+            for (i, (name, _)) in protocols.iter().enumerate().skip(crate::protocol::ACTORS) {
+                assignment.insert(name.clone(), (i, 0));
+            }
+        }
+    }
+    assignment
 }
 
 pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
@@ -152,6 +284,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     };
     let mut names: HashMap<String, Span> = HashMap::new();
     let mut counts = [0usize; 9];
+    let actor_slots = protocol_actor_slots(items);
     let mut pins = Vec::new();
     let mut tests = Vec::new();
     let mut invariants = Vec::new();
@@ -163,7 +296,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             ));
         }
         if let Some(kind) = kind {
-            let index = counts[kind as usize];
+            let index = if kind == Kind::Protocol {
+                actor_slots[&name.text].0
+            } else {
+                counts[kind as usize]
+            };
             counts[kind as usize] += 1;
             let (capacity, plural) = kind.capacity();
             if index >= capacity {
@@ -443,6 +580,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             pad as u16 | if falling { 1 << 4 } else { 1 << 3 },
         );
     }
+    let mut protocol_mappings = Vec::new();
     for item in items {
         let writes = match item {
             Item::Pin {
@@ -474,6 +612,15 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                             ),
                         )
                     })?;
+                protocol_mappings.push(crate::ProtocolMapping {
+                    name: name.text.clone(),
+                    actor: mapping.actor,
+                    input_line: graph.input_line,
+                    states: graph.states,
+                    transitions: graph.transitions.len(),
+                    local_channel_connections: actor_slots[&name.text].1,
+                    actor_pipeline_cycles: 1,
+                });
                 mapping.writes
             }
             _ => Vec::new(),
@@ -674,6 +821,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         exports,
         usage,
         resources,
+        protocol_mappings,
         tests,
         invariants,
     })

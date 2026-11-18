@@ -56,3 +56,33 @@ fn protocol_mapper_rejects_duplicate_input_rows() {
     .expect_err("each state/input pair has one transition");
     assert!(error.to_string().contains("two transitions for input high"));
 }
+
+#[test]
+fn actor_placement_follows_the_shifter_using_its_action() {
+    let build = compile(
+        r#"
+        shifter channel0 { start: second.action1 }
+        shifter channel1 { start: first.action1 }
+        protocol first on 0 { transition 0 low -> 0 }
+        protocol second on 0 { transition 0 low -> 0 }
+        "#,
+    )
+    .expect("both protocol graphs fit the actor array");
+
+    let actor = |name: &str| {
+        build
+            .resources
+            .iter()
+            .find(|resource| resource.name == name)
+            .expect("protocol resource is reported")
+            .index
+    };
+    assert_eq!(actor("first"), 1);
+    assert_eq!(actor("second"), 0);
+    let first = build
+        .protocol_mappings
+        .iter()
+        .find(|mapping| mapping.name == "first")
+        .expect("mapping report contains the graph");
+    assert_eq!(first.local_channel_connections, 1);
+}

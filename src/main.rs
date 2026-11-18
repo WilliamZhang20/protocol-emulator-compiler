@@ -164,6 +164,33 @@ fn summary(build: &spatial::Build, on: bool) -> String {
             ));
         }
     }
+    if !build.protocol_mappings.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "  {}",
+            paint(
+                on,
+                "1",
+                "Protocol mapping (actor stage latency; channel-local signal pairs)"
+            )
+        ));
+        for mapping in &build.protocol_mappings {
+            let input = if mapping.input_line < 32 {
+                format!("P{}", mapping.input_line)
+            } else {
+                format!("L{}", mapping.input_line)
+            };
+            out.push(format!(
+                "    {:<18} actor{} input={input:<4} states={} rows={} local-pairs={} actor-cycles={}",
+                mapping.name,
+                mapping.actor,
+                mapping.states,
+                mapping.transitions,
+                mapping.local_channel_connections,
+                mapping.actor_pipeline_cycles,
+            ));
+        }
+    }
     out.join("\n")
 }
 

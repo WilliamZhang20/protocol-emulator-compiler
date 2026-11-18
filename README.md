@@ -65,8 +65,13 @@ The 8×4 target has two actors. Each graph supports up to four states, one
 selected signal-space line, and three pulse outputs (`handshake.action1`
 through `.action3`). A state/input pair can appear once; omitted rows hold
 their state without an action. `spatial check` reports actor placement and
-action lines. Graphs that exceed these limits currently fail with a mapping
-diagnostic; mapping those graphs to PX8 is the next compiler step.
+action lines. The mapper tries the available actor assignments and favors the
+actor beside a shifter when that graph reads the shifter's lines or drives its
+`start` signal. The report shows these channel-local signal pairs and the
+actor's one-cycle registered stage; routed wire length still needs physical
+implementation data. Graphs that exceed actor limits currently fail with a
+mapping diagnostic; selecting a PX8 implementation for those graphs is a
+remaining compiler step.
 
 The target map includes eight configurable pin-edge cells (shared by rise and
 fall requests), two CRC engines, counter hit pulses on lines 24–25, and the
