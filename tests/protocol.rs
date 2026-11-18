@@ -85,4 +85,5 @@ fn actor_placement_follows_the_shifter_using_its_action() {
         .find(|mapping| mapping.name == "first")
         .expect("mapping report contains the graph");
     assert_eq!(first.local_channel_connections, 1);
+    assert_eq!(first.placement_candidates_evaluated, 2);
 }

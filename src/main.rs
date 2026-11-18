@@ -181,11 +181,12 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 format!("L{}", mapping.input_line)
             };
             out.push(format!(
-                "    {:<18} actor{} input={input:<4} states={} rows={} local-pairs={} actor-cycles={}",
+                "    {:<18} actor{} input={input:<4} states={} rows={} candidates={} local-pairs={} actor-cycles={}",
                 mapping.name,
                 mapping.actor,
                 mapping.states,
                 mapping.transitions,
+                mapping.placement_candidates_evaluated,
                 mapping.local_channel_connections,
                 mapping.actor_pipeline_cycles,
             ));

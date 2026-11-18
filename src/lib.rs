@@ -85,6 +85,8 @@ pub struct ProtocolMapping {
     pub transitions: usize,
     /// Signal connections placed beside the matching shifter channel.
     pub local_channel_connections: usize,
+    /// Actor assignments evaluated by the mapper for this allocation.
+    pub placement_candidates_evaluated: usize,
     /// Actor pipeline stages from observed input to action output.
     pub actor_pipeline_cycles: usize,
 }

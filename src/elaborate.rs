@@ -619,6 +619,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     states: graph.states,
                     transitions: graph.transitions.len(),
                     local_channel_connections: actor_slots[&name.text].1,
+                    placement_candidates_evaluated: crate::protocol::ACTORS,
                     actor_pipeline_cycles: 1,
                 });
                 mapping.writes
