@@ -220,6 +220,24 @@ pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, Ac
     })
 }
 
+/// Remove unreachable and behaviorally equivalent states while preserving the
+/// source graph's transition and action behavior.
+pub(crate) fn minimized(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
+    if graph.input_line >= 64 {
+        return Err(ActorIneligible::InputLineOutOfRange(graph.input_line));
+    }
+    if graph.states == 0 {
+        return Err(ActorIneligible::NoStates);
+    }
+    if graph.states > MAX_LOGICAL_STATES {
+        return Err(ActorIneligible::GraphTooLarge(graph.states));
+    }
+    if graph.initial_state >= graph.states {
+        return Err(ActorIneligible::InvalidInitialState(graph.initial_state));
+    }
+    minimize(graph)
+}
+
 fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     use std::collections::{HashMap, VecDeque};
 

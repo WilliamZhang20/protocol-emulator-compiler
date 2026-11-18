@@ -171,7 +171,7 @@ fn summary(build: &spatial::Build, on: bool) -> String {
             paint(
                 on,
                 "1",
-                "Protocol mapping (actor stage latency; channel-local signal pairs)"
+                "Protocol mapping candidates (parallelism, locality; controller latency is variable)"
             )
         ));
         for (index, candidate) in build
@@ -186,15 +186,27 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 .map(|(name, actor)| format!("{name}->actor{actor}"))
                 .collect::<Vec<_>>()
                 .join(" ");
+            let assignments = if assignments.is_empty() {
+                "controller-loop".to_owned()
+            } else {
+                assignments
+            };
             let selected = if build.protocol_placement_search.selected == Some(index) {
                 " selected"
             } else {
                 ""
             };
+            let feasible = if candidate.feasible {
+                "feasible"
+            } else {
+                "infeasible"
+            };
             out.push(format!(
-                "    candidate {index}: {assignments} parallel={} local-pairs={}{}",
+                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} controller-step-bytes={:?}{}",
+                candidate.implementation,
                 candidate.parallel_actors,
                 candidate.local_channel_connections,
+                candidate.controller_step_bytes,
                 paint(on, "32", selected),
             ));
         }
@@ -210,9 +222,9 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 .and_then(|selected| build.protocol_placement_search.candidates.get(selected))
                 .map_or(0, |candidate| candidate.parallel_actors);
             out.push(format!(
-                "    {:<18} actor{} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={}",
+                "    {:<18} {} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={:?} controller-step-bytes={:?}",
                 mapping.name,
-                mapping.actor,
+                mapping.actor.map_or(String::from("PX8"), |actor| format!("actor{actor}")),
                 mapping.source_states,
                 mapping.mapped_states,
                 mapping.states_reduced,
@@ -222,6 +234,7 @@ fn summary(build: &spatial::Build, on: bool) -> String {
                 parallel_actors,
                 mapping.local_channel_connections,
                 mapping.actor_pipeline_cycles,
+                mapping.controller_step_bytes,
             ));
         }
     }

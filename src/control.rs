@@ -208,15 +208,30 @@ pub(crate) fn claim_fifos(chip: &mut Chip<'_>, functions: &[&Item]) -> Result<()
 
 /// Emit the controller program after the fabric configuration: an idle loop,
 /// or a dispatcher serving the exported functions.
-pub(crate) fn lower(chip: &Chip<'_>, functions: &[&Item], asm: &mut Assembler) -> Result<Exports> {
+pub(crate) fn lower(
+    chip: &Chip<'_>,
+    functions: &[&Item],
+    protocol_controller: Option<&crate::protocol::ProtocolGraph>,
+    asm: &mut Assembler,
+) -> Result<Exports> {
     let exported: Vec<&Item> = functions
         .iter()
         .copied()
         .filter(|f| *function_parts(f).0)
         .collect();
     if exported.is_empty() {
-        asm.idle_forever();
+        if let Some(graph) = protocol_controller {
+            lower_protocol_controller(graph, asm);
+        } else {
+            asm.idle_forever();
+        }
         return Ok(Exports::default());
+    }
+    if protocol_controller.is_some() {
+        return Err(Error::new(
+            function_parts(exported[0]).1.span,
+            "a PX8 protocol controller cannot run alongside exported functions yet",
+        ));
     }
     let channel = (0..SHIFTERS)
         .find(|&k| !chip.fifos[k].pull && !chip.fifos[k].push)
@@ -314,6 +329,30 @@ pub(crate) fn lower(chip: &Chip<'_>, functions: &[&Item], asm: &mut Assembler) -
         functions: functions_json,
         fails: lowering.fails,
     })
+}
+
+/// Lower a pulse-triggered protocol graph to the central PX8 controller.
+/// Eligibility is checked by the mapper; each graph state becomes a wait loop.
+fn lower_protocol_controller(graph: &crate::protocol::ProtocolGraph, asm: &mut Assembler) {
+    let labels: Vec<_> = (0..graph.states).map(|_| asm.label()).collect();
+    asm.clear_events();
+    asm.jump(labels[graph.initial_state]);
+    for state in 0..graph.states {
+        asm.place(labels[state]);
+        asm.wait(graph.input_line);
+        if let Some(transition) = graph
+            .transitions
+            .iter()
+            .find(|transition| transition.from == state && transition.input_high)
+        {
+            if let Some(action) = transition.action {
+                asm.fire(action - 1);
+            }
+            asm.jump(labels[transition.to]);
+        } else {
+            asm.jump(labels[state]);
+        }
+    }
 }
 
 /// What a function can read from the chip.

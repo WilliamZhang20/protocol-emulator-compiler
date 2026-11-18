@@ -84,7 +84,7 @@ fn compiler_minimizes_protocol_states_before_actor_allocation() {
 }
 
 #[test]
-fn compiler_rejects_a_five_state_machine_that_cannot_be_minimized() {
+fn compiler_rejects_controller_fallback_for_a_level_input_graph() {
     let error = compile(
         r#"
         pin request: in
@@ -106,8 +106,72 @@ fn compiler_rejects_a_five_state_machine_that_cannot_be_minimized() {
     assert!(
         error
             .to_string()
-            .contains("states exceed the actor's four-state capacity")
+            .contains("not eligible for the PX8 controller backend")
     );
+}
+
+#[test]
+fn controller_fallback_rejects_its_own_fire_lines_as_inputs() {
+    let error = compile(
+        r#"
+        event request
+        protocol chain on request {
+            transition 0 low -> 0
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 2
+            transition 2 low -> 2
+            transition 2 high -> 3
+            transition 3 low -> 3
+            transition 3 high -> 4
+            transition 4 low -> 4
+            transition 4 high -> 4 action 2
+        }
+        "#,
+    )
+    .expect_err("controller FIRE outputs must not feed its own input");
+    assert!(error.to_string().contains("pulse input on P4..P25"));
+}
+
+#[test]
+fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
+    let build = compile(
+        r#"
+        pin request: in
+        protocol chain on request.rise {
+            transition 0 low -> 0
+            transition 0 high -> 1 action 1
+            transition 1 low -> 1
+            transition 1 high -> 2
+            transition 2 low -> 2
+            transition 2 high -> 3
+            transition 3 low -> 3
+            transition 3 high -> 4
+            transition 4 low -> 4
+            transition 4 high -> 4 action 2
+        }
+        "#,
+    )
+    .expect("the controller backend handles pulse-driven graphs over four states");
+    let mapping = &build.protocol_mappings[0];
+    assert_eq!(mapping.implementation, "PX8 controller");
+    assert_eq!(mapping.actor, None);
+    assert_eq!(mapping.mapped_states, 5);
+    assert_eq!(mapping.input_line, 16);
+    assert_eq!(mapping.controller_step_bytes, Some(6));
+    assert!(
+        build.protocol_placement_search.candidates[0..2]
+            .iter()
+            .all(|candidate| !candidate.feasible)
+    );
+    assert_eq!(build.protocol_placement_search.selected, Some(2));
+    let resource = build
+        .resources
+        .iter()
+        .find(|resource| resource.name == "chain")
+        .unwrap();
+    assert_eq!(resource.kind, "PX8 protocol controller");
+    assert_eq!(resource.outputs, [("action1", 2), ("action2", 3)]);
 }
 
 #[test]

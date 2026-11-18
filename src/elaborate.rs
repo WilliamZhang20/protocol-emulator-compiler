@@ -130,6 +130,9 @@ pub(crate) struct Chip<'a> {
     pub pin_decls: HashMap<String, (&'a Name, &'a Name, Option<&'a Expr>)>,
     /// Physical pad and edge direction to configurable edge-cell index.
     pub edges: HashMap<(usize, bool), usize>,
+    /// Action signal lines selected by the protocol mapper. Controller-backed
+    /// graphs expose the two PX8 FIRE outputs instead of actor outputs.
+    pub protocol_action_lines: HashMap<String, [Option<Line>; 3]>,
 }
 
 /// Score actor-to-shifter locality for both possible physical actor orders.
@@ -253,9 +256,12 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
         1 => {
             report.candidates = (0..crate::protocol::ACTORS)
                 .map(|actor| crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
                     assignments: vec![(protocols[0].0.clone(), actor)],
                     local_channel_connections: preferences[0][actor],
                     parallel_actors: 1,
+                    controller_step_bytes: None,
                 })
                 .collect();
             let actor = usize::from(preferences[0][1] > preferences[0][0]);
@@ -267,14 +273,20 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
             let swapped = preferences[0][1] + preferences[1][0];
             report.candidates = vec![
                 crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
                     assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
                     local_channel_connections: direct,
                     parallel_actors: 2,
+                    controller_step_bytes: None,
                 },
                 crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
                     assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
                     local_channel_connections: swapped,
                     parallel_actors: 2,
+                    controller_step_bytes: None,
                 },
             ];
             let slots = if swapped > direct { [1, 0] } else { [0, 1] };
@@ -312,10 +324,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         tiles: HashMap::new(),
         pin_decls: HashMap::new(),
         edges: HashMap::new(),
+        protocol_action_lines: HashMap::new(),
     };
     let mut names: HashMap<String, Span> = HashMap::new();
     let mut counts = [0usize; 9];
-    let actor_search = protocol_actor_slots(items);
+    let mut actor_search = protocol_actor_slots(items);
     let mut pins = Vec::new();
     let mut tests = Vec::new();
     let mut invariants = Vec::new();
@@ -612,6 +625,123 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         );
     }
     let mut protocol_mappings = Vec::new();
+    let mut protocol_writes = HashMap::<String, Vec<(u8, u16)>>::new();
+    let mut protocol_controller = None;
+    let protocol_count = items
+        .iter()
+        .filter(|item| matches!(item, Item::Protocol { .. }))
+        .count();
+    let has_exported_function = functions
+        .iter()
+        .any(|item| matches!(item, Item::Fn { exported: true, .. }));
+    for item in items {
+        let Item::Protocol {
+            name,
+            input,
+            transitions,
+        } = item
+        else {
+            continue;
+        };
+        let graph = protocol_graph(name, input, transitions, &chip)?;
+        let actor = chip.decls[&name.text].index;
+        match crate::protocol::map_actor(&graph, actor) {
+            Ok(mapping) => {
+                chip.protocol_action_lines.insert(
+                    name.text.clone(),
+                    mapping.action_lines.map(|line| Some(Line(line))),
+                );
+                protocol_mappings.push(crate::ProtocolMapping {
+                    name: name.text.clone(),
+                    implementation: "spatial actor",
+                    actor: Some(mapping.actor),
+                    input_line: graph.input_line,
+                    source_states: graph.states,
+                    mapped_states: mapping.mapped_states,
+                    source_transitions: graph.transitions.len(),
+                    mapped_transitions: mapping.mapped_transitions,
+                    states_reduced: mapping.states_reduced,
+                    local_channel_connections: actor_search.slots[&name.text].1,
+                    placement_candidates_evaluated: actor_search.report.candidates.len(),
+                    actor_pipeline_cycles: Some(1),
+                    controller_step_bytes: None,
+                });
+                protocol_writes.insert(name.text.clone(), mapping.writes);
+            }
+            Err(crate::protocol::ActorIneligible::TooManyStates(_)) => {
+                let optimized = crate::protocol::minimized(&graph)
+                    .map_err(|reason| Error::new(name.span, reason.to_string()))?;
+                // FIRE drives P2 and P3, so using either as this graph's input
+                // would make its own actions retrigger the controller loop.
+                let pulse_input = (2..=25).contains(&optimized.input_line)
+                    && !matches!(optimized.input_line, 2 | 3);
+                let low_rows_hold = optimized
+                    .transitions
+                    .iter()
+                    .all(|row| row.input_high || (row.to == row.from && row.action.is_none()));
+                let actions_fit = optimized
+                    .transitions
+                    .iter()
+                    .all(|row| row.action.is_none_or(|action| action <= 2));
+                if protocol_count != 1
+                    || has_exported_function
+                    || !pulse_input
+                    || !low_rows_hold
+                    || !actions_fit
+                {
+                    return Err(Error::new(
+                        name.span,
+                        format!(
+                            "protocol `{}` cannot fit a spatial actor ({} minimized states), and its graph is not eligible for the PX8 controller backend; that backend requires one protocol, no exported functions, a pulse input on P4..P25, hold-only low rows, and at most two actions",
+                            name.text, optimized.states
+                        ),
+                    ));
+                }
+                for candidate in &mut actor_search.report.candidates {
+                    candidate.feasible = false;
+                }
+                let selected = actor_search.report.candidates.len();
+                actor_search
+                    .report
+                    .candidates
+                    .push(crate::ProtocolPlacementCandidate {
+                        implementation: "PX8 controller",
+                        feasible: true,
+                        assignments: Vec::new(),
+                        local_channel_connections: 0,
+                        parallel_actors: 0,
+                        controller_step_bytes: Some(controller_step_bytes(&optimized)),
+                    });
+                actor_search.report.selected = Some(selected);
+                chip.protocol_action_lines.insert(
+                    name.text.clone(),
+                    [Some(Line::fire(0)), Some(Line::fire(1)), None],
+                );
+                protocol_controller = Some(optimized.clone());
+                protocol_mappings.push(crate::ProtocolMapping {
+                    name: name.text.clone(),
+                    implementation: "PX8 controller",
+                    actor: None,
+                    input_line: optimized.input_line,
+                    source_states: graph.states,
+                    mapped_states: optimized.states,
+                    source_transitions: graph.transitions.len(),
+                    mapped_transitions: optimized.transitions.len(),
+                    states_reduced: graph.states - optimized.states,
+                    local_channel_connections: 0,
+                    placement_candidates_evaluated: actor_search.report.candidates.len(),
+                    actor_pipeline_cycles: None,
+                    controller_step_bytes: Some(controller_step_bytes(&optimized)),
+                });
+            }
+            Err(reason) => {
+                return Err(Error::new(
+                    name.span,
+                    format!("protocol `{}` cannot map: {reason}", name.text),
+                ));
+            }
+        }
+    }
     for item in items {
         let writes = match item {
             Item::Pin {
@@ -627,37 +757,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                 on,
                 value,
             } => chip.reg(name, init.as_ref(), on.as_ref(), value)?,
-            Item::Protocol {
-                name,
-                input,
-                transitions,
-            } => {
-                let graph = protocol_graph(name, input, transitions, &chip)?;
-                let mapping = crate::protocol::map_actor(&graph, chip.decls[&name.text].index)
-                    .map_err(|reason| {
-                        Error::new(
-                            name.span,
-                            format!(
-                                "protocol `{}` cannot map to an 8x4 actor: {reason}",
-                                name.text
-                            ),
-                        )
-                    })?;
-                protocol_mappings.push(crate::ProtocolMapping {
-                    name: name.text.clone(),
-                    actor: mapping.actor,
-                    input_line: graph.input_line,
-                    source_states: graph.states,
-                    mapped_states: mapping.mapped_states,
-                    source_transitions: graph.transitions.len(),
-                    mapped_transitions: mapping.mapped_transitions,
-                    states_reduced: mapping.states_reduced,
-                    local_channel_connections: actor_search.slots[&name.text].1,
-                    placement_candidates_evaluated: actor_search.report.candidates.len(),
-                    actor_pipeline_cycles: 1,
-                });
-                mapping.writes
-            }
+            Item::Protocol { name, .. } => protocol_writes.remove(&name.text).unwrap_or_default(),
             _ => Vec::new(),
         };
         for (address, value) in writes {
@@ -810,7 +910,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         asm.config(config::FLAGS, flag_bits);
     }
     asm.config(config::ARM, 1);
-    let exports = control::lower(&chip, &functions, &mut asm)?;
+    let exports = control::lower(&chip, &functions, protocol_controller.as_ref(), &mut asm)?;
     let image = asm
         .assemble()
         .map_err(|message| Error::new(Span::default(), message))?;
@@ -819,7 +919,15 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         .iter()
         .map(|(name, _)| (name.text.clone(), chip.pads[chip.decls[&name.text].index]))
         .collect();
-    let resources = resource_map(&chip.decls, &chip.pads, &chip.edges, items, &streams);
+    let resources = resource_map(
+        &chip.decls,
+        &chip.pads,
+        &chip.edges,
+        items,
+        &streams,
+        &chip.protocol_action_lines,
+        protocol_controller.is_some(),
+    );
     let kinds = [
         Kind::Pin,
         Kind::Timer,
@@ -837,7 +945,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             let (capacity, plural) = kind.capacity();
             (
                 plural.split(" (").next().unwrap_or(plural),
-                counts[kind as usize],
+                if kind == Kind::Protocol && protocol_controller.is_some() {
+                    0
+                } else {
+                    counts[kind as usize]
+                },
                 capacity,
             )
         })
@@ -925,6 +1037,24 @@ fn protocol_graph(
     })
 }
 
+/// Maximum emitted bytes for one PX8 protocol transition: WEV plus its operand
+/// prefix, an optional FIRE, and the fixed three-byte jump.
+fn controller_step_bytes(graph: &crate::protocol::ProtocolGraph) -> usize {
+    let wait_bytes = if graph.input_line < 16 { 1 } else { 2 };
+    (0..graph.states)
+        .map(|state| {
+            let action_bytes = graph
+                .transitions
+                .iter()
+                .find(|transition| transition.from == state && transition.input_high)
+                .and_then(|transition| transition.action)
+                .map_or(0, |_| 1);
+            wait_bytes + action_bytes + 3
+        })
+        .max()
+        .unwrap_or(wait_bytes + 3)
+}
+
 /// Keep the compiler's allocation report tied to the same encoding helpers
 /// used to emit RTL configuration and signal selectors.
 fn resource_map(
@@ -933,6 +1063,8 @@ fn resource_map(
     edges: &HashMap<(usize, bool), usize>,
     items: &[Item],
     streams: &BTreeMap<String, Stream>,
+    protocol_action_lines: &HashMap<String, [Option<Line>; 3]>,
+    protocol_controller: bool,
 ) -> Vec<ResourceAssignment> {
     let mut resources = Vec::new();
     for (name, decl) in decls {
@@ -991,16 +1123,23 @@ fn resource_map(
             ),
             Kind::Event => ("event", k, None, vec![("fire", Line::fire(k).0)]),
             Kind::Flag => ("flag", k, None, vec![("value", Line::flag(k).0)]),
-            Kind::Protocol => (
-                "protocol actor",
-                k,
-                Some(0x90 + (k * 8) as u8),
-                vec![
-                    ("action1", 26 + (k * 3) as u8),
-                    ("action2", 27 + (k * 3) as u8),
-                    ("action3", 28 + (k * 3) as u8),
-                ],
-            ),
+            Kind::Protocol => {
+                let actions = protocol_action_lines
+                    .get(name)
+                    .copied()
+                    .unwrap_or([None; 3]);
+                let mut outputs = Vec::new();
+                for (i, action) in actions.iter().enumerate() {
+                    if let Some(line) = action {
+                        outputs.push((["action1", "action2", "action3"][i], line.0));
+                    }
+                }
+                if protocol_controller {
+                    ("PX8 protocol controller", k, None, outputs)
+                } else {
+                    ("protocol actor", k, Some(0x90 + (k * 8) as u8), outputs)
+                }
+            }
         };
         resources.push(ResourceAssignment {
             name: name.clone(),
@@ -1320,8 +1459,27 @@ impl Chip<'_> {
                 }
             }
             ExprKind::Field(object, field) => {
-                let (_, decl) = self.decl(object)?;
+                let (name, decl) = self.decl(object)?;
                 let k = decl.index;
+                if decl.kind == Kind::Protocol {
+                    let index = match field.text.as_str() {
+                        "action1" => 0,
+                        "action2" => 1,
+                        "action3" => 2,
+                        _ => {
+                            return Err(Error::new(
+                                field.span,
+                                format!(
+                                    "a protocol actor has no signal `{}`; it has `.action1`, `.action2` and `.action3`",
+                                    field.text
+                                ),
+                            ));
+                        }
+                    };
+                    return self.protocol_action_lines.get(&name)
+                        .and_then(|lines| lines[index])
+                        .ok_or_else(|| Error::new(field.span, format!("protocol `{name}` has no `{}` output in its selected implementation", field.text)));
+                }
                 Ok(match (decl.kind, field.text.as_str()) {
                     (Kind::Pin, "rise" | "fall") => {
                         let pad = self.pads[k];
@@ -1339,9 +1497,6 @@ impl Chip<'_> {
                     (Kind::Counter, "at_least") => Line::counter_at_least(k),
                     (Kind::Crc, "out") => Line::crc_out(k),
                     (Kind::Crc, "ok") => Line::crc_ok(k),
-                    (Kind::Protocol, "action1") => Line(26 + (k * 3) as u8),
-                    (Kind::Protocol, "action2") => Line(27 + (k * 3) as u8),
-                    (Kind::Protocol, "action3") => Line(28 + (k * 3) as u8),
                     (kind, _) => {
                         return Err(Error::new(
                             field.span,

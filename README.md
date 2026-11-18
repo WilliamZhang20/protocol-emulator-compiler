@@ -49,6 +49,7 @@ that.
 - [`examples/i2c.spt`](examples/i2c.spt): an I2C controller with `write_read`, NACK reporting and clock stretching.
 - [`examples/usb.spt`](examples/usb.spt): a low-speed USB packet transmitter: NRZI, bit stuffing, CRC16 and end of packet in the fabric.
 - [`examples/protocol_control.spt`](examples/protocol_control.spt): a two-state protocol graph mapped onto a spatial control actor.
+- [`examples/protocol_control_controller.spt`](examples/protocol_control_controller.spt): an oversized pulse-driven graph lowered to the PX8 controller and checked over a UART peer.
 
 Protocol actors use a fixed signal line and two-valued transitions:
 
@@ -73,9 +74,17 @@ actor beside a shifter when that graph reads the shifter's lines or drives its
 number of actor assignments evaluated, plus the actor's one-cycle registered
 stage. Candidate assignments, concurrent actor count, and locality scores are
 shown to make the choice auditable; routed wire length still needs physical
-implementation data. Graphs
-that exceed actor limits currently fail with a mapping diagnostic; selecting
-a PX8 implementation for those graphs is a remaining compiler step.
+implementation data. If minimization still leaves more than four states, the
+mapper evaluates a PX8 controller implementation for a single graph when it
+is driven by a pulse line (P4–P25), low-input rows hold state, there are at
+most two actions, and no exported functions need the controller. The compiler
+reports actor candidates as infeasible and the controller candidate as
+selected. Controller actions use the PX8 `FIRE` outputs on P2 and P3; this
+implementation is serialized by the controller and does not run in parallel
+with another controller function. The report includes its worst-case encoded
+instruction bytes per input event as a code-size proxy; this is not a
+clock-accurate latency estimate. Level-triggered graphs and graphs outside
+these constraints still fail with a mapping diagnostic.
 
 The target map includes eight configurable pin-edge cells (shared by rise and
 fall requests), two CRC engines, counter hit pulses on lines 24–25, and the

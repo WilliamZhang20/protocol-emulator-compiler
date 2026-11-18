@@ -77,8 +77,10 @@ pub struct ResourceAssignment {
 pub struct ProtocolMapping {
     /// Source graph name.
     pub name: String,
-    /// Physical protocol actor, 0 or 1.
-    pub actor: usize,
+    /// Chosen implementation: spatial actor or PX8 controller.
+    pub implementation: &'static str,
+    /// Physical protocol actor, 0 or 1, when the actor backend is selected.
+    pub actor: Option<usize>,
     /// Selected input line in the 64-line fabric.
     pub input_line: u8,
     /// Source states before minimization.
@@ -96,21 +98,30 @@ pub struct ProtocolMapping {
     /// Actor assignments evaluated by the mapper for this allocation.
     pub placement_candidates_evaluated: usize,
     /// Actor pipeline stages from observed input to action output.
-    pub actor_pipeline_cycles: usize,
+    pub actor_pipeline_cycles: Option<usize>,
+    /// Worst-case encoded PX8 instruction bytes per protocol input event.
+    /// This is a code-size proxy, not a clock-cycle latency estimate.
+    pub controller_step_bytes: Option<usize>,
 }
 
-/// Alternative actor placement and its locality score.
+/// An implementation or placement option evaluated by the mapper.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProtocolPlacementCandidate {
+    /// Implementation family evaluated for this candidate.
+    pub implementation: &'static str,
+    /// Whether the candidate satisfies the graph and target constraints.
+    pub feasible: bool,
     /// `(protocol graph, actor index)` assignments in this candidate.
     pub assignments: Vec<(String, usize)>,
     /// Direct input/action signal connections placed beside their shifter.
     pub local_channel_connections: usize,
     /// Protocol actors active concurrently in this implementation.
     pub parallel_actors: usize,
+    /// Worst-case encoded PX8 instruction bytes for a controller transition.
+    pub controller_step_bytes: Option<usize>,
 }
 
-/// Search trace for the protocol actor placement decision.
+/// Search trace for the protocol implementation and actor placement decision.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProtocolPlacementSearch {
     /// Candidates in deterministic evaluation order.
