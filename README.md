@@ -1,103 +1,336 @@
-# protocol-emulator-compiler
+# Spatial
 
-Assembler and compiler frontend for
-[protocol-emulator](https://github.com/WilliamZhang20/protocol-emulator),
-an SRAM-programmed protocol engine (Tiny Tapeout). Protocol behavior is
-bytecode in foundry SRAM — UART, SPI, and I²C are programs, not fixed
-peripherals.
+A language, compiler and test runner for the spatial protocol chip. You wire
+the chip's hardware tiles (timers, shifters, counters, logic cells, pins) into a
+protocol, export what the host may call, and test it against simulated devices
+on the real RTL.
 
-This repository is the software side of that ISA. It is **not** a copy of
-the RTL tree and does **not** include a partitioner, scheduler, codegen
-backend, FPGA loader, or host/debug tooling.
-
-## Reference
-
-ISA, host nibble commands, fetch timing (`WAIT16 + 11`), the 8×16 RF + ALU,
-event bits, and the Phase C/D action engine are defined in protocol-emulator:
-
-- [docs/architecture.md](https://github.com/WilliamZhang20/protocol-emulator/blob/main/docs/architecture.md)
-  — architecture, bytecode encodings, action words `{op[3:0], args[11:0]}`
-- [test/cocotb_tests/reference/programs.py](https://github.com/WilliamZhang20/protocol-emulator/blob/main/test/cocotb_tests/reference/programs.py)
-  — current Python assembler helpers (`gpio_write`, `wait`, `uart_tx_program`, …)
-
-Module names and encodings here follow those sources. Do not add
-protocol-shaped opcodes; new ISA work belongs on the action-engine path.
-
-Pipeline:
-
-```text
-.pe source  ── (planned pec parser) ──► AST ──► frontend IR
-                              │
-                              │  TODO: typecheck, DJNZ loops, action packing
-                              ▼
-                         (codegen backend — not here)
-                              │
-.peas asm   ── (planned pec-asm) ─────► SRAM bytes ──► host load (protocol-emulator)
+```sh
+cargo install --locked --path .   # from a checkout of this repository
+spatial new hello && cd hello
+spatial run --test
 ```
 
-## Build
-
-Built with MLIR in C++.
-
-The current build provides `proto-opt`, the `proto` and `action` dialects,
-and source and assembly AST headers. It does not yet provide `pec` or
-`pec-asm`. See [the frontend contract](docs/frontend-design.md) for the
-protocol-neutral AST and target profile.
-
-Why you may ask? Because MLIR is better for heterogeneous systems. It is also more established and has a better API.
-
-Mnemonics match `programs.py` / architecture.md:
-
-| Mnemonic | Encoding |
+| Command | What it does |
 | --- | --- |
-| `nop` / `halt` | `00` / `01` |
-| `wait16 N` | `10 ll hh` |
-| `gpio_write PIN, VAL` / `gpio_oe PIN, EN` | `2vppp` / `3vppp` |
-| `tx_load` / `rx_push` | `40` / `70` |
-| `shift_out PIN` / `shift_in PIN` | `5p` / `6p` |
-| `jmp` / `jz` / `jnz LAB` | `80`–`82` + 10-bit address |
-| `djnz Rn, LAB` | `88+n ll hh` |
-| `set Rn, IMM8` / `mov Rd, Rs` | `AA` / `AB` |
-| `add`/`sub`/`and`/`or`/`xor`/`shl`/`shr Rd, Rs` | `AC op rsrd` |
-| `wait_event MASK` | `D0 mask` (`EV_TIMER_DONE`, `EV_REGION_DONE`, …) |
-| `run_region` / `wait_region` / `prog_action` | Phase D CPU ↔ action interface |
+| `spatial new NAME` | Create `NAME/main.spt` |
+| `spatial check` | Check the program fits the chip |
+| `spatial build` | Write `target/image.bin` |
+| `spatial run --test` | Build, then run every `test` in RTL simulation (`--test=NAME` for one) |
+| `spatial run` | Build, then type test statements at the program on a simulated chip |
 
-Registers are `r0`–`r7`. Jumps take labels. `#` is not a comment in
-assembly; use `;`.
+Commands find the nearest `main.spt`, or take a file: `spatial run --test examples/spi.spt`.
+Running tests also needs [uv](https://docs.astral.sh/uv/), git, make, a C++
+compiler and Verilator 5.036 or newer. The first run fetches and builds the RTL
+once into `~/.cache/spatial`.
 
-## Frontend (`.pe`)
+## Examples
 
-A small engine language over the same resources: named pins, `loop` /
-`repeat`, FIFO/GPIO/shift/wait, and `region { action … }` stubs.
+- [`examples/loopback.spt`](examples/loopback.spt): the starter project.
+- [`examples/uart.spt`](examples/uart.spt): full-duplex UART, tested against a terminal.
+- [`examples/spi.spt`](examples/spi.spt): an SPI controller with a host-callable `transfer`.
+- [`examples/i2c.spt`](examples/i2c.spt): an I2C controller with `write_read`, NACK reporting and clock stretching.
+- [`examples/usb.spt`](examples/usb.spt): a low-speed USB packet transmitter: NRZI, bit stuffing, CRC16 and end of packet in the fabric.
 
-```pe
-engine uart_tx {
-  pin tx = 0;
-  imm bit_wait = 423;
-  gpio_oe(tx, 1);
-  loop {
-    tx_load;
-    gpio_write(tx, 0);
-    wait16(bit_wait);
-  }
+The language reference is the crate documentation: `cargo doc --open`.
+
+Editor highlighting for VS Code, Vim, Neovim, Emacs, Helix and Zed: [`editors/`](editors/README.md).
+
+- [`examples/jtag.spt`](examples/jtag.spt): JTAG scans against a 16-state TAP, including IDCODE and IR/DR register access.
+
+- [`examples/swd.spt`](examples/swd.spt): raw SWD host transfers, line reset, DP reads/writes, ACK/parity and bus turnaround checks.
+
+- [`examples/ps2.spt`](examples/ps2.spt): PS/2 keyboard reception with odd parity and stop checking; host-to-device commands are outside this example.
+
+## Layout
+
+- `src/`: the compiler and the `spatial` command.
+- `sim/`: the simulator harness and built-in peers (simulated devices), embedded into the binary.
+- `examples/`: example programs, which are also the end-to-end tests.
+- `editors/`: syntax highlighting for `.spt` in common editors.
+
+## Configuration contexts
+
+`contexts(level)` groups both configurations in one place. The flag's
+initializer makes the starting selection explicit:
+
+```spatial
+flag phase = 0
+pin tx: out = sender.out
+timer bit { every: 64 cycles, first: 62 cycles, pulse, run: sender.busy until sender.done }
+contexts(phase) {
+    context 0 {
+        shifter sender { frame: [0, data(8), 1], idle: 1, shift: bit.tick }
+    }
+    context 1 {
+        shifter sender { frame: [0, data(8), even, 1], idle: 1, shift: bit.tick }
+    }
 }
 ```
 
-The example is a sketch of the planned `.pe` syntax. Parsing and lowering
-are not implemented yet.
+Both `context 0` and `context 1` are required, in either order. Context 0 can
+declare the physical resources; context 1 configures those same resources
+without allocating extra hardware. Declarations outside the block are shared
+by both configurations. Flags accept `= 0` or `= 1`; existing declarations
+without an initializer continue to start at zero. An external pin selector's
+initial value comes from the external signal, not the flag initialization.
 
-## Out of scope
+The selector may be a pin level, controller flag, or another fabric level. The
+hardware changes contexts together, two clocks after the selecting level
+changes. State (shifted bits, counters, timers) is shared: switching contexts
+does not reset it. Switch framing between transactions unless the protocol is
+designed for a mid-transfer change.
 
-Intentionally omitted (grow later, do not land as empty stubs):
+This first version permits overrides of existing **pins, timers, shifters and
+counters**. Omitted tile fields inherit the shared declaration (or context 0 when the
+resource is declared there). Pin overrides
+specify the complete mode/source; pad assignments remain shared. CRC and byte
+tiles have no hardware context banks. Logic-cell context overrides and
+context-specific runtime writes are not exposed yet. Runtime `.set`, `.drive`
+and `.release` operations update both banks; `.drive()` restores the shared pin
+declaration (or its context 0 declaration) in both banks.
 
-- Codegen backend (IR → `.peas` / bytes)
-- Partitioner and scheduler
-- FPGA / host loader, serial debug, waveform tools
-- Test-harness ports of the cocotb suite
+See [`examples/contexts.spt`](examples/contexts.spt) for 8N1/8E1 UART framing
+and paired pin switching, and [`examples/contexts_initial_one.spt`](examples/contexts_initial_one.spt)
+for starting directly in context 1. The UART test peer accepts optional `parity: "even"`
+or `parity: "odd"`; its default remains 8N1. Run:
 
-## TODO
+```sh
+cargo test --locked
+cargo run -q -- run --test examples/contexts.spt
+```
 
-- Typecheck pin/register/event names in the frontend
-- Lower `repeat` to `DJNZ` instead of unrolling
-- Pack Phase C action words (`ACT_GPIO` / `ACT_DELAY` / `ACT_DONE` / …)
-- Optional listing of per-opcode cycle cost (`3 + 2×operands`, plus stalls)
+## Setting flags
+
+These are built-in controller operations; they need no `fn` definition:
+
+```spatial
+flag sending = 0, receiving = 0
+
+export fn begin_sending() {
+    set_flags(sending)             // sending=1, receiving=0
+}
+export fn enable_both() {
+    set_flags(sending, receiving)  // sending=1, receiving=1
+}
+export fn stop() {
+    clear_flags()                 // sending=0, receiving=0
+}
+```
+
+`set_flags(...)` replaces the complete flag set: listed flags become 1 and
+all unlisted flags become 0. It requires at least one flag. `clear_flags()`
+takes no arguments and sets every flag to 0. The old `flags(...)` spelling
+is rejected with migration guidance. Updating just one flag while preserving
+the others is not exposed by this compiler yet.
+
+## Packets and burst transfers
+
+Use `export packets` when boundaries and receive errors matter:
+
+```spatial
+export packets send: host -> bits
+export packets recv: bits -> host
+```
+
+Host-side tests and the interactive console use:
+
+```spatial
+send.write_packet([0xA5, 0x3C])
+expect recv.read_packet() == packet([0xA5, 0x3C], error: 0)
+```
+
+A packet read consumes through the first EOP-tagged byte, returns its data and
+an `error` bit (OR of the received byte-error tags), and leaves the next packet
+queued. `error: 1` is visible data rather than an automatic test failure. Byte
+streams retain their existing automatic parity/stop-error checks. Packet and
+byte methods cannot be mixed on a stream. Empty packets are rejected because
+there is no byte on which to carry EOP. TX packet writes currently carry EOP,
+not host-injected ERR; receive errors come from the hardware.
+
+Shifter settings expose existing RTL register `0x32 + shifter_index`:
+
+- `burst`: subsequent words share one frame's pre/parity/post bits.
+- `end: level`: a high level marks the current word as the last. This is
+  required in burst mode because the hardware always observes this selector.
+  For EOP-tag-only termination, supply a zero-valued `reg`.
+- `end_on_packet`: a TX FIFO byte tagged EOP also ends the burst. Requires a
+  host-to-shifter FIFO connection. It is required for TX packet streams
+  without a byte-processing pipeline.
+- `abort: signal`: while asserted, drops the in-flight word without a receive
+  push or word-completion event. It returns to the configured idle level; it
+  does not disable the pin driver. It can also be used without burst mode.
+
+FIFO starvation also ends a transmit burst in the existing RTL; the new API
+cannot make an insufficiently fed frame continuous. The host must keep up.
+RX packet exports require burst mode with an end condition, or a byte pipeline
+that establishes boundaries with `tag` or `unescape`. EOP tags are local
+FIFO metadata, not a packet delimiter magically added to the external wire:
+protocol programs must implement their actual on-wire framing.
+
+Abort does not flush queued TX bytes, already received bytes, or their partial
+packet prefix. It does not synthesize a final EOP/ERR byte. The abort example
+therefore cancels the first word before any receive byte is emitted, with no
+further TX data queued, then starts a fresh packet. Recovering a partial packet
+that already emitted bytes needs a protocol-specific resynchronization/flush
+policy, outside this slice.
+
+Run the examples:
+
+```sh
+cargo run -q -- run --test examples/packets.spt
+cargo run -q -- run --test examples/packet_errors.spt
+```
+
+`packets.spt` uses one full-duplex shifter and an external pin loopback to
+exercise two packet boundaries and abort/restart. `packet_errors.spt` receives
+UART frames from an independent peer, proving both clean and corrupt parity
+are reported with the correct packet metadata. No RTL changes are needed.
+
+## Byte-processing stages
+
+An exported connection can configure up to two byte stages, in the order
+bytes travel. TX runs FIFO -> stage 0 -> stage 1 -> shifter; RX runs shifter
+-> stage 0 -> stage 1 -> FIFO. Omitted stages pass bytes unchanged.
+
+```spatial
+export packets send: host -> sender {
+    checksum { algorithm: add, operation: generate }
+    escape {
+        delimiter: 0x7E, escape: 0x7D,
+        mapped_delimiter: 0x5E, mapped_escape: 0x5D,
+        prepend, append,
+    }
+}
+export packets recv: receiver -> host {
+    unescape {
+        delimiter: 0x7E, escape: 0x7D,
+        mapped_delimiter: 0x5E, mapped_escape: 0x5D,
+    }
+    checksum { algorithm: add, operation: verify }
+}
+```
+
+These are the chip's existing fixed byte tiles, configured by the compiler.
+They are also available on `export stream` connections. A transmit packet
+connection supplies EOP to the stages; a receive connection needs a burst
+shifter or a framing stage (`tag`/`unescape`). Checksum, escape and filter
+stages require upstream packet boundaries, so their order is checked.
+Byte framing allows ordinary UART shifters to carry packets without using
+burst mode; see [`examples/byte_framing.spt`](examples/byte_framing.spt).
+
+| Stage | Fields and behavior |
+| --- | --- |
+| `pass {}` | Bytes and EOP/ERR tags pass unchanged. |
+| `escape { ... }` | Required `delimiter`, `escape`, `mapped_delimiter`, `mapped_escape` bytes. The two special bytes become escape-plus-mapped-byte. `prepend` and `append` default to 1; set either to 0 to disable that delimiter. |
+| `unescape { ... }` | Same four byte fields. Delimiters terminate packets; escape codes are restored. Invalid or unfinished escapes mark a packet as erroneous. |
+| `checksum { ... }` | Required `algorithm: add` or `xor`, and `operation: generate` or `verify`. Zero-seeded 8-bit checksums; additive generation appends the two's complement of the sum, XOR appends the XOR. Verification expects the total to be zero and retains the checksum byte in the returned data. |
+| `tag { ... }` | `length: N` (0..255; zero disables length termination), `end: signal`, `error: signal`, all optional/default zero. End or length marks the last byte; an input EOP is preserved. Error is latched while collecting a packet. |
+| `filter { ... }` | Required `value` byte, optional `mask` (default 0xFF). Keep an entire packet if its first byte matches under the mask; discard the entire packet otherwise. The address byte is retained. |
+
+All byte fields are range checked. Escape and delimiter must differ; their
+replacements must be distinct and cannot equal the delimiter. There are only
+two stages in each direction per shifter, eight total, shown as `byte tiles`
+in the resource report. Stage ordering is independent in each direction.
+These settings are loaded before arming; runtime stage reconfiguration, stage
+event names and context-specific byte settings are not exposed in this slice.
+The hardware byte tiles themselves have no context banks.
+
+Checksums here are 8-bit add/XOR operations, not CRC16/CRC32. The separate
+bit-level `crc` block remains the path for those. Verification retains FCS;
+filtering retains the address; neither implicitly strips protocol fields.
+Empty delimiter-only frames produce no received packet, consistent with the
+packet API's requirement for at least one tagged byte.
+
+Examples:
+
+- [`byte_framing.spt`](examples/byte_framing.spt): framing, escaping, additive checksums, malformed escapes and bad checksums, with an independent UART peer checking raw bytes.
+- [`byte_filter.spt`](examples/byte_filter.spt): fixed-length packets and masked address filtering.
+- [`byte_tag_gap.spt`](examples/byte_tag_gap.spt): packets terminated by a quiet interval on the wire.
+- [`byte_tag_errors.spt`](examples/byte_tag_errors.spt): error tags from a fabric signal.
+- [`byte_xor.spt`](examples/byte_xor.spt): XOR generation/verification and explicit pass-through.
+
+## Stored-byte transfers and Ethernet transmit
+
+`shifter.send(CONSTANT_BYTES)` is a controller operation. It stores a constant
+byte list/string in the shared SRAM and streams it through the shifter's TX
+FIFO using existing PX8 instructions. Identical byte tables are shared across
+calls. The last byte is tagged EOP. It returns after enqueueing all bytes;
+wait for the relevant shifter/protocol completion event before assuming the
+wire is idle. It does not add framing or an inter-packet gap.
+
+```spatial
+const DATA = [0x00, 0xFF, 0x55, 0xA5]
+export fn transmit_stored() {
+    sender.send(DATA)
+    wait sender.done
+}
+```
+
+The operation claims that TX FIFO; it cannot share ownership with a host
+stream or `bytes via` parameter. It uses the controller's loop counter and
+data pointer, so it cannot be nested inside a runtime-counted loop. Transfer
+bytes, instructions and configuration tables must fit together in 1 KB.
+Runtime host data continues to use `bytes via`; `.load` remains the separate
+operation for loading a manual shifter word. See
+[`stored_bytes.spt`](examples/stored_bytes.spt) for a UART replay test with FIFO
+backpressure and a one-byte transfer.
+
+[`ethernet_tx.spt`](examples/ethernet_tx.spt) ports the existing digital
+10BASE-T transmit demo to Spatial. Its `transmit()` function sends a stored
+60-byte Ethernet frame (header and payload), with preamble/SFD and hardware
+CRC32, between three 100 ns link pulses spaced exactly 16 ms apart. The core
+clock is 40 MHz, with 2 clocks per Manchester half-bit. The final TP_IDL high
+is 300 ns. The program fits in 433 SRAM bytes and uses all four timers, both
+counters, all eight logic cells and the CRC; it has no receive implementation.
+
+Context 0 connects the paired pins to the link-pulse path; context 1 connects
+them to the frame encoder. Datapath state is reset while context 0 is still
+active before switching to frame output, so a repeated call cannot expose a
+stale CRC/tail state. The frame bytes come from SRAM rather than relying on
+host service latency during the frame. `FRAME` is the expected header/payload;
+`WIRE_FRAME` stores preamble/SFD plus those bytes, excluding FCS. Edit both and
+recompile to change the stored frame. The compiler checks SRAM capacity.
+
+This is a finite link-session demonstration, not an always-running link/MAC:
+link pulses stop after the call returns. It does not implement receive,
+collision handling, autonegotiation, arbitrary runtime frame loading or analog
+drive circuitry. TD+ / TD- are digital `uio0` / `uio1`; external line drivers
+and magnetics are required. The independent `ethernet_link` peer checks digital
+Manchester cells, exact preamble, FCS against `zlib.crc32`, idle tail, pulse
+width/spacing, expected frame/pulse counts, and the 40 MHz clock. Its optional
+`pulse_period` argument permits explicitly accelerated pulse-gap tests; the
+example uses the fixed real-time default of 640000 clocks (16 ms).
+
+Long protocol tests can specify a per-blocking-step simulation budget:
+
+```spatial
+test "link session" step_timeout 60 ms {
+    // attach the peer, call transmit(), and check its decoded bytes
+}
+```
+
+The default remains 200000 clocks. The explicit budget must be between 1 and
+40000000 clocks; it applies to blocking calls/reads, not total test duration
+or wall time. Simulation polls these deadlines in 16-clock increments. A peer
+may provide an optional `finish()` hook for end-of-test observation checks,
+used here to reject missing pulses/frames.
+
+```sh
+cargo run -q -- run --test examples/stored_bytes.spt
+cargo run -q -- run --test examples/ethernet_tx.spt
+```
+
+The real-time Ethernet tests simulate about 144 ms total and can take several
+minutes. They cover one session, then two consecutive sessions to check reset
+and replay behavior. Electrical interoperability remains unmeasured.
+
+Additional Ethernet data/error cases (accelerated pulse gaps, real 10 Mb/s
+bits) also run in CI:
+
+```sh
+python3 tests/ethernet_cases.py target/debug/spatial
+```
+
+They cover zero/one/alternating payloads and a seeded 400-byte payload, plus
+wrong CRC polynomial, missing link pulses and wrong core clock.

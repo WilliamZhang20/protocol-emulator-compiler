@@ -1,0 +1,26 @@
+[package]
+name = "spatial"
+version = "0.3.0"
+edition = "2024"
+description = "Compiler and test runner for the spatial protocol chip"
+repository = "https://github.com/jespiron/protocol-emulator-compiler"
+include = ["/src/**/*.rs", "/sim/**/*.py", "/sim/pyproject.toml", "/sim/uv.lock", "/examples/*.spt", "/README.md", "/Cargo.toml", "/Cargo.lock"]
+
+[[bin]]
+name = "spatial"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+rustyline = { version = "17", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.clippy]
+all = "warn"

@@ -1,0 +1,30 @@
+name: compiler
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: astral-sh/setup-uv@v6
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: '2026-10-26'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run every example's tests on the RTL
+        run: |
+          cargo build --locked
+          for example in examples/*.spt; do target/debug/spatial run --test "$example"; done
+          python3 tests/ethernet_cases.py target/debug/spatial
+      - name: A new project works from an installed binary
+        run: |
+          cargo install --locked --path . --root /tmp/spatial
+          cd /tmp && /tmp/spatial/bin/spatial new hello && cd hello && /tmp/spatial/bin/spatial run --test
