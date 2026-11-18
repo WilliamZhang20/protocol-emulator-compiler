@@ -291,7 +291,9 @@ fn report(
 }
 
 fn percent(part: u64, total: u64) -> u64 {
-    part.saturating_mul(100).checked_div(total).unwrap_or_default()
+    part.saturating_mul(100)
+        .checked_div(total)
+        .unwrap_or_default()
 }
 
 fn run() -> AppResult<bool> {
