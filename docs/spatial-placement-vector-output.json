@@ -1,0 +1,99 @@
+{
+  "provenance": {
+    "candidate": "vector-output-long",
+    "rtl_commit_base": "7dd2f41c3cc3065129ad6ee69599057834ad5f28",
+    "odb_stage": "45-openroad-resizertimingpostgrt",
+    "odb_units_per_micron": 1000,
+    "bbox_microns": {
+      "x_min": 0.0,
+      "y_min": 0.0,
+      "x_max": 1724.16,
+      "y_max": 710.64
+    },
+    "resource_coordinate_method": "Mean origin of output registers on named RTL state nets for each indexed resource; these are placement centroids, not tile boundaries.",
+    "gpio_coordinate_method": "Center of each top-level uio_* BTerm box. These are interface terminals, not separate package pad cells."
+  },
+  "resource_centroids_um": {
+    "timer": [
+      [1410.881, 202.768],
+      [1210.426, 181.853],
+      [1332.592, 184.888],
+      [1549.408, 290.452]
+    ],
+    "logic_cell": [
+      [1422.790, 289.255],
+      [1452.643, 643.373],
+      [1515.660, 531.863],
+      [1482.469, 601.277],
+      [1500.921, 404.288],
+      [1225.254, 652.909],
+      [1405.690, 540.282],
+      [1503.480, 541.656]
+    ],
+    "counter": [
+      [932.200, 463.722],
+      [850.017, 595.071]
+    ],
+    "shifter": [
+      [1044.192, 363.545],
+      [495.469, 567.030]
+    ],
+    "crc": [
+      [669.069, 504.478],
+      [384.964, 502.891]
+    ],
+    "edge_cell": [
+      [737.856, 451.710],
+      [767.920, 502.740],
+      [822.240, 442.890],
+      [872.280, 436.590],
+      [797.160, 453.600],
+      [830.000, 485.730],
+      [765.280, 343.980],
+      [714.960, 423.360]
+    ]
+  },
+  "gpio_terminals_um": {
+    "uio_out": [
+      [87.360, 710.140],
+      [83.520, 710.140],
+      [79.680, 710.140],
+      [75.840, 710.140],
+      [72.000, 710.140],
+      [68.160, 710.140],
+      [64.320, 710.140],
+      [60.480, 710.140]
+    ],
+    "uio_oe": [
+      [56.640, 710.140],
+      [52.800, 710.140],
+      [48.960, 710.140],
+      [45.120, 710.140],
+      [41.280, 710.140],
+      [37.440, 710.140],
+      [33.600, 710.140],
+      [29.760, 710.140]
+    ],
+    "uio_in": [
+      [148.800, 710.140],
+      [144.960, 710.140],
+      [141.120, 710.140],
+      [137.280, 710.140],
+      [133.440, 710.140],
+      [129.600, 710.140],
+      [125.760, 710.140],
+      [121.920, 710.140]
+    ]
+  },
+  "selector_path": {
+    "rtl_net": "core.counter[0].tile.lines[63]",
+    "rtl_driver": "logic_cell[7].q",
+    "start_register_xy_um": [1526.400, 585.900],
+    "endpoint_register": "core.shifter1.skip_left[6]",
+    "endpoint_xy_um": [170.880, 616.140],
+    "placed_manhattan_distance_um": 1385.760,
+    "buffer_cells_on_timing_path": 28,
+    "source_net_global_route_wire_um": 432.0,
+    "warning": "Distance is between placed registers, not extracted route length. The 432 µm figure covers only the source net segment, not all buffered path nets."
+  }
+}
