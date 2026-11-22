@@ -1,0 +1,7 @@
+// A real .spt protocol graph. Missing rows hold state and emit no action.
+clock 50 MHz
+pin request: in
+protocol handshake on request {
+    transition 0 high -> 1 action 1
+    transition 1 low -> 0 action 2
+}

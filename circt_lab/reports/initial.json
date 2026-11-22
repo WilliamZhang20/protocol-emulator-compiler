@@ -1,0 +1,458 @@
+{
+  "candidate": "prototype-control-v1: 4 states, 2 inputs, 3 action outputs; reachable-state Mealy minimization",
+  "programs": [
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "byte_filter.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "byte_framing.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "byte_tag_errors.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "byte_tag_gap.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "byte_xor.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "contexts.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires valid base-context inputs",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "contexts_initial_one.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires valid base-context inputs",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "contexts_logic.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires valid base-context inputs",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "crc_link_trace.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "ethernet_tx.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires valid base-context inputs",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "ethernet_tx_coded.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires valid base-context inputs",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "i2c.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "io_saturation.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "jtag.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "loopback.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_bandwidth.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_bandwidth_bit2.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_bandwidth_fast.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_dual_channel.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_dual_channel_bit2.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_dual_channel_serial.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "memory_unequal_parallel.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "packet_errors.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "packets.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [
+        {
+          "inputs": 1,
+          "limitations": "Input and output binding, placement, and surrounding program not mapped.",
+          "mapped_states": 2,
+          "name": "handshake",
+          "reachable_states": 2,
+          "source_input_binding": "unverified",
+          "states": 5,
+          "status": "table_emitted_and_checked"
+        }
+      ],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "protocol_control.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support source item: resource",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [
+        {
+          "inputs": 1,
+          "name": "handshake",
+          "reason": "mapping error: minimized protocol exceeds prototype control tile's four states",
+          "source_input_binding": "unverified",
+          "states": 9,
+          "status": "unsupported"
+        }
+      ],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "protocol_control_controller.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [
+        {
+          "inputs": 1,
+          "name": "handshake",
+          "reason": "mapping error: minimized protocol exceeds prototype control tile's four states",
+          "source_input_binding": "unverified",
+          "states": 5,
+          "status": "unsupported"
+        }
+      ],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "protocol_control_extended_actor.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [
+        {
+          "inputs": 1,
+          "name": "handshake",
+          "reason": "mapping error: minimized protocol exceeds prototype control tile's four states",
+          "source_input_binding": "unverified",
+          "states": 5,
+          "status": "unsupported"
+        }
+      ],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "protocol_control_extended_actor_fast.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support source item: resource",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [
+        {
+          "inputs": 2,
+          "limitations": "Input and output binding, placement, and surrounding program not mapped.",
+          "mapped_states": 2,
+          "name": "qualified",
+          "reachable_states": 2,
+          "source_input_binding": "unverified",
+          "states": 2,
+          "status": "table_emitted_and_checked"
+        }
+      ],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "protocol_control_two_input.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support source item: resource",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "ps2.spt",
+      "unmodeled_word_streams": 1,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "spi.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "stored_bytes.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "swd.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "uart.spt",
+      "unmodeled_word_streams": 2,
+      "whole_program": {
+        "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
+        "status": "unsupported"
+      }
+    },
+    {
+      "control_components": [],
+      "dialect": "verified",
+      "frontend": "exported",
+      "program": "usb.spt",
+      "unmodeled_word_streams": 0,
+      "whole_program": {
+        "reason": "mapping error: control fabric requires exactly one protocol",
+        "status": "unsupported"
+      }
+    }
+  ],
+  "provenance": {
+    "circt_opt_version": "LLVM (http://llvm.org/):\n  LLVM version 24.0.0git\n  Optimized build.\nCIRCT firtool-1.164.0",
+    "corpus_sha256": "d71b74b4957d6bd3e3c7dcf52451c39d2a943d8f654d908fe9d60f47e23d1569",
+    "frontend_git_head": "d2c8de276885ae18e1c983bf21ec70b55aa848d7",
+    "frontend_worktree_clean": false,
+    "mapper_source_sha256": "fe8052a51b058b10105e65d40408b44378865ea90bc226506c5018ad8815694d",
+    "rust_source_sha256": "dfebd432960194ed9bc1ee92db2531d92b128b458abf689a8528d41b7e0f1d4b"
+  },
+  "schema": "spatial.circt-corpus-coverage.v1",
+  "scope": "Frontend, isolated control tables and restricted control-only target coverage; not general topology fit or physical timing.",
+  "summary": {
+    "control_table_emitted_and_checked": 2,
+    "control_unsupported": 3,
+    "dialect_verified": 35,
+    "frontend_exported": 35,
+    "full_programs_mapped": 0,
+    "programs_with_explicit_protocol_graph": 5,
+    "total_programs": 35
+  }
+}

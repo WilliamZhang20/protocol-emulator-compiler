@@ -1,0 +1,256 @@
+#!/bin/sh
+set -eu
+: "${CIRCT_MAP:?Set CIRCT_MAP to the mapper executable or launcher}"
+: "${CIRCT_OPT:?Set CIRCT_OPT to circt-opt executable or launcher}"
+: "${SPATIAL_DIALECT:?Set SPATIAL_DIALECT to the built dialect plugin}"
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SPATIAL_FRONTEND=${SPATIAL_FRONTEND:-"$HERE/../target/debug/spatial"}
+TEST_TMP=$(mktemp -d)
+trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
+"$CIRCT_OPT" "$HERE/control_fsm.mlir" -o /dev/null
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/spi.spt" > "$TEST_TMP/frontend.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend.mlir" -o "$TEST_TMP/frontend-checked.mlir"
+"$CIRCT_MAP" --verify "$TEST_TMP/frontend.mlir" > /dev/null
+test "$(grep -c 'spatial.frontend_item' "$TEST_TMP/frontend-checked.mlir")" -eq 19
+test "$(grep -c 'spatial.frontend_input' "$TEST_TMP/frontend-checked.mlir")" -gt 0
+sed '0,/kind = "clock"/s/kind = "clock"/kind = "not_clock"/' "$TEST_TMP/frontend.mlir" > "$TEST_TMP/frontend-bad.mlir"
+if "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend-bad.mlir" -o /dev/null 2> "$TEST_TMP/error"; then
+  echo 'registered verifier accepted a mismatched frontend item kind' >&2; exit 1
+fi
+grep -Fq 'item_json kind must match' "$TEST_TMP/error"
+# A real .spt protocol graph now lowers through the registered typed operation
+# to the prototype control table. This is not a full-program image.
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/examples/control.spt" > "$TEST_TMP/control-frontend.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/control-frontend.mlir" -o /dev/null
+"$CIRCT_MAP" --control-rows "$TEST_TMP/control-frontend.mlir" handshake "$TEST_TMP/control.mem" > "$TEST_TMP/control-report.json"
+python3 - "$TEST_TMP/control.mem" "$TEST_TMP/control-report.json" <<'PY'
+import json, sys
+rows = [int(x, 16) for x in open(sys.argv[1])]
+expected = []
+for state in range(4):
+    for a in range(2):
+        for _b in range(2):
+            expected.append(5 if state == 0 and a else 8 if state == 1 and not a else state)
+assert rows == expected, (rows, expected)
+r = json.load(open(sys.argv[2]))
+assert r['control_table_written'] and not r['input_binding_verified'] and not r['full_program_compiled']
+PY
+if [ -n "${CONTROL_IMAGE_TB:-}" ]; then
+  "$CONTROL_IMAGE_TB" "+IMAGE=$TEST_TMP/control.mem"
+else
+  echo 'RTL control-image test skipped: CONTROL_IMAGE_TB not set'
+fi
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/examples/control_full.spt" > "$TEST_TMP/full.mlir"
+"$CIRCT_MAP" --compile-control "$TEST_TMP/full.mlir" "$TEST_TMP/full.mem" > "$TEST_TMP/full.json"
+python3 - "$TEST_TMP/full.mem" "$TEST_TMP/full.json" <<'PY'
+import json, sys
+rows = [int(x, 16) for x in open(sys.argv[1])]
+report = json.load(open(sys.argv[2]))
+assert len(rows) == 17 and rows[-1] == 3
+assert report['full_program_compiled'] and report['input_binding_verified']
+assert report['pin_bindings'] == {'request': 'input0', 'high_out': 'output0', 'low_out': 'output1'}
+PY
+if [ -n "${FULL_CONTROL_IMAGE_TB:-}" ]; then
+  "$FULL_CONTROL_IMAGE_TB" "+IMAGE=$TEST_TMP/full.mem"
+else
+  echo 'RTL complete control-fabric test skipped: FULL_CONTROL_IMAGE_TB not set'
+fi
+if "$CIRCT_MAP" --compile-control "$TEST_TMP/frontend.mlir" "$TEST_TMP/unsupported.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'SPI must be rejected by the restricted control target' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/unsupported.mem"
+sed 's/states = 2 : i64/states = 3 : i64/' "$TEST_TMP/control-frontend.mlir" > "$TEST_TMP/control-tampered.mlir"
+if "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/control-tampered.mlir" -o /dev/null 2> "$TEST_TMP/error"; then
+  echo 'typed protocol disagreed with frontend but verified' >&2; exit 1
+fi
+grep -Fq 'typed protocol does not match' "$TEST_TMP/error"
+# Check a second real frontend workload with different resource types.
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/i2c.spt" > "$TEST_TMP/frontend-i2c.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend-i2c.mlir" -o /dev/null
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/uart.spt" > "$TEST_TMP/frontend-uart.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend-uart.mlir" -o /dev/null
+test "$(grep -c 'spatial.frontend_stream' "$TEST_TMP/frontend-uart.mlir")" -eq 2
+"$SPATIAL_FRONTEND" model-ir "$HERE/../examples/uart.spt" > "$TEST_TMP/frontend-original.json"
+"$CIRCT_MAP" --frontend-json "$TEST_TMP/frontend-uart.mlir" > "$TEST_TMP/frontend-roundtrip.json"
+python3 - "$TEST_TMP/frontend-original.json" "$TEST_TMP/frontend-roundtrip.json" <<'PY'
+import json, sys
+original = json.load(open(sys.argv[1]))
+original.pop('requirements')  # Derived on demand, not part of LogicalProgram.
+assert original == json.load(open(sys.argv[2])), 'frontend IR changed on MLIR roundtrip'
+PY
+# The existing lexer accepts UTF-8 and backslashes inside string literals.
+# Check MLIR byte escaping and JSON roundtrip, not just ASCII resource names.
+python3 - "$TEST_TMP/unicode.spt" <<'PY'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).write_text('clock 50 MHz\ntest "café \\ path" {}\n', encoding='utf-8')
+PY
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/unicode.spt" > "$TEST_TMP/unicode.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/unicode.mlir" -o /dev/null
+"$SPATIAL_FRONTEND" model-ir "$TEST_TMP/unicode.spt" > "$TEST_TMP/unicode-original.json"
+"$CIRCT_MAP" --frontend-json "$TEST_TMP/unicode.mlir" > "$TEST_TMP/unicode-roundtrip.json"
+python3 - "$TEST_TMP/unicode-original.json" "$TEST_TMP/unicode-roundtrip.json" <<'PY'
+import json, sys
+original = json.load(open(sys.argv[1]))
+original.pop('requirements')
+assert original == json.load(open(sys.argv[2])), 'UTF-8 or backslash changed on MLIR roundtrip'
+PY
+# Route real frontend-derived Boolean dependencies against a separately
+# declared hypothetical graph. Stream/word connections are not yet routed.
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/loopback.spt" > "$TEST_TMP/loopback.mlir"
+"$CIRCT_MAP" --analyze "$HERE/candidates/loopback-boolean.mlir" "$TEST_TMP/loopback.mlir" > "$TEST_TMP/loopback.json"
+python3 - "$TEST_TMP/loopback.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+assert r['frontend_dependency_only'] and r['unmodeled_word_streams'] == 2
+assert not r['hardware_fidelity_verified'] and not r['image_emitted']
+assert len(r['assignments']) == 10
+assert next(x for x in r['assignments'] if x['sink'] == 'out_wire.pin.drive')['selector_hops'] == 2
+PY
+# Compound expressions from the real SPI frontend must fail explicitly;
+# routing their references separately would silently discard logic semantics.
+if "$CIRCT_MAP" --analyze "$HERE/candidates/loopback-boolean.mlir" "$TEST_TMP/frontend.mlir" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'frontend compound logic should not be accepted by the simple adapter' >&2; exit 1
+fi
+grep -Fq 'only simple single-signal frontend inputs' "$TEST_TMP/error"
+"$CIRCT_MAP" "$HERE/prototype.mlir" "$HERE/spi.mlir" "$HERE/control_fsm.mlir" "$TEST_TMP/image.mem" > "$TEST_TMP/mapped.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/mapped.mlir" -o /dev/null
+cat > "$TEST_TMP/expected.mem" <<'DATA'
+0808
+0000
+0000
+0000
+0005
+0005
+000e
+000e
+000e
+000e
+0006
+0013
+0006
+0013
+0013
+0013
+0005
+0005
+a500
+DATA
+cmp "$TEST_TMP/expected.mem" "$TEST_TMP/image.mem"
+# Multiple typed widths exercise real lowering and optionally the same RTL
+# peer; absence of the optional simulator is reported, not treated as a pass.
+for spec in '1 1' '5 21' '8 165' '12 2652' '16 42435'; do
+  set -- $spec
+  width=$1
+  value=$2
+  sed -e "s/width = 8 : i64/width = $width : i64/" \
+      -e "s/tx_value = 165 : i64/tx_value = $value : i64/" \
+      -e "s/() -> i8/() -> i$width/" "$HERE/spi.mlir" > "$TEST_TMP/width.mlir"
+  "$CIRCT_MAP" "$HERE/prototype.mlir" "$TEST_TMP/width.mlir" "$HERE/control_fsm.mlir" "$TEST_TMP/width.mem" > "$TEST_TMP/width-out.mlir"
+  "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/width-out.mlir" -o /dev/null
+  if [ -n "${SPI_IMAGE_TB:-}" ]; then "$SPI_IMAGE_TB" "+IMAGE=$TEST_TMP/width.mem"; fi
+done
+if [ -z "${SPI_IMAGE_TB:-}" ]; then echo 'RTL image tests skipped: SPI_IMAGE_TB not set'; fi
+expect_fail() {
+  if "$CIRCT_MAP" "$1" "$2" "$HERE/control_fsm.mlir" "$TEST_TMP/rejected.mem" > /dev/null 2> "$TEST_TMP/error"; then
+    echo "expected mapping to fail: $3" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$3" "$TEST_TMP/error"; then
+    echo "unexpected error instead of: $3" >&2
+    cat "$TEST_TMP/error" >&2
+    exit 1
+  fi
+  if [ -e "$TEST_TMP/rejected.mem" ]; then echo "failed mapping wrote an image" >&2; exit 1; fi
+}
+sed -e 's/width = 8 : i64/width = 17 : i64/' -e 's/() -> i8/() -> i17/' "$HERE/spi.mlir" > "$TEST_TMP/wide.mlir"
+expect_fail "$HERE/prototype.mlir" "$TEST_TMP/wide.mlir" 'invalid width'
+sed 's/() -> i8/() -> i16/' "$HERE/spi.mlir" > "$TEST_TMP/type.mlir"
+expect_fail "$HERE/prototype.mlir" "$TEST_TMP/type.mlir" 'result type must be a signless integer'
+sed 's/storage_words = 4 : i64/storage_words = 3 : i64/' "$HERE/prototype.mlir" > "$TEST_TMP/storage.mlir"
+expect_fail "$TEST_TMP/storage.mlir" "$HERE/spi.mlir" 'architecture capacities'
+sed 's/pad_max_output_hz_estimate = 66000000/pad_max_output_hz_estimate = 1000000/' "$HERE/prototype.mlir" > "$TEST_TMP/pad.mlir"
+expect_fail "$TEST_TMP/pad.mlir" "$HERE/spi.mlir" 'requested clock exceeds'
+sed 's/mosi = "shift.out"/mosi = "timer.level"/' "$HERE/spi.mlir" > "$TEST_TMP/route.mlir"
+expect_fail "$HERE/prototype.mlir" "$TEST_TMP/route.mlir" 'only supports'
+sed 's/fsm.return %done/fsm.return %trigger/' "$HERE/control_fsm.mlir" > "$TEST_TMP/wrong-fsm.mlir"
+if "$CIRCT_MAP" "$HERE/prototype.mlir" "$HERE/spi.mlir" "$TEST_TMP/wrong-fsm.mlir" "$TEST_TMP/rejected.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'expected incorrect CIRCT FSM to fail' >&2
+  exit 1
+fi
+grep -Fq 'FSM guard does not match' "$TEST_TMP/error"
+# Actual dialect verification must reject invalid operations without the mapper.
+if "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/type.mlir" -o /dev/null 2> "$TEST_TMP/error"; then
+  echo 'registered verifier accepted a mismatched result type' >&2; exit 1
+fi
+grep -Fq 'result type must be a signless integer' "$TEST_TMP/error"
+printf 'module { "spatial.unknown"() : () -> () }\n' > "$TEST_TMP/unknown.mlir"
+if "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/unknown.mlir" -o /dev/null 2> "$TEST_TMP/error"; then
+  echo 'registered dialect unexpectedly accepted an unknown operation' >&2; exit 1
+fi
+# A hypothetical selector-order change is analyzable, but must not emit an
+# image claiming to match unchanged physical RTL.
+sed 's/sources = \["shift.out", "timer.level", "zero", "one"\]/sources = ["timer.level", "shift.out", "zero", "one"]/' "$HERE/prototype.mlir" > "$TEST_TMP/alternate.mlir"
+"$CIRCT_MAP" --analyze "$TEST_TMP/alternate.mlir" "$HERE/spi.mlir" > "$TEST_TMP/analysis.json"
+python3 - "$TEST_TMP/analysis.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+mosi = next(x for x in report['assignments'] if x['sink'] == 'mosi')
+assert mosi['choice'] == 1 and not report['hardware_fidelity_verified'] and not report['image_emitted']
+PY
+expect_fail "$TEST_TMP/alternate.mlir" "$HERE/spi.mlir" 'route source ordering does not match'
+# A candidate with different declared capacities is analyzable; it is not
+# permitted to emit a bitstream for the fixed hardware ABI.
+sed -e 's/storage_words = 4 : i64/storage_words = 8 : i64/' -e 's/shift_width = 16 : i64/shift_width = 32 : i64/' "$HERE/prototype.mlir" > "$TEST_TMP/larger.mlir"
+"$CIRCT_MAP" --analyze "$TEST_TMP/larger.mlir" "$HERE/spi.mlir" > "$TEST_TMP/larger.json"
+expect_fail "$TEST_TMP/larger.mlir" "$HERE/spi.mlir" 'architecture capacities'
+# Logical widths are not capped to today's 16-bit target. The 128-bit
+# hypothesis is model-only; image emission remains restricted to real RTL.
+sed -e 's/shift_width = 16 : i64/shift_width = 128 : i64/' -e 's/storage_word_bits = 16 : i64/storage_word_bits = 128 : i64/' "$HERE/prototype.mlir" > "$TEST_TMP/wide-arch.mlir"
+sed -e 's/width = 8 : i64/width = 128 : i64/' -e 's/() -> i8/() -> i128/' "$HERE/spi.mlir" > "$TEST_TMP/wide-program.mlir"
+"$CIRCT_MAP" --analyze "$TEST_TMP/wide-arch.mlir" "$TEST_TMP/wide-program.mlir" > "$TEST_TMP/wide-analysis.json"
+expect_fail "$TEST_TMP/wide-arch.mlir" "$TEST_TMP/wide-program.mlir" 'architecture capacities'
+# Two destinations compete for one relay. A successful mapping must undo its
+# first route choice and reserve that relay for the destination that needs it.
+"$CIRCT_MAP" --analyze "$HERE/candidates/backtrack.mlir" "$HERE/candidates/backtrack-program.mlir" > "$TEST_TMP/backtrack.json"
+python3 - "$TEST_TMP/backtrack.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+routes = {x['sink']: x['source'] for x in r['selected_routes']}
+assert routes['a'] == 'route.y' and routes['b'] == 'route.x'
+assert routes['x'] == 'producer_b' and routes['y'] == 'producer_a'
+assert all(x['selector_hops'] == 2 and x['selector_cycles'] == 2 for x in r['assignments'])
+PY
+sed 's/"route.x", "route.y"/"route.x"/' "$HERE/candidates/backtrack.mlir" > "$TEST_TMP/conflict.mlir"
+if "$CIRCT_MAP" --analyze "$TEST_TMP/conflict.mlir" "$HERE/candidates/backtrack-program.mlir" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'expected shared-selector conflict to fail' >&2; exit 1
+fi
+grep -Fq 'no compatible selector assignment' "$TEST_TMP/error"
+sed 's/route.y/route.missing/' "$HERE/candidates/backtrack.mlir" > "$TEST_TMP/missing-relay.mlir"
+if "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/missing-relay.mlir" -o /dev/null 2> "$TEST_TMP/error"; then
+  echo 'registered verifier accepted a missing relay' >&2; exit 1
+fi
+grep -Fq 'route references missing relay' "$TEST_TMP/error"
+python3 "$HERE/test_routes.py" --mapper "$CIRCT_MAP" --cases 30
+python3 "$HERE/test_control.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --cases 40
+python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --output "$TEST_TMP/corpus.json"
+python3 - "$TEST_TMP/corpus.json" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1]))['summary']
+assert r['total_programs'] > 0 and r['frontend_exported'] == r['total_programs']
+assert r['dialect_verified'] == r['total_programs']
+assert r['control_table_emitted_and_checked'] > 0
+PY
+mkdir "$TEST_TMP/one-example"
+cp "$HERE/examples/control.spt" "$TEST_TMP/one-example/control.spt"
+if python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --examples "$TEST_TMP/one-example" --output "$TEST_TMP/strict-corpus.json" --require-full; then
+  echo 'strict corpus check accepted an incomplete program' >&2; exit 1
+fi
+rm "$TEST_TMP/one-example/control.spt"
+cp "$HERE/examples/control_full.spt" "$TEST_TMP/one-example/control_full.spt"
+python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --examples "$TEST_TMP/one-example" --output "$TEST_TMP/strict-corpus.json" --require-full
+python3 - "$TEST_TMP/strict-corpus.json" <<'PY'
+import json, sys
+assert json.load(open(sys.argv[1]))['summary']['full_programs_mapped'] == 1
+PY
+printf 'PASS: registered MLIR verification, flexible selector analysis, image encoding, and rejection\n'

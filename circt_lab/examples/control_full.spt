@@ -1,0 +1,11 @@
+// Complete restricted example: a one-input protocol and pulse outputs.
+clock 50 MHz
+pin request: in
+protocol handshake on request {
+    transition 0 high -> 1 action 1
+    transition 1 low -> 0 action 2
+}
+reg high_pulse = handshake.action1
+reg low_pulse = handshake.action2
+pin high_out: out = high_pulse
+pin low_out: out = low_pulse

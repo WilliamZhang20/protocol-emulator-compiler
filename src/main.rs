@@ -26,6 +26,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Export the existing Rust frontend's unallocated program to registered MLIR operations.
+    FrontendMlir { file: PathBuf },
     /// Extract logical program IR without allocating target resources.
     ModelIr { file: PathBuf },
     /// Assess logical state machines against a hypothetical control tile.
@@ -1218,8 +1220,132 @@ fn percent(part: u64, total: u64) -> u64 {
         .unwrap_or_default()
 }
 
+// MLIR string literals use hexadecimal byte escapes, including for quotes,
+// backslashes and non-ASCII UTF-8 bytes. Never interpolate unescaped source.
+fn mlir_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for byte in value.bytes() {
+        if (0x20..=0x7e).contains(&byte) && byte != b'"' && byte != b'\\' {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("\\{byte:02X}"));
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn frontend_mlir(program: &spatial::LogicalProgram, source_name: &str) -> AppResult<String> {
+    let protocols = serde_json::to_string(&program.protocols)?;
+    let limitations = serde_json::to_string(&program.limitations)?;
+    let mut out = String::from("module {\n  \"spatial.frontend_program\"() ({\n");
+    for item in &program.items {
+        let value = serde_json::to_value(item)?;
+        let kind = value["kind"]
+            .as_str()
+            .ok_or_else(|| io::Error::other("frontend item lacks a kind"))?;
+        out.push_str(&format!(
+            "    \"spatial.frontend_item\"() {{kind = {}, item_json = {}}} : () -> ()\n",
+            mlir_string(kind),
+            mlir_string(&serde_json::to_string(&value)?)
+        ));
+    }
+    for protocol in &program.protocols {
+        let inputs: Vec<String> = protocol
+            .inputs
+            .iter()
+            .map(|input| match input {
+                spatial::LogicalSignal::Constant { value } => {
+                    mlir_string(if *value { "constant:1" } else { "constant:0" })
+                }
+                spatial::LogicalSignal::Resource { name, output } => {
+                    let suffix = output
+                        .as_ref()
+                        .map_or(String::new(), |out| format!(".{out}"));
+                    mlir_string(&format!("resource:{name}{suffix}"))
+                }
+            })
+            .collect();
+        let rows: Vec<String> = protocol
+            .transitions
+            .iter()
+            .map(|row| {
+                let mask = row
+                    .inputs
+                    .iter()
+                    .enumerate()
+                    .fold(0usize, |acc, (i, bit)| acc | (usize::from(*bit) << i));
+                format!(
+                    "{{from = {} : i64, input_mask = {} : i64, to = {} : i64, action = {} : i64}}",
+                    row.from,
+                    mask,
+                    row.to,
+                    row.action.unwrap_or(0)
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "    \"spatial.protocol\"() {{name = {}, states = {} : i64, initial_state = {} : i64, inputs = [{}], rows = [{}], protocol_json = {}}} : () -> ()\n",
+            mlir_string(&protocol.name),
+            protocol.states,
+            protocol.initial_state,
+            inputs.join(", "),
+            rows.join(", "),
+            mlir_string(&serde_json::to_string(protocol)?)
+        ));
+    }
+    let graph = serde_json::to_value(program.connection_graph())?;
+    let inputs = graph["inputs"]
+        .as_array()
+        .ok_or_else(|| io::Error::other("frontend connection graph lacks inputs"))?;
+    for input in inputs {
+        let consumer = input["consumer"]
+            .as_str()
+            .ok_or_else(|| io::Error::other("frontend input lacks a consumer"))?;
+        let port = input["port"]
+            .as_str()
+            .ok_or_else(|| io::Error::other("frontend input lacks a port"))?;
+        out.push_str(&format!(
+            "    \"spatial.frontend_input\"() {{consumer = {}, port = {}, input_json = {}}} : () -> ()\n",
+            mlir_string(consumer),
+            mlir_string(port),
+            mlir_string(&serde_json::to_string(input)?)
+        ));
+    }
+    let streams = graph["streams"]
+        .as_array()
+        .ok_or_else(|| io::Error::other("frontend connection graph lacks streams"))?;
+    for stream in streams {
+        let name = stream["name"]
+            .as_str()
+            .ok_or_else(|| io::Error::other("frontend stream lacks a name"))?;
+        out.push_str(&format!(
+            "    \"spatial.frontend_stream\"() {{name = {}, stream_json = {}}} : () -> ()\n",
+            mlir_string(name),
+            mlir_string(&serde_json::to_string(stream)?)
+        ));
+    }
+    out.push_str(&format!(
+        "  }}) {{source = {}, schema = {}, clock_hz = {}, protocols_json = {}, limitations_json = {}, connection_limitations_json = {}}} : () -> ()\n}}\n",
+        mlir_string(source_name),
+        mlir_string(program.schema),
+        mlir_string(&program.clock_hz),
+        mlir_string(&protocols),
+        mlir_string(&limitations),
+        mlir_string(&serde_json::to_string(&graph["limitations"])?),
+    ));
+    Ok(out)
+}
+
 fn run() -> AppResult<bool> {
     match Cli::parse().command {
+        Command::FrontendMlir { file } => {
+            let source = fs::read_to_string(&file)?;
+            let program = spatial::extract_logical_program(&source).map_err(|error| {
+                Reported(error.render(&file.display().to_string(), &source, false))
+            })?;
+            print!("{}", frontend_mlir(&program, &file.to_string_lossy())?);
+        }
         Command::ModelIr { file } => {
             let source = fs::read_to_string(&file)?;
             let program = spatial::extract_logical_program(&source).map_err(|error| {
