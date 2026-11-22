@@ -7,6 +7,7 @@ to a JSON file that `spatial` prints. A failing test never stops the others.
 
 import json
 import os
+from collections import Counter
 from pathlib import Path
 
 import cocotb
@@ -238,6 +239,29 @@ class Session:
                                 if s.get("packets") and s["direction"] == "from_chip"}
         self.peers = {}
         self.tasks = []
+        self.profile = Counter()
+
+    async def profile_rtl(self):
+        # Explicitly RTL-only. This optional probe is never enabled by the
+        # default compiler or the gate-level regression.
+        core = self.dut.user_project.core
+        while True:
+            await FallingEdge(self.dut.clk)
+            self.profile["cycles"] += 1
+            state = int(core.cpu.state.value)
+            self.profile[f"cpu_state_{state}"] += 1
+            if state == 1 and int(core.cpu.op.value) == 10 and not int(core.cpu.retire.value):
+                self.profile["wait_event"] += 1
+            if state == 1 and int(core.cpu.op.value) == 14 and not int(core.cpu.retire.value):
+                self.profile["wait_fifo"] += 1
+            if int(core.s_active.value):
+                self.profile["shifter_active"] += 1
+            active_shifters = int(core.s_active.value).bit_count()
+            self.profile[f"active_shifters_{active_shifters}"] += 1
+            self.profile["max_concurrent_shifters"] = max(
+                self.profile["max_concurrent_shifters"], active_shifters)
+            if int(core.armed.value):
+                self.profile["armed"] += 1
 
     async def start(self):
         await reset_top(self.dut)
@@ -245,6 +269,11 @@ class Session:
         self.tasks = [cocotb.start_soon(c) for c in (self.bus.run(), self.host.drain())]
         async with self.host.link:
             await start_engine(self.dut)
+        if (os.environ.get("SPATIAL_PROFILE_RTL") == "1"
+                and os.environ.get("GATES") != "yes"
+                and os.environ.get("GL_TEST") not in ("1", "yes")
+                and hasattr(self.dut.user_project, "core")):
+            self.tasks.append(cocotb.start_soon(self.profile_rtl()))
         self.tasks.append(cocotb.start_soon(self.invariants.run()))
 
     def connect(self, wires, specs):
@@ -338,7 +367,7 @@ async def run_test(dut, plan, test, period_ps):
     error = session.connect(test["wires"], test["peers"])
     if error:
         session.stop()
-        return error, 0
+        return error, 0, None
     started = get_sim_time("ps")
     line = test["line"]
     try:
@@ -350,8 +379,10 @@ async def run_test(dut, plan, test, period_ps):
     except Failure as failure:
         error = {"line": line, "message": str(failure)}
     finally:
+        if session.profile:
+            print(f"RTL_PROFILE {test['name']} {json.dumps(session.profile)}", flush=True)
         session.stop()
-    return error, int(get_sim_time("ps") - started) // period_ps
+    return error, int(get_sim_time("ps") - started) // period_ps, (dict(session.profile) or None)
 
 
 async def console(dut, plan, period_ps, requests_path, replies_path):
@@ -391,6 +422,12 @@ async def spatial(dut):
     results = []
     for test in plan["tests"]:
         if not only or test["name"] == only:
-            error, cycles = await run_test(dut, plan, test, period_ps)
-            results.append({"name": test["name"], "error": error, "cycles": cycles})
+            error, cycles, profile = await run_test(dut, plan, test, period_ps)
+            result = {"name": test["name"], "error": error, "cycles": cycles}
+            # The optional RTL-only probe measures controller occupancy and
+            # concurrent shifter use for this test. Keep it in the machine
+            # readable result as well as the simulator log.
+            if profile is not None:
+                result["profile"] = profile
+            results.append(result)
     Path(os.environ["SPATIAL_RESULTS"]).write_text(json.dumps(results))

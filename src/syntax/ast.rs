@@ -42,6 +42,12 @@ pub(crate) enum Item {
     Event(Vec<Name>),
     /// `flag sending = 0, ending = 1`: controller levels, zero by default.
     Flag(Vec<(Name, Option<Expr>)>),
+    /// A protocol transition table mapped to one spatial control actor.
+    Protocol {
+        name: Name,
+        input: Expr,
+        transitions: Vec<ProtocolTransition>,
+    },
     /// `export stream send: host -> sender` or `export packets ...`
     Stream {
         name: Name,
@@ -66,6 +72,15 @@ pub(crate) enum Item {
     },
     /// `always "cs idles high" { expr }`
     Always { name: Name, condition: Expr },
+}
+
+/// A state/input row in a protocol actor's transition table.
+#[derive(Clone, Debug)]
+pub(crate) struct ProtocolTransition {
+    pub from: Expr,
+    pub input_high: bool,
+    pub to: Expr,
+    pub action: Option<Expr>,
 }
 
 /// `name: value`, or a bare flag such as `pulse`.

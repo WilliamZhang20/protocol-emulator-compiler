@@ -35,6 +35,12 @@ def check_tools():
 
 
 def hardware(cache, revision, log):
+    local = os.environ.get("SPATIAL_RTL_DIR")
+    if local:
+        checkout = Path(local).resolve()
+        if not (checkout / "test" / "Makefile").is_file():
+            raise RuntimeError(f"SPATIAL_RTL_DIR is not an RTL checkout: {checkout}")
+        return checkout
     checkout = cache / "hardware"
     if not checkout.exists():
         print("  fetching the chip's RTL (first run only)", flush=True)

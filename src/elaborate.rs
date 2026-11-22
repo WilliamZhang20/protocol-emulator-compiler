@@ -1,11 +1,12 @@
 //! Resolve names, assign hardware, and turn declarations into configuration
 //! writes. This is where "does it fit on the chip?" is decided.
+use crate::ResourceAssignment;
 use crate::control::{self, Exports};
 use crate::diagnostic::{Error, Result, Span};
 use crate::hardware::{self, Line, PinMode, config};
 use crate::logic::{self, Formula};
 use crate::px8::Assembler;
-use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, Stmt};
+use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, ProtocolTransition, Stmt, StmtKind};
 use crate::value::{Env, Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -21,6 +22,7 @@ pub(crate) enum Kind {
     Event,
     Flag,
     Crc,
+    Protocol,
 }
 
 impl Kind {
@@ -34,6 +36,7 @@ impl Kind {
             Kind::Event => "event",
             Kind::Flag => "flag",
             Kind::Crc => "crc",
+            Kind::Protocol => "protocol actor",
         }
     }
 
@@ -46,6 +49,7 @@ impl Kind {
             Kind::Counter => "`.reached` (pulse) or `.at_least` (level)",
             Kind::Crc => "`.out` (its next check bit) or `.ok` (the check matches), both levels",
             Kind::Reg | Kind::Event | Kind::Flag => "its name",
+            Kind::Protocol => "`.action1`, `.action2` or `.action3` (pulses)",
         }
     }
 
@@ -59,6 +63,7 @@ impl Kind {
             Kind::Event => (hardware::EVENTS, "events"),
             Kind::Flag => (hardware::FLAGS, "flags"),
             Kind::Crc => (hardware::CRCS, "crc"),
+            Kind::Protocol => (crate::protocol::ACTORS, "protocol actors"),
         }
     }
 }
@@ -106,6 +111,9 @@ pub(crate) struct Design<'a> {
     pub streams: BTreeMap<String, Stream>,
     pub exports: Exports,
     pub usage: Vec<(&'static str, usize, usize)>,
+    pub resources: Vec<ResourceAssignment>,
+    pub protocol_mappings: Vec<crate::ProtocolMapping>,
+    pub protocol_placement_search: crate::ProtocolPlacementSearch,
     pub tests: Vec<(&'a Name, &'a [Stmt], Option<&'a Expr>)>,
     pub invariants: Vec<(&'a Name, &'a Expr)>,
 }
@@ -120,6 +128,187 @@ pub(crate) struct Chip<'a> {
     pub tiles: HashMap<String, &'a [Field]>,
     /// Each pin's declaration, so a program can release a pin and drive it again.
     pub pin_decls: HashMap<String, (&'a Name, &'a Name, Option<&'a Expr>)>,
+    /// Physical pad and edge direction to configurable edge-cell index.
+    pub edges: HashMap<(usize, bool), usize>,
+    /// Action signal lines selected by the protocol mapper. Controller-backed
+    /// graphs expose the two PX8 FIRE outputs instead of actor outputs.
+    pub protocol_action_lines: HashMap<String, [Option<Line>; 3]>,
+}
+
+/// Score actor-to-shifter locality for both possible physical actor orders.
+/// Actor `k` sits beside shifter channel `k`; every direct signal connection
+/// between a protocol graph and a shifter contributes one local match.
+struct ProtocolActorSearch {
+    slots: HashMap<String, (usize, usize)>,
+    report: crate::ProtocolPlacementSearch,
+}
+
+fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
+    fn mentions_protocol_action(expr: &Expr, name: &str) -> bool {
+        match &expr.kind {
+            ExprKind::Field(object, field) => {
+                (matches!(&object.kind, ExprKind::Name(n) if n == name)
+                    && matches!(field.text.as_str(), "action1" | "action2" | "action3"))
+                    || mentions_protocol_action(object, name)
+            }
+            ExprKind::Call(callee, args) => {
+                mentions_protocol_action(callee, name)
+                    || args
+                        .iter()
+                        .any(|arg| mentions_protocol_action(&arg.value, name))
+            }
+            ExprKind::List(values) => values
+                .iter()
+                .any(|value| mentions_protocol_action(value, name)),
+            ExprKind::Unary(_, value) => mentions_protocol_action(value, name),
+            ExprKind::Binary(_, left, right) => {
+                mentions_protocol_action(left, name) || mentions_protocol_action(right, name)
+            }
+            ExprKind::If(condition, yes, no) => {
+                mentions_protocol_action(condition, name)
+                    || mentions_protocol_action(yes, name)
+                    || mentions_protocol_action(no, name)
+            }
+            ExprKind::Int(_) | ExprKind::Quantity(_, _) | ExprKind::Str(_) | ExprKind::Name(_) => {
+                false
+            }
+        }
+    }
+
+    fn mentions_shifter(expr: &Expr, shifter: &str) -> bool {
+        match &expr.kind {
+            ExprKind::Field(object, _) => {
+                matches!(&object.kind, ExprKind::Name(n) if n == shifter)
+                    || mentions_shifter(object, shifter)
+            }
+            ExprKind::Call(callee, args) => {
+                mentions_shifter(callee, shifter)
+                    || args.iter().any(|arg| mentions_shifter(&arg.value, shifter))
+            }
+            ExprKind::List(values) => values.iter().any(|value| mentions_shifter(value, shifter)),
+            ExprKind::Unary(_, value) => mentions_shifter(value, shifter),
+            ExprKind::Binary(_, left, right) => {
+                mentions_shifter(left, shifter) || mentions_shifter(right, shifter)
+            }
+            ExprKind::If(condition, yes, no) => {
+                mentions_shifter(condition, shifter)
+                    || mentions_shifter(yes, shifter)
+                    || mentions_shifter(no, shifter)
+            }
+            ExprKind::Int(_) | ExprKind::Quantity(_, _) | ExprKind::Str(_) | ExprKind::Name(_) => {
+                false
+            }
+        }
+    }
+
+    let shifters: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Tile { kind, name, .. } if kind.text == "shifter" => Some(name.text.as_str()),
+            _ => None,
+        })
+        .take(crate::protocol::ACTORS)
+        .collect();
+    let protocols: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Protocol { name, input, .. } => Some((name.text.clone(), input)),
+            _ => None,
+        })
+        .collect();
+    let preferences: Vec<[usize; crate::protocol::ACTORS]> = protocols
+        .iter()
+        .map(|(protocol, input)| {
+            let mut score = [0; crate::protocol::ACTORS];
+            for (channel, shifter) in shifters.iter().enumerate() {
+                if mentions_shifter(input, shifter) {
+                    score[channel] += 1;
+                }
+                for item in items {
+                    if let Item::Tile {
+                        kind,
+                        name: tile_name,
+                        fields,
+                    } = item
+                        && kind.text == "shifter"
+                        && tile_name.text == *shifter
+                    {
+                        for field in fields {
+                            if field
+                                .value
+                                .as_ref()
+                                .is_some_and(|expr| mentions_protocol_action(expr, protocol))
+                            {
+                                score[channel] += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            score
+        })
+        .collect();
+
+    let mut assignment = HashMap::new();
+    let mut report = crate::ProtocolPlacementSearch::default();
+    match protocols.len() {
+        0 => {}
+        1 => {
+            report.candidates = (0..crate::protocol::ACTORS)
+                .map(|actor| crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
+                    assignments: vec![(protocols[0].0.clone(), actor)],
+                    local_channel_connections: preferences[0][actor],
+                    parallel_actors: 1,
+                    actor_pipeline_cycles: Some(1),
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
+                })
+                .collect();
+            let actor = usize::from(preferences[0][1] > preferences[0][0]);
+            report.selected = Some(actor);
+            assignment.insert(protocols[0].0.clone(), (actor, preferences[0][actor]));
+        }
+        _ => {
+            let direct = preferences[0][0] + preferences[1][1];
+            let swapped = preferences[0][1] + preferences[1][0];
+            report.candidates = vec![
+                crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
+                    assignments: vec![(protocols[0].0.clone(), 0), (protocols[1].0.clone(), 1)],
+                    local_channel_connections: direct,
+                    parallel_actors: 2,
+                    actor_pipeline_cycles: Some(1),
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
+                },
+                crate::ProtocolPlacementCandidate {
+                    implementation: "spatial actor",
+                    feasible: true,
+                    assignments: vec![(protocols[0].0.clone(), 1), (protocols[1].0.clone(), 0)],
+                    local_channel_connections: swapped,
+                    parallel_actors: 2,
+                    actor_pipeline_cycles: Some(1),
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles: None,
+                },
+            ];
+            let slots = if swapped > direct { [1, 0] } else { [0, 1] };
+            report.selected = Some(usize::from(swapped > direct));
+            for (i, (name, _)) in protocols.iter().take(crate::protocol::ACTORS).enumerate() {
+                assignment.insert(name.clone(), (slots[i], preferences[i][slots[i]]));
+            }
+            for (i, (name, _)) in protocols.iter().enumerate().skip(crate::protocol::ACTORS) {
+                assignment.insert(name.clone(), (i, 0));
+            }
+        }
+    }
+    ProtocolActorSearch {
+        slots: assignment,
+        report,
+    }
 }
 
 pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
@@ -140,9 +329,12 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         fifos: vec![Fifo::default(); hardware::SHIFTERS],
         tiles: HashMap::new(),
         pin_decls: HashMap::new(),
+        edges: HashMap::new(),
+        protocol_action_lines: HashMap::new(),
     };
     let mut names: HashMap<String, Span> = HashMap::new();
-    let mut counts = [0usize; 8];
+    let mut counts = [0usize; 9];
+    let mut actor_search = protocol_actor_slots(items);
     let mut pins = Vec::new();
     let mut tests = Vec::new();
     let mut invariants = Vec::new();
@@ -154,7 +346,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             ));
         }
         if let Some(kind) = kind {
-            let index = counts[kind as usize];
+            let index = if kind == Kind::Protocol {
+                actor_search.slots[&name.text].0
+            } else {
+                counts[kind as usize]
+            };
             counts[kind as usize] += 1;
             let (capacity, plural) = kind.capacity();
             if index >= capacity {
@@ -175,6 +371,9 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     for item in items {
         match item {
             Item::Clock(_) | Item::Contexts(_) | Item::Context { .. } => {}
+            Item::Protocol { name, .. } => {
+                declare(name, Some(Kind::Protocol), &mut chip)?;
+            }
             Item::Const { name, value } => {
                 declare(name, None, &mut chip)?;
                 chip.env.defs.insert(name.text.clone(), value.span);
@@ -230,6 +429,31 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         }
     }
     chip.pads = assign_pads(&pins)?;
+    // Assign edge cells after pad matching, before any configuration or
+    // controller lowering resolves an edge signal.
+    let mut edge_uses = Vec::new();
+    for item in items {
+        collect_item_edges(item, &mut edge_uses);
+    }
+    for (pin, falling, span) in edge_uses {
+        let Some(decl) = chip.decls.get(pin) else {
+            continue;
+        };
+        if decl.kind != Kind::Pin {
+            continue;
+        }
+        let pad = chip.pads[decl.index];
+        if !chip.edges.contains_key(&(pad, falling)) {
+            let index = chip.edges.len();
+            if index >= hardware::EDGE_CELLS {
+                return Err(Error::new(
+                    span,
+                    "the chip has only 8 edge cells; use fewer distinct pin rises and falls",
+                ));
+            }
+            chip.edges.insert((pad, falling), index);
+        }
+    }
 
     let mut streams = BTreeMap::new();
     for item in items {
@@ -398,6 +622,127 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         // without contexts retain their original byte images and write mask.
         asm.config(config::CONTEXT_WRITE, 3);
     }
+    let mut edges: Vec<_> = chip.edges.iter().collect();
+    edges.sort_by_key(|(_, index)| **index);
+    for (&(pad, falling), &index) in edges {
+        asm.config(
+            config::edge(index),
+            pad as u16 | if falling { 1 << 4 } else { 1 << 3 },
+        );
+    }
+    let mut protocol_mappings = Vec::new();
+    let mut protocol_writes = HashMap::<String, Vec<(u8, u16)>>::new();
+    let mut protocol_controller = None;
+    let protocol_count = items
+        .iter()
+        .filter(|item| matches!(item, Item::Protocol { .. }))
+        .count();
+    let has_exported_function = functions
+        .iter()
+        .any(|item| matches!(item, Item::Fn { exported: true, .. }));
+    for item in items {
+        let Item::Protocol {
+            name,
+            input,
+            transitions,
+        } = item
+        else {
+            continue;
+        };
+        let graph = protocol_graph(name, input, transitions, &chip)?;
+        let minimum_input_interval_cycles = timer_input_interval(input, &chip)?;
+        let actor = chip.decls[&name.text].index;
+        match crate::protocol::map_actor(&graph, actor) {
+            Ok(mapping) => {
+                if protocol_count == 1 {
+                    for candidate in &mut actor_search.report.candidates {
+                        candidate.minimum_input_interval_cycles = minimum_input_interval_cycles;
+                    }
+                    if let Some(candidate) = protocol_controller_candidate(
+                        &graph,
+                        minimum_input_interval_cycles,
+                        protocol_count,
+                        has_exported_function,
+                    ) {
+                        actor_search.report.candidates.push(candidate);
+                    }
+                }
+                chip.protocol_action_lines.insert(
+                    name.text.clone(),
+                    mapping.action_lines.map(|line| Some(Line(line))),
+                );
+                protocol_mappings.push(crate::ProtocolMapping {
+                    name: name.text.clone(),
+                    implementation: "spatial actor",
+                    actor: Some(mapping.actor),
+                    input_line: graph.input_line,
+                    source_states: graph.states,
+                    mapped_states: mapping.mapped_states,
+                    source_transitions: graph.transitions.len(),
+                    mapped_transitions: mapping.mapped_transitions,
+                    states_reduced: mapping.states_reduced,
+                    local_channel_connections: actor_search.slots[&name.text].1,
+                    placement_candidates_evaluated: actor_search.report.candidates.len(),
+                    actor_pipeline_cycles: Some(1),
+                    controller_service_cycles: None,
+                    minimum_input_interval_cycles,
+                });
+                protocol_writes.insert(name.text.clone(), mapping.writes);
+            }
+            Err(crate::protocol::ActorIneligible::TooManyStates(_)) => {
+                let optimized = crate::protocol::minimized(&graph)
+                    .map_err(|reason| Error::new(name.span, reason.to_string()))?;
+                let controller_service_cycles = controller_service_cycles(&optimized);
+                let Some(controller_candidate) = protocol_controller_candidate(
+                    &optimized,
+                    minimum_input_interval_cycles,
+                    protocol_count,
+                    has_exported_function,
+                ) else {
+                    return Err(Error::new(
+                        name.span,
+                        format!(
+                            "protocol `{}` cannot fit a spatial actor ({} minimized states), and its graph is not eligible for the PX8 controller backend; that backend requires one protocol, no exported functions, a timer tick pulse on P4..P25, hold-only low rows, at most two actions, and a minimum input interval greater than {controller_service_cycles} controller service cycles",
+                            name.text, optimized.states
+                        ),
+                    ));
+                };
+                for candidate in &mut actor_search.report.candidates {
+                    candidate.feasible = false;
+                }
+                let selected = actor_search.report.candidates.len();
+                actor_search.report.candidates.push(controller_candidate);
+                actor_search.report.selected = Some(selected);
+                chip.protocol_action_lines.insert(
+                    name.text.clone(),
+                    [Some(Line::fire(0)), Some(Line::fire(1)), None],
+                );
+                protocol_controller = Some(optimized.clone());
+                protocol_mappings.push(crate::ProtocolMapping {
+                    name: name.text.clone(),
+                    implementation: "PX8 controller",
+                    actor: None,
+                    input_line: optimized.input_line,
+                    source_states: graph.states,
+                    mapped_states: optimized.states,
+                    source_transitions: graph.transitions.len(),
+                    mapped_transitions: optimized.transitions.len(),
+                    states_reduced: graph.states - optimized.states,
+                    local_channel_connections: 0,
+                    placement_candidates_evaluated: actor_search.report.candidates.len(),
+                    actor_pipeline_cycles: None,
+                    controller_service_cycles: Some(controller_service_cycles),
+                    minimum_input_interval_cycles,
+                });
+            }
+            Err(reason) => {
+                return Err(Error::new(
+                    name.span,
+                    format!("protocol `{}` cannot map: {reason}", name.text),
+                ));
+            }
+        }
+    }
     for item in items {
         let writes = match item {
             Item::Pin {
@@ -413,6 +758,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                 on,
                 value,
             } => chip.reg(name, init.as_ref(), on.as_ref(), value)?,
+            Item::Protocol { name, .. } => protocol_writes.remove(&name.text).unwrap_or_default(),
             _ => Vec::new(),
         };
         for (address, value) in writes {
@@ -477,10 +823,49 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     }
                     (name, chip.tile(name, &merged)?)
                 }
+                Item::Reg {
+                    name,
+                    init,
+                    on,
+                    value,
+                } => {
+                    let decl = chip.decls.get(&name.text).ok_or_else(|| {
+                        Error::new(
+                            name.span,
+                            "declare the shared reg before overriding it in a context",
+                        )
+                    })?;
+                    if decl.kind != Kind::Reg {
+                        return Err(Error::new(name.span, "a context reg must override a reg"));
+                    }
+                    // Only the formula must be restated. The start value and
+                    // update pulse retain their shared settings unless given.
+                    let (base_init, base_on) = items
+                        .iter()
+                        .find_map(|item| match item {
+                            Item::Reg {
+                                name: base_name,
+                                init: base_init,
+                                on: base_on,
+                                ..
+                            } if base_name.text == name.text => Some((base_init, base_on)),
+                            _ => None,
+                        })
+                        .expect("declared reg has a shared definition");
+                    (
+                        name,
+                        chip.reg(
+                            name,
+                            init.as_ref().or(base_init.as_ref()),
+                            on.as_ref().or(base_on.as_ref()),
+                            value,
+                        )?,
+                    )
+                }
                 _ => {
                     return Err(Error::new(
                         index.span,
-                        "a context body only overrides existing pins, timers, shifters or counters",
+                        "a context body only overrides existing pins, timers, shifters, counters or regs",
                     ));
                 }
             };
@@ -526,7 +911,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         asm.config(config::FLAGS, flag_bits);
     }
     asm.config(config::ARM, 1);
-    let exports = control::lower(&chip, &functions, &mut asm)?;
+    let exports = control::lower(&chip, &functions, protocol_controller.as_ref(), &mut asm)?;
     let image = asm
         .assemble()
         .map_err(|message| Error::new(Span::default(), message))?;
@@ -535,6 +920,15 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         .iter()
         .map(|(name, _)| (name.text.clone(), chip.pads[chip.decls[&name.text].index]))
         .collect();
+    let resources = resource_map(
+        &chip.decls,
+        &chip.pads,
+        &chip.edges,
+        items,
+        &streams,
+        &chip.protocol_action_lines,
+        protocol_controller.is_some(),
+    );
     let kinds = [
         Kind::Pin,
         Kind::Timer,
@@ -544,6 +938,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         Kind::Reg,
         Kind::Event,
         Kind::Flag,
+        Kind::Protocol,
     ];
     let mut usage: Vec<_> = kinds
         .iter()
@@ -551,7 +946,11 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             let (capacity, plural) = kind.capacity();
             (
                 plural.split(" (").next().unwrap_or(plural),
-                counts[kind as usize],
+                if kind == Kind::Protocol && protocol_controller.is_some() {
+                    0
+                } else {
+                    counts[kind as usize]
+                },
                 capacity,
             )
         })
@@ -559,6 +958,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     if byte_usage != 0 {
         usage.push(("byte tiles", byte_usage, hardware::BYTE_TILES));
     }
+    usage.push(("edge cells", chip.edges.len(), hardware::EDGE_CELLS));
     usage.push(("memory", image.len(), hardware::SRAM_BYTES));
     Ok(Design {
         clock_hz,
@@ -568,9 +968,320 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         streams,
         exports,
         usage,
+        resources,
+        protocol_mappings,
+        protocol_placement_search: actor_search.report,
         tests,
         invariants,
     })
+}
+
+fn protocol_graph(
+    name: &Name,
+    input: &Expr,
+    source: &[ProtocolTransition],
+    chip: &Chip<'_>,
+) -> Result<crate::protocol::ProtocolGraph> {
+    let mut transitions = Vec::with_capacity(source.len());
+    let mut states = 1usize;
+    for transition in source {
+        let state = |expr: &Expr| -> Result<usize> {
+            let value = chip.env.integer(expr)?;
+            usize::try_from(value)
+                .ok()
+                .filter(|&value| value < crate::protocol::MAX_LOGICAL_STATES)
+                .ok_or_else(|| {
+                    Error::new(
+                        expr.span,
+                        format!(
+                            "protocol state must be in 0..{}",
+                            crate::protocol::MAX_LOGICAL_STATES - 1
+                        ),
+                    )
+                })
+        };
+        let from = state(&transition.from)?;
+        let to = state(&transition.to)?;
+        states = states.max(from + 1).max(to + 1);
+        let action = transition
+            .action
+            .as_ref()
+            .map(|expr| {
+                let value = chip.env.integer(expr)?;
+                usize::try_from(value)
+                    .ok()
+                    .filter(|&value| (1..=crate::protocol::ACTOR_ACTIONS).contains(&value))
+                    .ok_or_else(|| {
+                        Error::new(
+                            expr.span,
+                            format!(
+                                "protocol action must be in 1..={}",
+                                crate::protocol::ACTOR_ACTIONS
+                            ),
+                        )
+                    })
+            })
+            .transpose()?;
+        transitions.push(crate::protocol::Transition {
+            from,
+            input_high: transition.input_high,
+            to,
+            action,
+        });
+    }
+    Ok(crate::protocol::ProtocolGraph {
+        name: name.text.clone(),
+        input_line: chip.signal(input)?.0,
+        states,
+        initial_state: 0,
+        transitions,
+    })
+}
+
+/// Worst-case PX8 service time from a pulse to the next WEV in execute state.
+/// PX8 instructions each take two cycles; a WEV already waiting for a pulse
+/// retires in its current execute cycle.
+fn controller_service_cycles(graph: &crate::protocol::ProtocolGraph) -> usize {
+    let wait_bytes = if graph.input_line < 16 { 1 } else { 2 };
+    2 * (0..graph.states)
+        .map(|state| {
+            let action_bytes = graph
+                .transitions
+                .iter()
+                .find(|transition| transition.from == state && transition.input_high)
+                .and_then(|transition| transition.action)
+                .map_or(0, |_| 1);
+            wait_bytes + action_bytes + 3
+        })
+        .max()
+        .unwrap_or(wait_bytes + 3)
+}
+
+fn protocol_controller_candidate(
+    graph: &crate::protocol::ProtocolGraph,
+    minimum_input_interval_cycles: Option<usize>,
+    protocol_count: usize,
+    has_exported_function: bool,
+) -> Option<crate::ProtocolPlacementCandidate> {
+    let graph = crate::protocol::minimized(graph).ok()?;
+    let input_line = graph.input_line;
+    let has_pulse_input = (4..=25).contains(&input_line);
+    let low_rows_hold = graph
+        .transitions
+        .iter()
+        .all(|row| row.input_high || (row.to == row.from && row.action.is_none()));
+    let actions_fit = graph
+        .transitions
+        .iter()
+        .all(|row| row.action.is_none_or(|action| action <= 2));
+    let service_cycles = controller_service_cycles(&graph);
+    let interval_is_safe =
+        minimum_input_interval_cycles.is_some_and(|interval| interval > service_cycles);
+    if protocol_count != 1
+        || has_exported_function
+        || !has_pulse_input
+        || !low_rows_hold
+        || !actions_fit
+        || !interval_is_safe
+    {
+        return None;
+    }
+    Some(crate::ProtocolPlacementCandidate {
+        implementation: "PX8 controller",
+        feasible: true,
+        assignments: Vec::new(),
+        local_channel_connections: 0,
+        parallel_actors: 0,
+        actor_pipeline_cycles: None,
+        controller_service_cycles: Some(service_cycles),
+        minimum_input_interval_cycles,
+    })
+}
+
+/// Find a statically bounded pulse interval for a timer tick input. The PX8
+/// controller fallback relies on this bound to avoid collapsing pulses while
+/// it is executing the previous transition.
+fn timer_input_interval(input: &Expr, chip: &Chip<'_>) -> Result<Option<usize>> {
+    let ExprKind::Field(object, field) = &input.kind else {
+        return Ok(None);
+    };
+    if !matches!(field.text.as_str(), "tick" | "rise") {
+        return Ok(None);
+    }
+    let ExprKind::Name(timer_name) = &object.kind else {
+        return Ok(None);
+    };
+    let Some(decl) = chip.decls.get(timer_name) else {
+        return Ok(None);
+    };
+    if decl.kind != Kind::Timer {
+        return Ok(None);
+    }
+    let Some(fields) = chip.tiles.get(timer_name) else {
+        return Ok(None);
+    };
+    if !fields.iter().any(|item| item.name.text == "pulse")
+        || fields.iter().any(|item| item.name.text == "resync")
+    {
+        return Ok(None);
+    }
+    let free_running = fields
+        .iter()
+        .find(|item| item.name.text == "run")
+        .and_then(|item| item.value.as_ref())
+        .is_some_and(|expr| matches!(expr.kind, ExprKind::Int(1)));
+    if !free_running {
+        return Ok(None);
+    }
+    let cycles = |field_name: &str| -> Result<Option<usize>> {
+        let Some(field) = fields.iter().find(|item| item.name.text == field_name) else {
+            return Ok(None);
+        };
+        let Some(expr) = field.value.as_ref() else {
+            return Ok(None);
+        };
+        let value = chip.env.cycles(expr, "timer interval is {}", true)?;
+        Ok(usize::try_from(value).ok())
+    };
+    let Some(every) = cycles("every")? else {
+        return Ok(None);
+    };
+    let first = cycles("first")?.unwrap_or(every);
+    Ok(Some(every.min(first)))
+}
+
+/// Keep the compiler's allocation report tied to the same encoding helpers
+/// used to emit RTL configuration and signal selectors.
+fn resource_map(
+    decls: &HashMap<String, Decl>,
+    pads: &[usize],
+    edges: &HashMap<(usize, bool), usize>,
+    items: &[Item],
+    streams: &BTreeMap<String, Stream>,
+    protocol_action_lines: &HashMap<String, [Option<Line>; 3]>,
+    protocol_controller: bool,
+) -> Vec<ResourceAssignment> {
+    let mut resources = Vec::new();
+    for (name, decl) in decls {
+        let k = decl.index;
+        let (kind, index, config, outputs) = match decl.kind {
+            Kind::Pin => {
+                let pad = pads[k];
+                (
+                    "pin cell",
+                    pad,
+                    Some(config::pin(pad)),
+                    vec![("level", Line::pin_level(pad).0)],
+                )
+            }
+            Kind::Timer => (
+                "timer",
+                k,
+                Some(config::timer(k, 0)),
+                vec![
+                    ("tick", Line::timer_rise(k).0),
+                    ("fall", Line::timer_fall(k).0),
+                    ("out", Line::timer_out(k).0),
+                ],
+            ),
+            Kind::Shifter => (
+                "shifter",
+                k,
+                Some(config::shifter(k, 0)),
+                vec![
+                    ("word", Line::shifter_word(k).0),
+                    ("done", Line::shifter_stop(k).0),
+                    ("out", Line::shifter_out(k).0),
+                    ("busy", Line::shifter_active(k).0),
+                ],
+            ),
+            Kind::Counter => (
+                "counter",
+                k,
+                Some(config::counter(k, 0)),
+                vec![
+                    ("reached", Line::counter_reached(k).0),
+                    ("at_least", Line::counter_at_least(k).0),
+                ],
+            ),
+            Kind::Reg => (
+                "logic cell",
+                k,
+                Some(config::logic(k, 0)),
+                vec![("value", Line::logic(k).0)],
+            ),
+            Kind::Crc => (
+                "CRC",
+                k,
+                Some(config::crc(k, 0)),
+                vec![("out", Line::crc_out(k).0), ("ok", Line::crc_ok(k).0)],
+            ),
+            Kind::Event => ("event", k, None, vec![("fire", Line::fire(k).0)]),
+            Kind::Flag => ("flag", k, None, vec![("value", Line::flag(k).0)]),
+            Kind::Protocol => {
+                let actions = protocol_action_lines
+                    .get(name)
+                    .copied()
+                    .unwrap_or([None; 3]);
+                let mut outputs = Vec::new();
+                for (i, action) in actions.iter().enumerate() {
+                    if let Some(line) = action {
+                        outputs.push((["action1", "action2", "action3"][i], line.0));
+                    }
+                }
+                if protocol_controller {
+                    ("PX8 protocol controller", k, None, outputs)
+                } else {
+                    ("protocol actor", k, Some(0x90 + (k * 8) as u8), outputs)
+                }
+            }
+        };
+        resources.push(ResourceAssignment {
+            name: name.clone(),
+            kind,
+            index,
+            config,
+            outputs,
+        });
+    }
+    for (&(pad, falling), &index) in edges {
+        let edge_name = if falling { "fall" } else { "rise" };
+        resources.push(ResourceAssignment {
+            name: format!("uio{pad}.{edge_name}"),
+            kind: "edge cell",
+            index,
+            config: Some(config::edge(index)),
+            outputs: vec![(edge_name, Line::edge(index).0)],
+        });
+    }
+    for item in items {
+        let Item::Stream { name, stages, .. } = item else {
+            continue;
+        };
+        let stream = &streams[&name.text];
+        let receive = stream.direction == Direction::FromChip;
+        for (stage, declaration) in stages.iter().enumerate() {
+            let index = 4 * stream.channel + 2 * usize::from(receive) + stage;
+            let kind = match declaration.kind.text.as_str() {
+                "pass" => "byte pass",
+                "escape" => "byte escape",
+                "unescape" => "byte unescape",
+                "checksum" => "byte checksum",
+                "tag" => "byte tag",
+                "filter" => "byte filter",
+                _ => "byte stage",
+            };
+            resources.push(ResourceAssignment {
+                name: format!("{}.stage{}", name.text, stage),
+                kind,
+                index,
+                config: Some(config::byte_tile(index, 0)),
+                outputs: Vec::new(),
+            });
+        }
+    }
+    resources.sort_by(|a, b| (a.kind, a.index, &a.name).cmp(&(b.kind, b.index, &b.name)));
+    resources
 }
 
 fn clock(expr: &Expr) -> Result<i128> {
@@ -589,6 +1300,139 @@ fn clock(expr: &Expr) -> Result<i128> {
             expr.span,
             "expected a frequency, such as `clock 50 MHz`",
         )),
+    }
+}
+
+fn collect_expr_edges<'a>(expr: &'a Expr, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match &expr.kind {
+        ExprKind::Field(object, field) => {
+            if (field.text == "rise" || field.text == "fall")
+                && let ExprKind::Name(name) = &object.kind
+            {
+                uses.push((name, field.text == "fall", field.span));
+            }
+            collect_expr_edges(object, uses);
+        }
+        ExprKind::Call(callee, args) => {
+            collect_expr_edges(callee, uses);
+            for arg in args {
+                collect_expr_edges(&arg.value, uses);
+            }
+        }
+        ExprKind::List(values) => {
+            for value in values {
+                collect_expr_edges(value, uses);
+            }
+        }
+        ExprKind::Unary(_, value) => collect_expr_edges(value, uses),
+        ExprKind::Binary(_, a, b) => {
+            collect_expr_edges(a, uses);
+            collect_expr_edges(b, uses);
+        }
+        ExprKind::If(a, b, c) => {
+            collect_expr_edges(a, uses);
+            collect_expr_edges(b, uses);
+            collect_expr_edges(c, uses);
+        }
+        _ => {}
+    }
+}
+
+fn collect_stmt_edges<'a>(stmt: &'a Stmt, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match &stmt.kind {
+        StmtKind::Wait { signal, .. } | StmtKind::Reply(signal) | StmtKind::Expr(signal) => {
+            collect_expr_edges(signal, uses)
+        }
+        StmtKind::Repeat { count, body } => {
+            collect_expr_edges(count, uses);
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::For { iter, body, .. } => {
+            collect_expr_edges(iter, uses);
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            collect_expr_edges(condition, uses);
+            for stmt in then.iter().chain(otherwise) {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::Expect { condition, .. } => collect_expr_edges(condition, uses),
+        StmtKind::Attach { peer, .. } => collect_expr_edges(peer, uses),
+        StmtKind::Wire { from, to }
+        | StmtKind::Assign {
+            target: from,
+            value: to,
+        } => {
+            collect_expr_edges(from, uses);
+            collect_expr_edges(to, uses);
+        }
+        StmtKind::Set { target, fields } => {
+            collect_expr_edges(target, uses);
+            for field in fields {
+                if let Some(value) = &field.value {
+                    collect_expr_edges(value, uses);
+                }
+            }
+        }
+        StmtKind::Fire(_) | StmtKind::Fail(_) => {}
+    }
+}
+
+fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>) {
+    match item {
+        Item::Contexts(expr) | Item::Clock(expr) | Item::Const { value: expr, .. } => {
+            collect_expr_edges(expr, uses)
+        }
+        Item::Context { index, body } => {
+            collect_expr_edges(index, uses);
+            for item in body {
+                collect_item_edges(item, uses);
+            }
+        }
+        Item::Pin { source, .. } => {
+            if let Some(expr) = source {
+                collect_expr_edges(expr, uses);
+            }
+        }
+        Item::Tile { fields, .. } => {
+            for field in fields {
+                if let Some(expr) = &field.value {
+                    collect_expr_edges(expr, uses);
+                }
+            }
+        }
+        Item::Reg {
+            init, on, value, ..
+        } => {
+            for expr in init.iter().chain(on).chain(std::iter::once(value)) {
+                collect_expr_edges(expr, uses);
+            }
+        }
+        Item::Stream { stages, .. } => {
+            for stage in stages {
+                for field in &stage.fields {
+                    if let Some(expr) = &field.value {
+                        collect_expr_edges(expr, uses);
+                    }
+                }
+            }
+        }
+        Item::Fn { body, .. } => {
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        Item::Protocol { input, .. } => collect_expr_edges(input, uses),
+        Item::Event(_) | Item::Flag(_) | Item::Test { .. } | Item::Always { .. } => {}
     }
 }
 
@@ -695,6 +1539,10 @@ impl Chip<'_> {
                     Kind::Reg => Ok(Line::logic(decl.index)),
                     Kind::Event => Ok(Line::fire(decl.index)),
                     Kind::Flag => Ok(Line::flag(decl.index)),
+                    Kind::Protocol => Err(Error::new(
+                        expr.span,
+                        "a protocol actor has action pulses; use `.action1`, `.action2` or `.action3`",
+                    )),
                     kind => Err(Error::new(
                         expr.span,
                         format!(
@@ -706,11 +1554,33 @@ impl Chip<'_> {
                 }
             }
             ExprKind::Field(object, field) => {
-                let (_, decl) = self.decl(object)?;
+                let (name, decl) = self.decl(object)?;
                 let k = decl.index;
+                if decl.kind == Kind::Protocol {
+                    let index = match field.text.as_str() {
+                        "action1" => 0,
+                        "action2" => 1,
+                        "action3" => 2,
+                        _ => {
+                            return Err(Error::new(
+                                field.span,
+                                format!(
+                                    "a protocol actor has no signal `{}`; it has `.action1`, `.action2` and `.action3`",
+                                    field.text
+                                ),
+                            ));
+                        }
+                    };
+                    return self.protocol_action_lines.get(&name)
+                        .and_then(|lines| lines[index])
+                        .ok_or_else(|| Error::new(field.span, format!("protocol `{name}` has no `{}` output in its selected implementation", field.text)));
+                }
                 Ok(match (decl.kind, field.text.as_str()) {
-                    (Kind::Pin, "rise") => Line::pin_rise(self.pads[k]),
-                    (Kind::Pin, "fall") => Line::pin_fall(self.pads[k]),
+                    (Kind::Pin, "rise" | "fall") => {
+                        let pad = self.pads[k];
+                        let falling = field.text == "fall";
+                        Line::edge(self.edges[&(pad, falling)])
+                    }
                     (Kind::Timer, "tick" | "rise") => Line::timer_rise(k),
                     (Kind::Timer, "fall") => Line::timer_fall(k),
                     (Kind::Timer, "out") => Line::timer_out(k),
@@ -720,8 +1590,8 @@ impl Chip<'_> {
                     (Kind::Shifter, "busy") => Line::shifter_active(k),
                     (Kind::Counter, "reached") => Line::counter_reached(k),
                     (Kind::Counter, "at_least") => Line::counter_at_least(k),
-                    (Kind::Crc, "out") => Line::CRC_OUT,
-                    (Kind::Crc, "ok") => Line::CRC_OK,
+                    (Kind::Crc, "out") => Line::crc_out(k),
+                    (Kind::Crc, "ok") => Line::crc_ok(k),
                     (kind, _) => {
                         return Err(Error::new(
                             field.span,
@@ -856,7 +1726,7 @@ impl Chip<'_> {
             Kind::Timer => self.timer(name, decl.index, list),
             Kind::Shifter => self.shifter(name, decl.index, list),
             Kind::Counter => self.counter(name, decl.index, list),
-            Kind::Crc => self.crc(name, list),
+            Kind::Crc => self.crc(name, decl.index, list),
             kind => Err(Error::new(
                 name.span,
                 format!("a {} has no settings to change", kind.noun()),
@@ -926,7 +1796,7 @@ impl Chip<'_> {
         };
         let mut sync = 0;
         if let Some(resync) = f.get("resync") {
-            sync |= self.level(value(resync)?)?.level_select() | 1 << 5;
+            sync |= u16::from(self.signal(value(resync)?)?.0) | 1 << 6;
         }
         if let Some(hold) = f.get("hold") {
             let expr = value(hold)?;
@@ -934,7 +1804,7 @@ impl Chip<'_> {
                 ExprKind::Unary("!", inner) => (self.level(inner)?, 1),
                 _ => (self.level(expr)?, 0),
             };
-            sync |= line.level_select() << 6 | 1 << 11 | invert << 12;
+            sync |= line.level_select() << 7 | 1 << 12 | invert << 13;
         }
         Ok(vec![
             (config::timer(k, 0), reload),
@@ -1053,6 +1923,17 @@ impl Chip<'_> {
                 "end_on_packet",
                 "end",
                 "abort",
+                "stuff_after",
+                "stuff_ones",
+                "nrzi",
+                "code_received",
+                "arm_at_zero",
+                "invert_crc_tail",
+                "bit_strobe",
+                "crc_tail_bits",
+                "manchester",
+                "stuff_while",
+                "crc_skip_bits",
             ],
             "shifter",
         )?;
@@ -1179,6 +2060,68 @@ impl Chip<'_> {
                     | u16::from(abort.0) << 7,
             ));
         }
+        let coder_fields = [
+            "stuff_after",
+            "stuff_ones",
+            "nrzi",
+            "code_received",
+            "arm_at_zero",
+            "invert_crc_tail",
+            "bit_strobe",
+            "crc_tail_bits",
+            "manchester",
+            "stuff_while",
+            "crc_skip_bits",
+        ];
+        if coder_fields.iter().any(|key| f.contains_key(key)) {
+            let flag = |key: &str| -> Result<u16> {
+                match f.get(key) {
+                    None => Ok(0),
+                    Some(field) => field
+                        .value
+                        .as_ref()
+                        .map(|e| self.bit(e))
+                        .transpose()
+                        .map(|bit| bit.unwrap_or(1)),
+                }
+            };
+            let number = |key: &str, high: i128| -> Result<u16> {
+                match f.get(key) {
+                    None => Ok(0),
+                    Some(field) => {
+                        let expr = value(field)?;
+                        Self::ranged(expr, self.env.integer(expr)?, 0, high, key)
+                    }
+                }
+            };
+            let nrzi = flag("nrzi")?;
+            let manchester = flag("manchester")?;
+            let received = flag("code_received")?;
+            if manchester != 0 && (nrzi != 0 || received != 0) {
+                return Err(Error::new(
+                    name.span,
+                    "Manchester transmit cannot be combined with NRZI or receive coding",
+                ));
+            }
+            let coder = number("stuff_after", 7)?
+                | flag("stuff_ones")? << 3
+                | nrzi << 4
+                | received << 5
+                | flag("arm_at_zero")? << 6
+                | flag("invert_crc_tail")? << 7
+                | flag("bit_strobe")? << 8
+                | number("crc_tail_bits", 63)? << 9
+                | manchester << 15;
+            let gate = f
+                .get("stuff_while")
+                .map(|field| self.level(value(field)?))
+                .transpose()?;
+            let coder_gate = gate.map_or(0, Line::level_select)
+                | u16::from(gate.is_some()) << 5
+                | number("crc_skip_bits", 127)? << 6;
+            writes.push((config::shifter_coder(k), coder));
+            writes.push((config::shifter_coder_gate(k), coder_gate));
+        }
         Ok(writes)
     }
 
@@ -1239,7 +2182,7 @@ impl Chip<'_> {
     /// A CRC register fed bit by bit: `absorb` steps it with `data`, `emit`
     /// shifts its complemented check bits out on `.out`, and `.ok` compares
     /// it with `check`. `restart` reloads it; `start: zeros` starts it at 0.
-    fn crc(&self, name: &Name, list: &[&Field]) -> Result<Vec<(u8, u16)>> {
+    fn crc(&self, name: &Name, k: usize, list: &[&Field]) -> Result<Vec<(u8, u16)>> {
         let f = fields(
             list,
             &[
@@ -1253,6 +2196,7 @@ impl Chip<'_> {
                 "start",
                 "absorb_while",
                 "emit_while",
+                "link",
             ],
             "crc",
         )?;
@@ -1284,6 +2228,20 @@ impl Chip<'_> {
         };
         let absorb = line("absorb")?;
         let emit = line("emit")?;
+        let link = f
+            .get("link")
+            .map(|field| self.shifter_index(value(field)?))
+            .transpose()?;
+        if link.is_some()
+            && ["absorb", "data", "emit"]
+                .iter()
+                .any(|key| f.contains_key(key))
+        {
+            return Err(Error::new(
+                name.span,
+                "a linked CRC takes bits from its shifter; omit `absorb`, `data` and `emit`",
+            ));
+        }
         let restart = f
             .get("restart")
             .map(|e| self.pulse(value(e)?))
@@ -1312,17 +2270,23 @@ impl Chip<'_> {
             gates |= self.level(value(g)?)?.level_select() << 6 | 1 << 11;
         }
         Ok(vec![
-            (config::crc(0), poly as u16),
-            (config::crc(1), (poly >> 16) as u16),
-            (config::crc(2), check as u16),
-            (config::crc(3), (check >> 16) as u16),
-            (config::crc(6), (width - 1) as u16 | ones << 5),
+            (config::crc(k, 0), poly as u16),
+            (config::crc(k, 1), (poly >> 16) as u16),
+            (config::crc(k, 2), check as u16),
+            (config::crc(k, 3), (check >> 16) as u16),
             (
-                config::crc(5),
+                config::crc(k, 6),
+                (width - 1) as u16
+                    | ones << 5
+                    | u16::from(link.is_some()) << 6
+                    | (link.unwrap_or(0) as u16) << 7,
+            ),
+            (
+                config::crc(k, 5),
                 u16::from(emit.0) | u16::from(restart.0) << 6,
             ),
-            (config::crc(4), u16::from(absorb.0) | data << 6),
-            (config::crc(7), gates),
+            (config::crc(k, 4), u16::from(absorb.0) | data << 6),
+            (config::crc(k, 7), gates),
         ])
     }
 

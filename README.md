@@ -19,10 +19,27 @@ spatial run --test
 | `spatial run --test` | Build, then run every `test` in RTL simulation (`--test=NAME` for one) |
 | `spatial run` | Build, then type test statements at the program on a simulated chip |
 
+`spatial check` and `spatial build` show both resource totals and the physical
+assignment for each named tile: tile index, configuration address, and the
+pulse or level lines it drives. Pin-edge cells appear under their generated
+`uioN.rise` or `uioN.fall` names.
+
 Commands find the nearest `main.spt`, or take a file: `spatial run --test examples/spi.spt`.
 Running tests also needs [uv](https://docs.astral.sh/uv/), git, make, a C++
 compiler and Verilator 5.036 or newer. The first run fetches and builds the RTL
 once into `~/.cache/spatial`.
+
+This branch targets the 8×4 RTL at the revision in `HARDWARE_REVISION`.
+For testing against a local architecture worktree, set
+`SPATIAL_RTL_DIR=/path/to/protocol-emulator` when running `spatial run`.
+The local checkout must contain `test/Makefile`; simulation builds that checkout
+and leaves the compiler repository's hardware pin unchanged.
+For RTL cycle occupancy, set `SPATIAL_PROFILE_RTL=1` as well. The run report
+then includes per-test sequencer event/FIFO wait share, shifter-active share,
+and maximum concurrent shifters. Full state occupancy is retained as an
+`RTL_PROFILE` record in `target/simulation.log`. This probe is RTL-only and
+does not report physical wire locality; use routed implementation reports for
+that.
 
 ## Examples
 
@@ -31,6 +48,64 @@ once into `~/.cache/spatial`.
 - [`examples/spi.spt`](examples/spi.spt): an SPI controller with a host-callable `transfer`.
 - [`examples/i2c.spt`](examples/i2c.spt): an I2C controller with `write_read`, NACK reporting and clock stretching.
 - [`examples/usb.spt`](examples/usb.spt): a low-speed USB packet transmitter: NRZI, bit stuffing, CRC16 and end of packet in the fabric.
+- [`examples/protocol_control.spt`](examples/protocol_control.spt): a two-state protocol graph mapped onto a spatial control actor.
+- [`examples/protocol_control_controller.spt`](examples/protocol_control_controller.spt): an oversized pulse-driven graph lowered to the PX8 controller and checked over a UART peer.
+
+Protocol actors use a fixed signal line and two-valued transitions:
+
+```text
+protocol handshake on request {
+    transition 0 low -> 0
+    transition 0 high -> 1 action 1
+    transition 1 low -> 0 action 2
+    transition 1 high -> 1
+}
+```
+
+The 8×4 target has two actors. Each mapped graph supports up to four states,
+one selected signal-space line, and three pulse outputs (`handshake.action1`
+through `.action3`). Before fitting, the compiler removes unreachable states
+and merges behaviorally equivalent states; it reports source and mapped state
+counts. A state/input pair can appear once; omitted rows hold their state
+without an action. `spatial check` reports actor placement and
+action lines. The mapper tries the available actor assignments and favors the
+actor beside a shifter when that graph reads the shifter's lines or drives its
+`start` signal. The report shows these channel-local signal pairs and the
+number of actor assignments evaluated, plus the actor's one-cycle registered
+stage. Candidate assignments, concurrent actor count, and locality scores are
+shown to make the choice auditable; routed wire length still needs physical
+implementation data. The mapper also evaluates a PX8 controller implementation
+for one graph when it is driven by a free-running timer tick pulse (P4–P25),
+low-input rows hold state, there are at most two actions, and no exported
+functions need the controller. The timer's first and repeating intervals must
+both exceed the controller's worst transition service time, so sticky pulse
+events cannot collapse while the previous transition is executing. When an
+actor also fits, the report compares both options; the one-cycle actor remains
+selected for its lower latency and parallel execution. If the actor does not
+fit, the feasible controller candidate is selected. Controller actions use
+the PX8 `FIRE` outputs on P2 and P3; this implementation is serialized by the
+controller and does not run in parallel with another controller function. The
+report includes its worst-case service cycles per input event, excluding time
+waiting for an input, and the verified minimum input interval. Level-triggered
+graphs and graphs outside these constraints still fail with a mapping
+diagnostic.
+
+The target map includes eight configurable pin-edge cells (shared by rise and
+fall requests), two CRC engines, counter hit pulses on lines 24–25, and the
+current timer resync/hold register layout. `spatial check` reports edge-cell
+usage and rejects programs requiring more than eight distinct pin edges.
+
+The shifter's bit coder can be configured with `stuff_after`, `stuff_ones`,
+`nrzi`, `code_received`, `arm_at_zero`, `invert_crc_tail`, `bit_strobe`,
+`crc_tail_bits`, `manchester`, `stuff_while` and `crc_skip_bits`. A CRC's
+`link: <shifter>` takes its absorb, data and emit signals directly from that
+shifter. The [coded Ethernet example](examples/ethernet_tx_coded.spt) uses
+Manchester transmit and a linked CRC32 tail; it compiles into 363 bytes and
+uses three logic cells and no counters. The original example uses eight cells,
+two counters and 433 bytes.
+Its full-length RTL tests pass the independent Ethernet peer's frame,
+FCS, Manchester, TP_IDL and repeated-session checks at 40 MHz; the accelerated
+link-gap tests pass as well.
 
 The language reference is the crate documentation: `cargo doc --open`.
 
@@ -81,18 +156,21 @@ changes. State (shifted bits, counters, timers) is shared: switching contexts
 does not reset it. Switch framing between transactions unless the protocol is
 designed for a mid-transfer change.
 
-This first version permits overrides of existing **pins, timers, shifters and
-counters**. Omitted tile fields inherit the shared declaration (or context 0 when the
-resource is declared there). Pin overrides
-specify the complete mode/source; pad assignments remain shared. CRC and byte
-tiles have no hardware context banks. Logic-cell context overrides and
-context-specific runtime writes are not exposed yet. Runtime `.set`, `.drive`
+Contexts permit overrides of existing **pins, timers, shifters, counters and
+logic cells (`reg`s)**. Omitted tile fields inherit the shared declaration (or
+context 0 when the resource is declared there). A `reg` override supplies a
+new formula; its `init` and `on` settings inherit unless restated. Its output
+flop retains its value when the context switches while the fabric is running.
+Pin overrides specify the complete mode/source; pad assignments remain shared. CRC and byte
+tiles have no hardware context banks. Context-specific runtime writes are not
+exposed yet. Runtime `.set`, `.drive`
 and `.release` operations update both banks; `.drive()` restores the shared pin
 declaration (or its context 0 declaration) in both banks.
 
 See [`examples/contexts.spt`](examples/contexts.spt) for 8N1/8E1 UART framing
 and paired pin switching, and [`examples/contexts_initial_one.spt`](examples/contexts_initial_one.spt)
-for starting directly in context 1. The UART test peer accepts optional `parity: "even"`
+for starting directly in context 1. [`examples/contexts_logic.spt`](examples/contexts_logic.spt)
+switches a logic-cell formula while sending UART bytes. The UART test peer accepts optional `parity: "even"`
 or `parity: "odd"`; its default remains 8N1. Run:
 
 ```sh

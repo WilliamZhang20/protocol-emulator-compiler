@@ -132,6 +132,115 @@ fn summary(build: &spatial::Build, on: bool) -> String {
             ));
         }
     }
+    if !build.resources.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "  {}",
+            paint(on, "1", "Hardware map (P = pulse line, L = level line)")
+        ));
+        for resource in &build.resources {
+            let location = resource.config.map_or_else(
+                || "controller".to_owned(),
+                |address| format!("cfg 0x{address:02X}"),
+            );
+            let outputs = resource
+                .outputs
+                .iter()
+                .map(|(name, line)| {
+                    let line = if *line < 32 {
+                        format!("P{line}")
+                    } else {
+                        format!("L{line}")
+                    };
+                    format!("{name}={line}")
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.push(format!(
+                "    {:<11} {:<18} {:<13} {outputs}",
+                format!("{}[{}]", resource.kind, resource.index),
+                resource.name,
+                location,
+            ));
+        }
+    }
+    if !build.protocol_mappings.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "  {}",
+            paint(
+                on,
+                "1",
+                "Protocol mapping candidates (parallelism, locality; controller latency is variable)"
+            )
+        ));
+        for (index, candidate) in build
+            .protocol_placement_search
+            .candidates
+            .iter()
+            .enumerate()
+        {
+            let assignments = candidate
+                .assignments
+                .iter()
+                .map(|(name, actor)| format!("{name}->actor{actor}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let assignments = if assignments.is_empty() {
+                "controller-loop".to_owned()
+            } else {
+                assignments
+            };
+            let selected = if build.protocol_placement_search.selected == Some(index) {
+                " selected"
+            } else {
+                ""
+            };
+            let feasible = if candidate.feasible {
+                "feasible"
+            } else {
+                "infeasible"
+            };
+            out.push(format!(
+                "    candidate {index}: {} {feasible} {assignments} parallel={} local-pairs={} actor-cycles={:?} controller-service-cycles={:?} input-interval-cycles={:?}{}",
+                candidate.implementation,
+                candidate.parallel_actors,
+                candidate.local_channel_connections,
+                candidate.actor_pipeline_cycles,
+                candidate.controller_service_cycles,
+                candidate.minimum_input_interval_cycles,
+                paint(on, "32", selected),
+            ));
+        }
+        for mapping in &build.protocol_mappings {
+            let input = if mapping.input_line < 32 {
+                format!("P{}", mapping.input_line)
+            } else {
+                format!("L{}", mapping.input_line)
+            };
+            let parallel_actors = build
+                .protocol_placement_search
+                .selected
+                .and_then(|selected| build.protocol_placement_search.candidates.get(selected))
+                .map_or(0, |candidate| candidate.parallel_actors);
+            out.push(format!(
+                "    {:<18} {} input={input:<4} states={}->{} (reduced {}) rows={}->{} candidates={} parallel={} local-pairs={} actor-cycles={:?} controller-service-cycles={:?} input-interval-cycles={:?}",
+                mapping.name,
+                mapping.actor.map_or(String::from("PX8"), |actor| format!("actor{actor}")),
+                mapping.source_states,
+                mapping.mapped_states,
+                mapping.states_reduced,
+                mapping.source_transitions,
+                mapping.mapped_transitions,
+                mapping.placement_candidates_evaluated,
+                parallel_actors,
+                mapping.local_channel_connections,
+                mapping.actor_pipeline_cycles,
+                mapping.controller_service_cycles,
+                mapping.minimum_input_interval_cycles,
+            ));
+        }
+    }
     out.join("\n")
 }
 
@@ -201,6 +310,17 @@ fn report(
         };
         let micros = outcome.cycles as f64 * 1e6 / clock_hz;
         println!("  test {} {dots} {status}  ({micros:.1} us)", outcome.name);
+        if let Some(profile) = &outcome.profile {
+            let count = |key: &str| profile[key].as_u64().unwrap_or(0);
+            println!(
+                "    RTL profile: {} cycles; sequencer event-wait {}%, FIFO-wait {}%; shifter active {}%; max concurrent shifters {}",
+                count("cycles"),
+                percent(count("wait_event"), count("cycles")),
+                percent(count("wait_fifo"), count("cycles")),
+                percent(count("shifter_active"), count("cycles")),
+                count("max_concurrent_shifters"),
+            );
+        }
     }
     let failed: Vec<_> = outcomes
         .iter()
@@ -245,6 +365,12 @@ fn report(
         }
     }
     false
+}
+
+fn percent(part: u64, total: u64) -> u64 {
+    part.saturating_mul(100)
+        .checked_div(total)
+        .unwrap_or_default()
 }
 
 fn run() -> AppResult<bool> {

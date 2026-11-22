@@ -284,7 +284,7 @@ impl Planner<'_, '_> {
             ));
         }
         let error = if let Some(arg) = args.get(1) {
-            if !arg.name.as_ref().is_some_and(|n| n.text == "error") {
+            if arg.name.as_ref().is_none_or(|n| n.text != "error") {
                 return Err(Error::new(
                     arg.value.span,
                     "the second packet argument is `error: 0` or `error: 1`",

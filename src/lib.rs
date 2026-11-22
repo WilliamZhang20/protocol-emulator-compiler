@@ -25,6 +25,7 @@ mod elaborate;
 mod hardware;
 mod logic;
 mod plan;
+pub mod protocol;
 mod px8;
 mod syntax;
 mod value;
@@ -33,7 +34,7 @@ pub use diagnostic::{Error, Span};
 use std::collections::BTreeMap;
 
 /// The spatial RTL revision whose register layout this compiler targets.
-pub const HARDWARE_REVISION: &str = "58da19f41c4fc91d68bd052c0105c45efbcef8ee";
+pub const HARDWARE_REVISION: &str = "7dd2f41c3cc3065129ad6ee69599057834ad5f28";
 
 /// A compiled program.
 #[derive(Debug)]
@@ -44,10 +45,95 @@ pub struct Build {
     pub pins: BTreeMap<String, usize>,
     /// Hardware used, as `(name, used, available)`; `memory` is in bytes.
     pub usage: Vec<(&'static str, usize, usize)>,
+    /// Named hardware allocations and the signal-space lines they provide.
+    pub resources: Vec<ResourceAssignment>,
+    /// Protocol graphs, chosen actor implementations, and mapping estimates.
+    pub protocol_mappings: Vec<ProtocolMapping>,
+    /// Actor placement candidates considered by the protocol mapper.
+    pub protocol_placement_search: ProtocolPlacementSearch,
     /// Names of the program's tests, in source order.
     pub tests: Vec<String>,
     /// Everything the simulator needs to run the tests, as JSON.
     pub plan: serde_json::Value,
+}
+
+/// A source-level resource's physical location in the target tile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceAssignment {
+    /// Source name, or a generated name for an implicit resource such as an edge cell.
+    pub name: String,
+    /// Physical resource class, such as `timer` or `logic cell`.
+    pub kind: &'static str,
+    /// Physical tile index; pin cells use the actual pad number.
+    pub index: usize,
+    /// First configuration address for this resource, when it has one.
+    pub config: Option<u8>,
+    /// Named signal-space outputs as `(output name, line number)`.
+    pub outputs: Vec<(&'static str, u8)>,
+}
+
+/// A mapped protocol-control graph and the metrics available to the oracle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolMapping {
+    /// Source graph name.
+    pub name: String,
+    /// Chosen implementation: spatial actor or PX8 controller.
+    pub implementation: &'static str,
+    /// Physical protocol actor, 0 or 1, when the actor backend is selected.
+    pub actor: Option<usize>,
+    /// Selected input line in the 64-line fabric.
+    pub input_line: u8,
+    /// Source states before minimization.
+    pub source_states: usize,
+    /// States left after unreachable-state removal and minimization.
+    pub mapped_states: usize,
+    /// Number of source transition rows.
+    pub source_transitions: usize,
+    /// Explicit transition rows remaining after minimization.
+    pub mapped_transitions: usize,
+    /// Source states removed or merged by the optimizer.
+    pub states_reduced: usize,
+    /// Signal connections placed beside the matching shifter channel.
+    pub local_channel_connections: usize,
+    /// Actor assignments evaluated by the mapper for this allocation.
+    pub placement_candidates_evaluated: usize,
+    /// Actor pipeline stages from observed input to action output.
+    pub actor_pipeline_cycles: Option<usize>,
+    /// Best-case PX8 controller service cycles from a pulse to the next wait.
+    /// This excludes time waiting for an input event.
+    pub controller_service_cycles: Option<usize>,
+    /// Minimum spacing between source input pulses, when statically known.
+    pub minimum_input_interval_cycles: Option<usize>,
+}
+
+/// An implementation or placement option evaluated by the mapper.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolPlacementCandidate {
+    /// Implementation family evaluated for this candidate.
+    pub implementation: &'static str,
+    /// Whether the candidate satisfies the graph and target constraints.
+    pub feasible: bool,
+    /// `(protocol graph, actor index)` assignments in this candidate.
+    pub assignments: Vec<(String, usize)>,
+    /// Direct input/action signal connections placed beside their shifter.
+    pub local_channel_connections: usize,
+    /// Protocol actors active concurrently in this implementation.
+    pub parallel_actors: usize,
+    /// Actor pipeline latency when this option uses spatial actors.
+    pub actor_pipeline_cycles: Option<usize>,
+    /// Best-case PX8 controller service cycles for an input transition.
+    pub controller_service_cycles: Option<usize>,
+    /// Minimum spacing between source input pulses, when statically known.
+    pub minimum_input_interval_cycles: Option<usize>,
+}
+
+/// Search trace for the protocol implementation and actor placement decision.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProtocolPlacementSearch {
+    /// Candidates in deterministic evaluation order.
+    pub candidates: Vec<ProtocolPlacementCandidate>,
+    /// Index of the selected candidate, when any protocol graph exists.
+    pub selected: Option<usize>,
 }
 
 /// Parse, check and compile a program.
@@ -65,6 +151,9 @@ pub fn compile(source: &str) -> Result<Build, Error> {
             .map(|(name, _, _)| name.text.clone())
             .collect(),
         usage: design.usage,
+        resources: design.resources,
+        protocol_mappings: design.protocol_mappings,
+        protocol_placement_search: design.protocol_placement_search,
         pins: design.pins,
         image: design.image,
         plan,
