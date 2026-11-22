@@ -1,12 +1,14 @@
 //! Protocol-control graph representation and mapping to the 8x4 actors.
 //!
-//! This is a deliberately small first mapping target. The RTL actor has four
-//! states, observes one signal-space line, and can emit one of three action
-//! pulses on each transition. Unreachable and behaviorally equivalent source
-//! states are removed before fitting; remaining oversized graphs are rejected.
+//! The RTL actor has a compact four-state/two-input mode and an eight-state/
+//! one-input mode, and can emit one of three action pulses per transition.
+//! Unreachable and behaviorally equivalent source states are removed before
+//! fitting; remaining oversized graphs are rejected.
 
 /// Maximum states in one configured protocol actor.
 pub const ACTOR_STATES: usize = 4;
+/// Maximum states when an actor uses its one-input extended-state mode.
+pub const ACTOR_WIDE_STATES: usize = 8;
 /// Number of protocol actors in the 8x4 fabric.
 pub const ACTORS: usize = 2;
 /// Number of one-hot action outputs per actor.
@@ -21,6 +23,8 @@ pub struct ProtocolGraph {
     pub name: String,
     /// The signal-space line sampled by the actor, from 0 through 63.
     pub input_line: u8,
+    /// Optional second signal-space line, from 0 through 63.
+    pub input_line2: Option<u8>,
     /// Number of source states, from 1 through [`MAX_LOGICAL_STATES`].
     pub states: usize,
     /// State in which the actor starts after reset or disable.
@@ -36,6 +40,8 @@ pub struct Transition {
     pub from: usize,
     /// Input value: false is low, true is high.
     pub input_high: bool,
+    /// Second input value; ignored when the graph has one input.
+    pub input2_high: bool,
     /// Destination state.
     pub to: usize,
     /// Optional one-based action output, 1 through 3.
@@ -47,7 +53,9 @@ pub struct Transition {
 pub enum ActorIneligible {
     /// Actor selection accepts only the 64 signal-space lines.
     InputLineOutOfRange(u8),
-    /// The actor has four states.
+    /// The second actor selector accepts only the 64 signal-space lines.
+    InputLine2OutOfRange(u8),
+    /// The graph exceeds the selected actor mode's state capacity.
     TooManyStates(usize),
     /// No state was provided.
     NoStates,
@@ -68,6 +76,8 @@ pub enum ActorIneligible {
         state: usize,
         /// Input value with a duplicate row.
         input_high: bool,
+        /// Second input value when the graph has two inputs.
+        input2_high: Option<bool>,
     },
     /// The actor offers exactly three action outputs.
     InvalidAction(usize),
@@ -79,8 +89,14 @@ impl std::fmt::Display for ActorIneligible {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InputLineOutOfRange(line) => write!(f, "signal line {line} is outside 0..63"),
+            Self::InputLine2OutOfRange(line) => {
+                write!(f, "second signal line {line} is outside 0..63")
+            }
             Self::TooManyStates(states) => {
-                write!(f, "{states} states exceed the actor's four-state capacity")
+                write!(
+                    f,
+                    "{states} states exceed the actor capacity for its input mode"
+                )
             }
             Self::NoStates => f.write_str("the graph has no states"),
             Self::InvalidInitialState(state) => write!(f, "initial state {state} does not exist"),
@@ -91,10 +107,18 @@ impl std::fmt::Display for ActorIneligible {
             Self::InvalidTransitionState { from, to } => {
                 write!(f, "transition {from} -> {to} refers to a nonexistent state")
             }
-            Self::DuplicateInput { state, input_high } => write!(
+            Self::DuplicateInput {
+                state,
+                input_high,
+                input2_high,
+            } => write!(
                 f,
-                "state {state} has two transitions for input {}",
-                if *input_high { "high" } else { "low" }
+                "state {state} has two transitions for input {}{}",
+                if *input_high { "high" } else { "low" },
+                input2_high.map_or(String::new(), |high| format!(
+                    ", second input {}",
+                    if high { "high" } else { "low" }
+                ))
             ),
             Self::InvalidAction(action) => write!(f, "action {action} is outside 1..=3"),
             Self::InvalidActor(actor) => write!(f, "actor {actor} does not exist"),
@@ -111,6 +135,8 @@ pub struct ActorMapping {
     pub source_states: usize,
     /// States remaining in the mapped actor after minimization.
     pub mapped_states: usize,
+    /// Whether the actor uses 8 states with one input instead of 4 states with two inputs.
+    pub wide_state: bool,
     /// Source states removed or merged by the optimizer.
     pub states_reduced: usize,
     /// Explicit source transition rows remaining after minimization.
@@ -125,13 +151,19 @@ pub struct ActorMapping {
 
 /// Map a graph onto the requested 8x4 protocol actor.
 ///
-/// Rows not present in `transitions` hold the current state and emit no action,
-/// matching the actor RTL reset contents. The returned writes use config
-/// addresses `0x90..=0x9f` and selectors `0xa0..=0xa1`.
+/// Rows not present in `transitions` hold the current state and emit no action.
+/// Eight transition words per actor fit either four states/two inputs or eight
+/// states/one input. The returned writes use `0x90..=0x9f`; selector bit 12
+/// chooses the extended-state format at `0xa0..=0xa1`.
 pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, ActorIneligible> {
     let source_states = graph.states;
     if graph.input_line >= 64 {
         return Err(ActorIneligible::InputLineOutOfRange(graph.input_line));
+    }
+    if let Some(line) = graph.input_line2
+        && line >= 64
+    {
+        return Err(ActorIneligible::InputLine2OutOfRange(line));
     }
     if graph.states == 0 {
         return Err(ActorIneligible::NoStates);
@@ -148,11 +180,14 @@ pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, Ac
 
     let graph = minimize(graph)?;
     let mapped_transitions = graph.transitions.len();
-    if graph.states > ACTOR_STATES {
+    let wide_state = graph.states > ACTOR_STATES;
+    if graph.states > ACTOR_STATES
+        && (graph.states > ACTOR_WIDE_STATES || graph.input_line2.is_some())
+    {
         return Err(ActorIneligible::TooManyStates(graph.states));
     }
 
-    let mut physical_state = [usize::MAX; ACTOR_STATES];
+    let mut physical_state = [usize::MAX; ACTOR_WIDE_STATES];
     physical_state[graph.initial_state] = 0;
     let mut next_state = 1;
     for (state, physical) in physical_state.iter_mut().enumerate().take(graph.states) {
@@ -161,7 +196,7 @@ pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, Ac
             next_state += 1;
         }
     }
-    let mut rows: [Option<Transition>; ACTOR_STATES * 2] = [None; ACTOR_STATES * 2];
+    let mut rows: [Option<Transition>; ACTOR_WIDE_STATES * 4] = [None; ACTOR_WIDE_STATES * 4];
     for transition in &graph.transitions {
         if transition.from >= graph.states || transition.to >= graph.states {
             return Err(ActorIneligible::InvalidTransitionState {
@@ -174,16 +209,24 @@ pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, Ac
         {
             return Err(ActorIneligible::InvalidAction(action));
         }
-        let row = physical_state[transition.from] * 2 + usize::from(transition.input_high);
+        let row = if wide_state {
+            physical_state[transition.from] * 2 + usize::from(transition.input_high)
+        } else {
+            physical_state[transition.from] * 4
+                + usize::from(transition.input_high)
+                + 2 * usize::from(transition.input2_high)
+        };
         if rows[row].is_some() {
             return Err(ActorIneligible::DuplicateInput {
                 state: transition.from,
                 input_high: transition.input_high,
+                input2_high: graph.input_line2.map(|_| transition.input2_high),
             });
         }
         rows[row] = Some(Transition {
             from: physical_state[transition.from],
             input_high: transition.input_high,
+            input2_high: transition.input2_high,
             to: physical_state[transition.to],
             action: transition.action,
         });
@@ -191,23 +234,43 @@ pub fn map_actor(graph: &ProtocolGraph, actor: usize) -> Result<ActorMapping, Ac
 
     let table_base = 0x90 + (actor * 8) as u8;
     let mut writes = Vec::with_capacity(9);
-    writes.push((0xa0 + actor as u8, u16::from(graph.input_line)));
+    let input2_line = graph.input_line2.unwrap_or(0);
+    writes.push((
+        0xa0 + actor as u8,
+        u16::from(graph.input_line) | (u16::from(input2_line) << 6) | (u16::from(wide_state) << 12),
+    ));
     let mut implicit_hold_rows = 0;
-    for (row, transition) in rows.iter().enumerate() {
-        let value = if let Some(transition) = transition {
-            let action = transition.action.map_or(0, |n| 1 << (n + 1));
-            (transition.to as u16) | action
-        } else {
-            implicit_hold_rows += 1;
-            (row / 2) as u16
-        };
-        writes.push((table_base + row as u8, value));
+    for word in 0..(ACTOR_WIDE_STATES) {
+        let mut packed = 0u16;
+        for pair_row in 0..2 {
+            let row = word * 2 + pair_row;
+            let value = if let Some(transition) = rows[row] {
+                let action = transition.action.map_or(0, |n| 1 << (n - 1));
+                if wide_state {
+                    (transition.to as u16) | (action << 3)
+                } else {
+                    (transition.to as u16) | (action << 2)
+                }
+            } else {
+                if wide_state || graph.input_line2.is_some() || row % 4 < 2 {
+                    implicit_hold_rows += 1;
+                }
+                if wide_state {
+                    (row / 2) as u16
+                } else {
+                    (row / 4) as u16
+                }
+            };
+            packed |= value << (pair_row * if wide_state { 6 } else { 5 });
+        }
+        writes.push((table_base + word as u8, packed));
     }
 
     Ok(ActorMapping {
         actor,
         source_states,
         mapped_states: graph.states,
+        wide_state,
         states_reduced: source_states - graph.states,
         mapped_transitions,
         writes,
@@ -226,6 +289,11 @@ pub(crate) fn minimized(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIne
     if graph.input_line >= 64 {
         return Err(ActorIneligible::InputLineOutOfRange(graph.input_line));
     }
+    if let Some(line) = graph.input_line2
+        && line >= 64
+    {
+        return Err(ActorIneligible::InputLine2OutOfRange(line));
+    }
     if graph.states == 0 {
         return Err(ActorIneligible::NoStates);
     }
@@ -241,7 +309,8 @@ pub(crate) fn minimized(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIne
 fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     use std::collections::{HashMap, VecDeque};
 
-    let mut rows = vec![[None; 2]; graph.states];
+    let input_count = if graph.input_line2.is_some() { 4 } else { 2 };
+    let mut rows = vec![[None; 4]; graph.states];
     for transition in &graph.transitions {
         if transition.from >= graph.states || transition.to >= graph.states {
             return Err(ActorIneligible::InvalidTransitionState {
@@ -254,11 +323,12 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
         {
             return Err(ActorIneligible::InvalidAction(action));
         }
-        let input = usize::from(transition.input_high);
+        let input = usize::from(transition.input_high) + 2 * usize::from(transition.input2_high);
         if rows[transition.from][input].is_some() {
             return Err(ActorIneligible::DuplicateInput {
                 state: transition.from,
                 input_high: transition.input_high,
+                input2_high: graph.input_line2.map(|_| transition.input2_high),
             });
         }
         rows[transition.from][input] = Some(*transition);
@@ -270,7 +340,7 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     let mut queue = VecDeque::from([graph.initial_state]);
     reachable[graph.initial_state] = true;
     while let Some(state) = queue.pop_front() {
-        for input in 0..2 {
+        for input in 0..input_count {
             let (next, _) = effective(state, input);
             if !reachable[next] {
                 reachable[next] = true;
@@ -287,7 +357,7 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     let mut classes = vec![usize::MAX; graph.states];
     let mut initial_signatures = HashMap::<Vec<usize>, usize>::new();
     for &state in &active {
-        let signature = (0..2)
+        let signature = (0..input_count)
             .map(|input| effective(state, input).1.unwrap_or(0))
             .collect::<Vec<_>>();
         let next_class = initial_signatures.len();
@@ -299,8 +369,8 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
         let mut signatures = HashMap::<Vec<usize>, usize>::new();
         let mut refined = vec![usize::MAX; graph.states];
         for &state in &active {
-            let mut signature = Vec::with_capacity(4);
-            for input in 0..2 {
+            let mut signature = Vec::with_capacity(input_count * 2);
+            for input in 0..input_count {
                 let (next, action) = effective(state, input);
                 signature.push(action.unwrap_or(0));
                 signature.push(classes[next]);
@@ -326,13 +396,14 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     }
     let mut transitions = Vec::new();
     for (class, &state) in representative.iter().enumerate() {
-        for input in 0..2 {
+        for input in 0..input_count {
             let (next, action) = effective(state, input);
             let next_class = classes[next];
             if next_class != class || action.is_some() {
                 transitions.push(Transition {
                     from: class,
-                    input_high: input != 0,
+                    input_high: input & 1 != 0,
+                    input2_high: input & 2 != 0,
                     to: next_class,
                     action,
                 });
@@ -342,6 +413,7 @@ fn minimize(graph: &ProtocolGraph) -> Result<ProtocolGraph, ActorIneligible> {
     Ok(ProtocolGraph {
         name: graph.name.clone(),
         input_line: graph.input_line,
+        input_line2: graph.input_line2,
         states: class_count,
         initial_state: classes[graph.initial_state],
         transitions,
@@ -357,10 +429,11 @@ mod tests {
         input
             .iter()
             .map(|&high| {
-                let transition = graph
-                    .transitions
-                    .iter()
-                    .find(|transition| transition.from == state && transition.input_high == high);
+                let transition = graph.transitions.iter().find(|transition| {
+                    transition.from == state
+                        && transition.input_high == high
+                        && !transition.input2_high
+                });
                 if let Some(transition) = transition {
                     state = transition.to;
                     transition.action
@@ -377,14 +450,22 @@ mod tests {
         input
             .iter()
             .map(|&high| {
-                let row = state * 2 + usize::from(high);
-                let value = mapping
+                let row = if mapping.wide_state {
+                    state * 2 + usize::from(high)
+                } else {
+                    state * 4 + usize::from(high)
+                };
+                let packed = mapping
                     .writes
                     .iter()
-                    .find_map(|(address, value)| (*address == base + row as u8).then_some(*value))
+                    .find_map(|(address, value)| {
+                        (*address == base + (row / 2) as u8).then_some(*value)
+                    })
                     .expect("all rows are programmed");
-                state = usize::from(value & 0b11);
-                let action = (value >> 2) & 0b111;
+                let width = if mapping.wide_state { 6 } else { 5 };
+                let value = (packed >> (width * (row % 2))) & ((1 << width) - 1);
+                state = usize::from(value & if mapping.wide_state { 0b111 } else { 0b11 });
+                let action = (value >> if mapping.wide_state { 3 } else { 2 }) & 0b111;
                 (action != 0).then(|| action.trailing_zeros() as usize + 1)
             })
             .collect()
@@ -394,18 +475,21 @@ mod tests {
         ProtocolGraph {
             name: "handshake".into(),
             input_line: 32,
+            input_line2: None,
             states: 2,
             initial_state: 0,
             transitions: vec![
                 Transition {
                     from: 0,
                     input_high: true,
+                    input2_high: false,
                     to: 1,
                     action: Some(1),
                 },
                 Transition {
                     from: 1,
                     input_high: false,
+                    input2_high: false,
                     to: 0,
                     action: Some(2),
                 },
@@ -417,11 +501,54 @@ mod tests {
     fn maps_rows_and_actor_lines_to_hardware_registers() {
         let mapping = map_actor(&handshake(), 1).expect("fits actor");
         assert_eq!(mapping.writes[0], (0xa1, 32));
-        assert_eq!(mapping.writes[1], (0x98, 0));
-        assert_eq!(mapping.writes[2], (0x99, 1 | 1 << 2));
-        assert_eq!(mapping.writes[3], (0x9a, 1 << 3));
+        assert_eq!(mapping.writes[1], (0x98, (1 | 1 << 2) << 5));
+        assert_eq!(mapping.writes[3], (0x9a, 8 | 1 << 5));
         assert_eq!(mapping.action_lines, [29, 30, 31]);
         assert_eq!(mapping.implicit_hold_rows, 6);
+    }
+
+    #[test]
+    fn maps_two_independent_conditions_into_each_actor_state() {
+        let graph = ProtocolGraph {
+            name: "ack-qualified-tick".into(),
+            input_line: 4,
+            input_line2: Some(32),
+            states: 1,
+            initial_state: 0,
+            transitions: vec![
+                Transition {
+                    from: 0,
+                    input_high: true,
+                    input2_high: false,
+                    to: 0,
+                    action: Some(1),
+                },
+                Transition {
+                    from: 0,
+                    input_high: true,
+                    input2_high: true,
+                    to: 0,
+                    action: Some(2),
+                },
+            ],
+        };
+        let mapping = map_actor(&graph, 0).expect("two-input graph fits");
+        assert_eq!(mapping.writes[0], (0xa0, 4 | (32 << 6)));
+
+        // Row order is {state, input2, input1}; action values occupy bits 4:2.
+        let row = |index: usize| {
+            let address = 0x90 + (index / 2) as u8;
+            let word = mapping
+                .writes
+                .iter()
+                .find_map(|(candidate, value)| (*candidate == address).then_some(*value))
+                .expect("packed row word exists");
+            (word >> (5 * (index % 2))) & 0x1f
+        };
+        assert_eq!(row(0), 0); // both low: hold, no action
+        assert_eq!(row(1), 1 << 2); // tick high, ACK low: action 1
+        assert_eq!(row(2), 0); // tick low, ACK high: hold, no action
+        assert_eq!(row(3), 1 << 3); // both high: action 2
     }
 
     #[test]
@@ -429,22 +556,24 @@ mod tests {
         let graph = ProtocolGraph {
             name: "chain".into(),
             input_line: 32,
-            states: 5,
+            input_line2: None,
+            states: 9,
             initial_state: 0,
-            transitions: (0..5)
+            transitions: (0..9)
                 .map(|state| Transition {
                     from: state,
                     input_high: true,
-                    to: (state + 1).min(4),
+                    input2_high: false,
+                    to: (state + 1).min(8),
                     action: match state {
-                        0 => Some(1),
-                        4 => Some(2),
+                        7 => Some(1),
+                        8 => Some(2),
                         _ => None,
                     },
                 })
                 .collect(),
         };
-        assert_eq!(map_actor(&graph, 0), Err(ActorIneligible::TooManyStates(5)));
+        assert_eq!(map_actor(&graph, 0), Err(ActorIneligible::TooManyStates(9)));
 
         let mut graph = handshake();
         graph.input_line = 64;
@@ -455,46 +584,95 @@ mod tests {
     }
 
     #[test]
+    fn maps_five_state_one_input_graph_in_extended_mode() {
+        let graph = ProtocolGraph {
+            name: "five-phase-handshake".into(),
+            input_line: 4,
+            input_line2: None,
+            states: 5,
+            initial_state: 0,
+            transitions: (0..5)
+                .flat_map(|state| {
+                    [
+                        Transition {
+                            from: state,
+                            input_high: false,
+                            input2_high: false,
+                            to: state,
+                            action: None,
+                        },
+                        Transition {
+                            from: state,
+                            input_high: true,
+                            input2_high: false,
+                            to: (state + 1).min(4),
+                            action: (state == 3).then_some(1),
+                        },
+                    ]
+                })
+                .collect(),
+        };
+        let mapping = map_actor(&graph, 0).expect("five states fit the extended actor mode");
+        assert!(mapping.wide_state);
+        assert_eq!(mapping.mapped_states, 5);
+        assert_eq!(mapping.writes.len(), 9);
+        assert_eq!(mapping.writes[0], (0xa0, 4 | (1 << 12)));
+
+        // Compare every 8-sample binary trace with the source state machine.
+        for word in 0..256 {
+            let input: Vec<_> = (0..8).map(|bit| word & (1 << bit) != 0).collect();
+            assert_eq!(mapped_trace(&mapping, &input), source_trace(&graph, &input));
+        }
+    }
+
+    #[test]
     fn removes_unreachable_and_equivalent_source_states_before_fitting() {
         let graph = ProtocolGraph {
             name: "reducible".into(),
             input_line: 40,
+            input_line2: None,
             states: 5,
             initial_state: 0,
             transitions: vec![
                 Transition {
                     from: 0,
                     input_high: false,
+                    input2_high: false,
                     to: 2,
                     action: None,
                 },
                 Transition {
                     from: 0,
                     input_high: true,
+                    input2_high: false,
                     to: 1,
                     action: Some(1),
                 },
                 Transition {
                     from: 1,
                     input_high: false,
+                    input2_high: false,
                     to: 1,
                     action: None,
                 },
                 Transition {
                     from: 1,
                     input_high: true,
+                    input2_high: false,
                     to: 1,
                     action: None,
                 },
                 Transition {
                     from: 2,
                     input_high: false,
+                    input2_high: false,
                     to: 2,
                     action: None,
                 },
                 Transition {
                     from: 2,
                     input_high: true,
+                    input2_high: false,
                     to: 2,
                     action: None,
                 },
@@ -517,18 +695,21 @@ mod tests {
         let graph = ProtocolGraph {
             name: "nonzero-initial".into(),
             input_line: 44,
+            input_line2: None,
             states: 3,
             initial_state: 2,
             transitions: vec![
                 Transition {
                     from: 2,
                     input_high: true,
+                    input2_high: false,
                     to: 1,
                     action: Some(1),
                 },
                 Transition {
                     from: 1,
                     input_high: false,
+                    input2_high: false,
                     to: 2,
                     action: Some(2),
                 },
@@ -547,6 +728,7 @@ mod tests {
         graph.transitions.push(Transition {
             from: 0,
             input_high: true,
+            input2_high: false,
             to: 0,
             action: None,
         });
@@ -554,7 +736,8 @@ mod tests {
             map_actor(&graph, 0),
             Err(ActorIneligible::DuplicateInput {
                 state: 0,
-                input_high: true
+                input_high: true,
+                input2_high: None,
             })
         );
     }

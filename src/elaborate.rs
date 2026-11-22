@@ -6,7 +6,7 @@ use crate::diagnostic::{Error, Result, Span};
 use crate::hardware::{self, Line, PinMode, config};
 use crate::logic::{self, Formula};
 use crate::px8::Assembler;
-use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, ProtocolTransition, Stmt, StmtKind};
+use crate::syntax::ast::{Expr, ExprKind, Field, Item, Name, Stmt, StmtKind};
 use crate::value::{Env, Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -68,6 +68,19 @@ impl Kind {
     }
 }
 
+fn selector_kind(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pin => "pin",
+        Kind::Timer => "timer",
+        Kind::Shifter => "shifter",
+        Kind::Counter => "counter",
+        Kind::Reg => "logic cell",
+        Kind::Crc => "crc",
+        Kind::Protocol => "protocol",
+        Kind::Event | Kind::Flag => "",
+    }
+}
+
 /// A declared name and the hardware index it was given.
 #[derive(Clone, Copy)]
 pub(crate) struct Decl {
@@ -89,6 +102,8 @@ pub(crate) struct Stream {
     pub packets: bool,
     pub channel: usize,
     pub direction: Direction,
+    pub shifter: String,
+    pub byte_stages: Vec<String>,
 }
 
 /// A shifter's FIFO connections to the host.
@@ -106,12 +121,15 @@ pub(crate) struct Design<'a> {
     /// Constants, for evaluating test values.
     pub env: Env,
     pub image: Vec<u8>,
+    pub memory_layout: crate::ProgramMemoryLayout,
     /// Pin name to physical `uio` pad.
     pub pins: BTreeMap<String, usize>,
     pub streams: BTreeMap<String, Stream>,
     pub exports: Exports,
     pub usage: Vec<(&'static str, usize, usize)>,
     pub resources: Vec<ResourceAssignment>,
+    pub signal_connections: Vec<crate::SignalConnection>,
+    pub topology_estimates: Vec<crate::TopologyEstimate>,
     pub protocol_mappings: Vec<crate::ProtocolMapping>,
     pub protocol_placement_search: crate::ProtocolPlacementSearch,
     pub tests: Vec<(&'a Name, &'a [Stmt], Option<&'a Expr>)>,
@@ -125,6 +143,9 @@ pub(crate) struct Chip<'a> {
     pub decls: HashMap<String, Decl>,
     pub pads: Vec<usize>,
     pub fifos: Vec<Fifo>,
+    /// Channel temporarily reserved by the exported-function dispatcher.
+    /// Its initial shifter config must not prefetch host command bytes.
+    pub shared_dispatch: Option<(usize, usize, u16)>,
     pub tiles: HashMap<String, &'a [Field]>,
     /// Each pin's declaration, so a program can release a pin and drive it again.
     pub pin_decls: HashMap<String, (&'a Name, &'a Name, Option<&'a Expr>)>,
@@ -212,16 +233,23 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
     let protocols: Vec<_> = items
         .iter()
         .filter_map(|item| match item {
-            Item::Protocol { name, input, .. } => Some((name.text.clone(), input)),
+            Item::Protocol {
+                name,
+                input,
+                input2,
+                ..
+            } => Some((name.text.clone(), input, input2.as_ref())),
             _ => None,
         })
         .collect();
     let preferences: Vec<[usize; crate::protocol::ACTORS]> = protocols
         .iter()
-        .map(|(protocol, input)| {
+        .map(|(protocol, input, input2)| {
             let mut score = [0; crate::protocol::ACTORS];
             for (channel, shifter) in shifters.iter().enumerate() {
-                if mentions_shifter(input, shifter) {
+                if mentions_shifter(input, shifter)
+                    || input2.is_some_and(|input| mentions_shifter(input, shifter))
+                {
                     score[channel] += 1;
                 }
                 for item in items {
@@ -297,10 +325,10 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
             ];
             let slots = if swapped > direct { [1, 0] } else { [0, 1] };
             report.selected = Some(usize::from(swapped > direct));
-            for (i, (name, _)) in protocols.iter().take(crate::protocol::ACTORS).enumerate() {
+            for (i, (name, _, _)) in protocols.iter().take(crate::protocol::ACTORS).enumerate() {
                 assignment.insert(name.clone(), (slots[i], preferences[i][slots[i]]));
             }
-            for (i, (name, _)) in protocols.iter().enumerate().skip(crate::protocol::ACTORS) {
+            for (i, (name, _, _)) in protocols.iter().enumerate().skip(crate::protocol::ACTORS) {
                 assignment.insert(name.clone(), (i, 0));
             }
         }
@@ -311,7 +339,11 @@ fn protocol_actor_slots(items: &[Item]) -> ProtocolActorSearch {
     }
 }
 
-pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
+pub(crate) fn elaborate_with_resource_indices<'a>(
+    items: &'a [Item],
+    resource_index_overrides: &BTreeMap<String, usize>,
+    logical_protocols: &[crate::LogicalProtocol],
+) -> Result<Design<'a>> {
     let clock_hz = match items.iter().find_map(|item| match item {
         Item::Clock(expr) => Some(expr),
         _ => None,
@@ -327,6 +359,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         decls: HashMap::new(),
         pads: Vec::new(),
         fifos: vec![Fifo::default(); hardware::SHIFTERS],
+        shared_dispatch: None,
         tiles: HashMap::new(),
         pin_decls: HashMap::new(),
         edges: HashMap::new(),
@@ -346,13 +379,33 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             ));
         }
         if let Some(kind) = kind {
+            let (capacity, plural) = kind.capacity();
+            let requested_index = resource_index_overrides.get(&name.text).copied();
+            if requested_index.is_some() && kind != Kind::Timer {
+                return Err(Error::new(
+                    name.span,
+                    format!(
+                        "resource-index overrides currently support timers only; `{}` is a {}",
+                        name.text,
+                        kind.noun()
+                    ),
+                ));
+            }
             let index = if kind == Kind::Protocol {
                 actor_search.slots[&name.text].0
+            } else if let Some(index) = requested_index {
+                index
             } else {
-                counts[kind as usize]
+                (0..capacity)
+                    .find(|candidate| {
+                        !chip
+                            .decls
+                            .values()
+                            .any(|decl| decl.kind == kind && decl.index == *candidate)
+                    })
+                    .unwrap_or(capacity)
             };
             counts[kind as usize] += 1;
-            let (capacity, plural) = kind.capacity();
             if index >= capacity {
                 return Err(Error::new(
                     name.span,
@@ -360,6 +413,19 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                         "the chip has only {capacity} {plural}; `{}` would be number {}",
                         name.text,
                         index + 1
+                    ),
+                ));
+            }
+            if let Some((other, _)) = chip
+                .decls
+                .iter()
+                .find(|(_, decl)| decl.kind == kind && decl.index == index)
+            {
+                return Err(Error::new(
+                    name.span,
+                    format!(
+                        "physical {} index {index} is already assigned to `{other}`",
+                        kind.noun()
                     ),
                 ));
             }
@@ -428,6 +494,14 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             Item::Always { name, condition } => invariants.push((name, condition)),
         }
     }
+    for resource_name in resource_index_overrides.keys() {
+        if !chip.decls.contains_key(resource_name) {
+            return Err(Error::new(
+                names.get(resource_name).copied().unwrap_or_default(),
+                format!("`{resource_name}` is not a declared hardware resource"),
+            ));
+        }
+    }
     chip.pads = assign_pads(&pins)?;
     // Assign edge cells after pad matching, before any configuration or
     // controller lowering resolves an edge signal.
@@ -462,11 +536,13 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             from,
             to,
             packets,
+            stages,
             ..
         } = item
         {
             let mut stream = chip.stream(name, from, to)?;
             stream.packets = *packets;
+            stream.byte_stages = stages.iter().map(|stage| stage.kind.text.clone()).collect();
             streams.insert(name.text.clone(), stream);
         }
     }
@@ -474,7 +550,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         .iter()
         .filter(|i| matches!(i, Item::Fn { .. }))
         .collect();
-    control::claim_fifos(&mut chip, &functions)?;
+    control::claim_fifos(&mut chip, items, &functions)?;
     let mut byte_writes = Vec::new();
     let mut byte_usage = 0;
     let mut framed_streams = std::collections::HashSet::new();
@@ -644,12 +720,17 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         let Item::Protocol {
             name,
             input,
-            transitions,
+            input2,
+            transitions: _,
         } = item
         else {
             continue;
         };
-        let graph = protocol_graph(name, input, transitions, &chip)?;
+        let logical = logical_protocols
+            .iter()
+            .find(|graph| graph.name == name.text)
+            .expect("protocol IR exists for each declaration");
+        let graph = protocol_graph(name, input, input2.as_ref(), logical, &chip)?;
         let minimum_input_interval_cycles = timer_input_interval(input, &chip)?;
         let actor = chip.decls[&name.text].index;
         match crate::protocol::map_actor(&graph, actor) {
@@ -675,7 +756,9 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     name: name.text.clone(),
                     implementation: "spatial actor",
                     actor: Some(mapping.actor),
+                    wide_state: mapping.wide_state,
                     input_line: graph.input_line,
+                    input_line2: graph.input_line2,
                     source_states: graph.states,
                     mapped_states: mapping.mapped_states,
                     source_transitions: graph.transitions.len(),
@@ -722,7 +805,9 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     name: name.text.clone(),
                     implementation: "PX8 controller",
                     actor: None,
+                    wide_state: false,
                     input_line: optimized.input_line,
+                    input_line2: optimized.input_line2,
                     source_states: graph.states,
                     mapped_states: optimized.states,
                     source_transitions: graph.transitions.len(),
@@ -743,6 +828,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             }
         }
     }
+    let mut configured_signals = Vec::new();
     for item in items {
         let writes = match item {
             Item::Pin {
@@ -761,6 +847,27 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
             Item::Protocol { name, .. } => protocol_writes.remove(&name.text).unwrap_or_default(),
             _ => Vec::new(),
         };
+        let name = match item {
+            Item::Pin { name, .. }
+            | Item::Tile { name, .. }
+            | Item::Reg { name, .. }
+            | Item::Protocol { name, .. } => Some(name),
+            _ => None,
+        };
+        if let Some(name) = name {
+            let decl = chip.decls[&name.text];
+            let kind = selector_kind(decl.kind);
+            if !kind.is_empty() {
+                let index = if decl.kind == Kind::Pin {
+                    chip.pads[decl.index]
+                } else {
+                    decl.index
+                };
+                configured_signals.extend(crate::architecture::decode_selectors(
+                    kind, &name.text, index, &writes, None,
+                ));
+            }
+        }
         for (address, value) in writes {
             asm.config(address, value);
         }
@@ -875,6 +982,22 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
                     "resource is overridden twice in this context",
                 ));
             }
+            let decl = chip.decls[&name.text];
+            let kind = selector_kind(decl.kind);
+            if !kind.is_empty() {
+                let index = if decl.kind == Kind::Pin {
+                    chip.pads[decl.index]
+                } else {
+                    decl.index
+                };
+                configured_signals.extend(crate::architecture::decode_selectors(
+                    kind,
+                    &name.text,
+                    index,
+                    &writes,
+                    Some(bank),
+                ));
+            }
             for (address, value) in writes {
                 asm.config(address, value);
             }
@@ -912,7 +1035,7 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
     }
     asm.config(config::ARM, 1);
     let exports = control::lower(&chip, &functions, protocol_controller.as_ref(), &mut asm)?;
-    let image = asm
+    let (image, memory_layout) = asm
         .assemble()
         .map_err(|message| Error::new(Span::default(), message))?;
 
@@ -929,6 +1052,33 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         &chip.protocol_action_lines,
         protocol_controller.is_some(),
     );
+    for (stream_name, stream) in &streams {
+        let stages: Vec<_> = (0..stream.byte_stages.len())
+            .map(|stage| format!("{stream_name}.stage{stage}"))
+            .collect();
+        let mut path = Vec::new();
+        if stream.direction == Direction::FromChip {
+            path.push(stream.shifter.clone());
+        }
+        path.extend(stages);
+        if stream.direction == Direction::ToChip {
+            path.push(stream.shifter.clone());
+        }
+        for pair in path.windows(2) {
+            configured_signals.push(crate::SignalConnection {
+                source: Some(pair[0].clone()),
+                line: None,
+                transport: "byte_link",
+                source_index: None,
+                destination: pair[1].clone(),
+                input: "byte_stream".to_owned(),
+                context: None,
+            });
+        }
+    }
+    let signal_connections = crate::architecture::connect_producers(&resources, configured_signals);
+    let topology_estimates =
+        crate::architecture::estimate_topologies(&resources, &signal_connections);
     let kinds = [
         Kind::Pin,
         Kind::Timer,
@@ -964,11 +1114,14 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
         clock_hz,
         env: chip.env,
         image,
+        memory_layout,
         pins,
         streams,
         exports,
         usage,
         resources,
+        signal_connections,
+        topology_estimates,
         protocol_mappings,
         protocol_placement_search: actor_search.report,
         tests,
@@ -979,61 +1132,47 @@ pub(crate) fn elaborate(items: &[Item]) -> Result<Design<'_>> {
 fn protocol_graph(
     name: &Name,
     input: &Expr,
-    source: &[ProtocolTransition],
+    input2: Option<&Expr>,
+    source: &crate::LogicalProtocol,
     chip: &Chip<'_>,
 ) -> Result<crate::protocol::ProtocolGraph> {
-    let mut transitions = Vec::with_capacity(source.len());
-    let mut states = 1usize;
-    for transition in source {
-        let state = |expr: &Expr| -> Result<usize> {
-            let value = chip.env.integer(expr)?;
-            usize::try_from(value)
-                .ok()
-                .filter(|&value| value < crate::protocol::MAX_LOGICAL_STATES)
-                .ok_or_else(|| {
-                    Error::new(
-                        expr.span,
-                        format!(
-                            "protocol state must be in 0..{}",
-                            crate::protocol::MAX_LOGICAL_STATES - 1
-                        ),
-                    )
-                })
-        };
-        let from = state(&transition.from)?;
-        let to = state(&transition.to)?;
-        states = states.max(from + 1).max(to + 1);
-        let action = transition
-            .action
-            .as_ref()
-            .map(|expr| {
-                let value = chip.env.integer(expr)?;
-                usize::try_from(value)
-                    .ok()
-                    .filter(|&value| (1..=crate::protocol::ACTOR_ACTIONS).contains(&value))
-                    .ok_or_else(|| {
-                        Error::new(
-                            expr.span,
-                            format!(
-                                "protocol action must be in 1..={}",
-                                crate::protocol::ACTOR_ACTIONS
-                            ),
-                        )
-                    })
-            })
-            .transpose()?;
+    if source.states > crate::protocol::MAX_LOGICAL_STATES {
+        return Err(Error::new(
+            name.span,
+            format!(
+                "protocol state must be in 0..{}",
+                crate::protocol::MAX_LOGICAL_STATES - 1
+            ),
+        ));
+    }
+    let mut transitions = Vec::with_capacity(source.transitions.len());
+    for transition in &source.transitions {
+        let action = transition.action;
+        if action.is_some_and(|value| value > crate::protocol::ACTOR_ACTIONS) {
+            return Err(Error::new(
+                name.span,
+                format!(
+                    "protocol action must be in 1..={}",
+                    crate::protocol::ACTOR_ACTIONS
+                ),
+            ));
+        }
         transitions.push(crate::protocol::Transition {
-            from,
-            input_high: transition.input_high,
-            to,
+            from: transition.from,
+            input_high: transition.inputs[0],
+            input2_high: transition.inputs.get(1).copied().unwrap_or(false),
+            to: transition.to,
             action,
         });
     }
     Ok(crate::protocol::ProtocolGraph {
         name: name.text.clone(),
         input_line: chip.signal(input)?.0,
-        states,
-        initial_state: 0,
+        input_line2: input2
+            .map(|input| chip.signal(input).map(|signal| signal.0))
+            .transpose()?,
+        states: source.states,
+        initial_state: source.initial_state,
         transitions,
     })
 }
@@ -1079,6 +1218,7 @@ fn protocol_controller_candidate(
         minimum_input_interval_cycles.is_some_and(|interval| interval > service_cycles);
     if protocol_count != 1
         || has_exported_function
+        || graph.input_line2.is_some()
         || !has_pulse_input
         || !low_rows_hold
         || !actions_fit
@@ -1284,7 +1424,7 @@ fn resource_map(
     resources
 }
 
-fn clock(expr: &Expr) -> Result<i128> {
+pub(crate) fn clock(expr: &Expr) -> Result<i128> {
     let probe = Env {
         clock_hz: 1,
         ..Env::default()
@@ -1351,6 +1491,11 @@ fn collect_stmt_edges<'a>(stmt: &'a Stmt, uses: &mut Vec<(&'a str, bool, Span)>)
         }
         StmtKind::For { iter, body, .. } => {
             collect_expr_edges(iter, uses);
+            for stmt in body {
+                collect_stmt_edges(stmt, uses);
+            }
+        }
+        StmtKind::Parallel(body) => {
             for stmt in body {
                 collect_stmt_edges(stmt, uses);
             }
@@ -1431,7 +1576,12 @@ fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>)
                 collect_stmt_edges(stmt, uses);
             }
         }
-        Item::Protocol { input, .. } => collect_expr_edges(input, uses),
+        Item::Protocol { input, input2, .. } => {
+            collect_expr_edges(input, uses);
+            if let Some(input2) = input2 {
+                collect_expr_edges(input2, uses);
+            }
+        }
         Item::Event(_) | Item::Flag(_) | Item::Test { .. } | Item::Always { .. } => {}
     }
 }
@@ -1941,8 +2091,15 @@ impl Chip<'_> {
             Some(frame) => self.frame(value(frame)?)?,
             None => (7, 8),
         };
-        let Fifo { pull, push } = self.fifos[k];
-        if (pull || push) && bits > hardware::FIFO_WORD_BITS {
+        let Fifo {
+            pull: fifo_pull,
+            push,
+        } = self.fifos[k];
+        let pull = fifo_pull
+            && self
+                .shared_dispatch
+                .is_none_or(|(channel, _, _)| channel != k);
+        if (fifo_pull || push) && bits > hardware::FIFO_WORD_BITS {
             return Err(Error::new(
                 name.span,
                 format!(
@@ -2364,7 +2521,12 @@ impl Chip<'_> {
         Ok(Stream {
             channel,
             direction,
+            shifter: match &shifter.kind {
+                ExprKind::Name(name) => name.clone(),
+                _ => unreachable!("shifter references are names"),
+            },
             packets: false,
+            byte_stages: Vec::new(),
         })
     }
 }

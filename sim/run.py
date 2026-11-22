@@ -9,6 +9,7 @@ paths, so everything the build touches lives under that cache directory.
 """
 
 import os
+import json
 import re
 import shutil
 import subprocess
@@ -53,6 +54,20 @@ def hardware(cache, revision, log):
     return checkout
 
 
+def check_actor_abi(checkout, plan):
+    required = plan.get("actor_abi")
+    if required is None:
+        return
+    actor_source = checkout / "src" / "fabric_control_actor.v"
+    source = actor_source.read_text() if actor_source.is_file() else ""
+    if not re.search(rf"^// SPATIAL_ACTOR_ABI: {required}$", source, re.MULTILINE):
+        raise RuntimeError(
+            f"this program requires protocol actor ABI {required}, but {checkout} "
+            "does not advertise it. Set SPATIAL_RTL_DIR to a compatible RTL checkout; "
+            "the currently pinned RTL uses the older actor encoding."
+        )
+
+
 def main():
     target, revision, only = Path(sys.argv[1]).resolve(), sys.argv[2], sys.argv[3]
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "spatial" / revision
@@ -65,7 +80,9 @@ def main():
         Path(pipe).unlink(missing_ok=True)
         os.mkfifo(pipe)
     with (target / "simulation.log").open("w") as log:
-        rtl = hardware(cache, revision, log) / "test"
+        checkout = hardware(cache, revision, log)
+        check_actor_abi(checkout, json.loads((target / "plan.json").read_text()))
+        rtl = checkout / "test"
         env = dict(os.environ)
         env.pop("COCOTB_TEST_FILTER", None)
         env.update(

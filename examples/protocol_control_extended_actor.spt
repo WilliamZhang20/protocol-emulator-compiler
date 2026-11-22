@@ -1,0 +1,34 @@
+// Matched five-state pulse protocol: the extended actor mode keeps this graph
+// in spatial control, where the four-state mode previously selected PX8.
+const BIT = 64 cycles
+timer control_tick { every: 16 cycles, pulse, run: 1 }
+timer tx_bit { every: BIT, pulse, run: sender.busy until sender.done }
+
+protocol handshake on control_tick.tick {
+    transition 0 low -> 0
+    transition 0 high -> 1
+    transition 1 low -> 1
+    transition 1 high -> 2
+    transition 2 low -> 2
+    transition 2 high -> 3
+    transition 3 low -> 3
+    transition 3 high -> 4 action 1
+    transition 4 low -> 4
+    transition 4 high -> 4
+}
+
+pin tx: out = sender.out
+pin rx: in
+shifter sender {
+    frame: [0, data(8), 1],
+    idle: 1,
+    shift: tx_bit.tick,
+    start: handshake.action1,
+}
+export stream send: host -> sender
+
+test "extended actor advances a five-state protocol and starts the shifter" {
+    attach uart_device(from_chip: tx, to_chip: rx, bit: BIT) as terminal
+    send.write([0xA5])
+    expect terminal.read(1) == [0xA5]
+}

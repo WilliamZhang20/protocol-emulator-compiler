@@ -1,0 +1,24 @@
+// A two-input actor responds to one timer edge only while the second timer is low,
+// then waits for the complementary timer/input combination.
+timer tick { every: 4 cycles, run: 1 }
+timer ack { every: 6 cycles, run: 1 }
+
+protocol qualified on tick.out, ack.out {
+    transition 0 low low -> 0
+    transition 0 high low -> 1 action 1
+    transition 0 low high -> 0
+    transition 0 high high -> 0
+    transition 1 low low -> 1
+    transition 1 high low -> 1
+    transition 1 low high -> 0 action 2
+    transition 1 high high -> 1
+}
+
+export fn observe_both_conditions() {
+    wait qualified.action1
+    wait qualified.action2
+}
+
+test "two-input actor handles both timer conditions" {
+    observe_both_conditions()
+}

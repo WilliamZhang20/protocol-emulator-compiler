@@ -21,7 +21,7 @@
 //! so runtime loops (`repeat` over a parameter, `for` over bytes) cannot nest.
 use crate::diagnostic::{Error, Result};
 use crate::elaborate::{Chip, Direction, Kind};
-use crate::hardware::{SHIFTERS, config};
+use crate::hardware::{Line, SHIFTERS, config};
 use crate::px8::{Assembler, Label};
 use crate::syntax::ast::{Arg, Expr, ExprKind, Field, Item, Name, Param, Stmt, StmtKind};
 use crate::value::{Env, Ratio, Value};
@@ -136,8 +136,152 @@ fn function_parts(
     }
 }
 
+/// A controller call can share a TX FIFO with a stored sender only when the
+/// call has no host payload, the sender waits for an event (not FIFO activity),
+/// and the function fires that event after dispatch has consumed the call's
+/// terminator. Keep this deliberately narrow: it is a compiler-side way to
+/// recover one channel for stored-data workloads without changing the FIFO
+/// protocol or hardware.
+fn shared_dispatch_channel(
+    chip: &Chip<'_>,
+    items: &[Item],
+    exported: &[&Item],
+) -> Option<(usize, usize, u16)> {
+    if exported.is_empty()
+        || items
+            .iter()
+            .any(|item| matches!(item, Item::Contexts(_) | Item::Context { .. }))
+        || exported.iter().any(|item| {
+            let (_, _, params, returns, _) = function_parts(item);
+            !params.is_empty() || returns.is_some()
+        })
+    {
+        return None;
+    }
+
+    let flags: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Flag(list) => Some(list.iter()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    if flags.len() != 1
+        || flags[0]
+            .1
+            .as_ref()
+            .is_some_and(|init| chip.bit(init).ok() != Some(0))
+    {
+        return None;
+    }
+    let start_flag = &flags[0].0;
+
+    let mut senders = std::collections::BTreeMap::new();
+    for item in exported {
+        let body = shared_send_statements(function_parts(item).4)?;
+        if body.len() != 2 || direct_static_sends(chip, body, &mut senders).is_err() {
+            return None;
+        }
+    }
+    for &channel in senders.keys() {
+        if chip.fifos[channel].push {
+            continue;
+        }
+        let shifter = chip
+            .decls
+            .iter()
+            .find(|(_, decl)| decl.kind == Kind::Shifter && decl.index == channel)?
+            .0;
+        let fields = chip.tiles.get(shifter)?;
+        let start = fields.iter().find(|field| field.name.text == "start")?;
+        let start_signal = start.value.as_ref()?;
+        let (start_name, start_decl) = chip.decl(start_signal).ok()?;
+        if start_decl.kind != Kind::Flag || start_name != start_flag.text {
+            continue;
+        }
+        // The compiler raises this initially-low level only after dispatch has
+        // consumed the call terminator; it remains high while the stream runs.
+        let mut safe = true;
+        for item in exported {
+            let Some(body) = shared_send_statements(function_parts(item).4) else {
+                safe = false;
+                continue;
+            };
+            let mut channel_sends = 0;
+            for stmt in body {
+                if let StmtKind::Expr(Expr {
+                    kind: ExprKind::Call(callee, _),
+                    ..
+                }) = &stmt.kind
+                    && let ExprKind::Field(object, method) = &callee.kind
+                    && method.text == "send"
+                {
+                    if chip.shifter_index(object).ok() == Some(channel) {
+                        channel_sends += 1;
+                    }
+                } else {
+                    safe = false;
+                }
+            }
+            if channel_sends != 1 {
+                safe = false;
+            }
+        }
+        if safe {
+            let start_selector = chip.signal(start_signal).ok()?.0;
+            return Some((channel, start_decl.index, u16::from(start_selector)));
+        }
+    }
+    None
+}
+
+/// A narrowly supported exported sender may be explicitly sequential or use
+/// a `parallel` block. In both cases it must contain exactly two static sends.
+fn shared_send_statements(body: &[Stmt]) -> Option<&[Stmt]> {
+    match body {
+        [
+            Stmt {
+                kind: StmtKind::Parallel(sends),
+                ..
+            },
+        ] => Some(sends),
+        [first, second]
+            if matches!(&first.kind, StmtKind::Expr(_))
+                && matches!(&second.kind, StmtKind::Expr(_)) =>
+        {
+            Some(body)
+        }
+        _ => None,
+    }
+}
+
+fn direct_static_sends(
+    chip: &Chip<'_>,
+    body: &[Stmt],
+    found: &mut std::collections::BTreeMap<usize, crate::Span>,
+) -> Result<()> {
+    for stmt in body {
+        match &stmt.kind {
+            StmtKind::Expr(Expr {
+                kind: ExprKind::Call(callee, _),
+                ..
+            }) => {
+                if let ExprKind::Field(object, method) = &callee.kind
+                    && method.text == "send"
+                {
+                    found.insert(chip.shifter_index(object)?, stmt.span);
+                }
+            }
+            StmtKind::Parallel(body) => direct_static_sends(chip, body, found)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Connect the FIFOs that exported functions stream through (`via`).
-pub(crate) fn claim_fifos(chip: &mut Chip<'_>, functions: &[&Item]) -> Result<()> {
+pub(crate) fn claim_fifos(chip: &mut Chip<'_>, items: &[Item], functions: &[&Item]) -> Result<()> {
     for item in functions {
         let (exported, name, params, returns, _) = function_parts(item);
         let vias = params
@@ -165,43 +309,47 @@ pub(crate) fn claim_fifos(chip: &mut Chip<'_>, functions: &[&Item]) -> Result<()
             chip.claim(k, direction, via.span)?;
         }
     }
-    fn static_senders(
-        chip: &Chip<'_>,
-        body: &[Stmt],
-        found: &mut std::collections::BTreeMap<usize, crate::Span>,
-    ) -> Result<()> {
-        for stmt in body {
-            match &stmt.kind {
-                StmtKind::Expr(Expr {
-                    kind: ExprKind::Call(callee, _),
-                    ..
-                }) => {
-                    if let ExprKind::Field(object, method) = &callee.kind
-                        && method.text == "send"
-                    {
-                        found.insert(chip.shifter_index(object)?, stmt.span);
-                    }
-                }
-                StmtKind::Repeat { body, .. } | StmtKind::For { body, .. } => {
-                    static_senders(chip, body, found)?
-                }
-                StmtKind::If {
-                    then, otherwise, ..
-                } => {
-                    static_senders(chip, then, found)?;
-                    static_senders(chip, otherwise, found)?;
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
     let mut senders = std::collections::BTreeMap::new();
     for item in functions {
-        static_senders(chip, function_parts(item).4, &mut senders)?;
+        collect_static_senders(chip, function_parts(item).4, &mut senders)?;
     }
     for (k, span) in senders {
         chip.claim(k, Direction::ToChip, span)?;
+    }
+    let exported: Vec<_> = functions
+        .iter()
+        .copied()
+        .filter(|item| *function_parts(item).0)
+        .collect();
+    let has_dispatch_channel = (0..SHIFTERS).any(|k| !chip.fifos[k].pull && !chip.fifos[k].push);
+    chip.shared_dispatch = if has_dispatch_channel {
+        None
+    } else {
+        shared_dispatch_channel(chip, items, &exported)
+    };
+    Ok(())
+}
+
+fn collect_static_senders(
+    chip: &Chip<'_>,
+    body: &[Stmt],
+    found: &mut std::collections::BTreeMap<usize, crate::Span>,
+) -> Result<()> {
+    direct_static_sends(chip, body, found)?;
+    for stmt in body {
+        match &stmt.kind {
+            StmtKind::Repeat { body, .. } | StmtKind::For { body, .. } => {
+                collect_static_senders(chip, body, found)?
+            }
+            StmtKind::If {
+                then, otherwise, ..
+            } => {
+                collect_static_senders(chip, then, found)?;
+                collect_static_senders(chip, otherwise, found)?;
+            }
+            StmtKind::Parallel(body) => collect_static_senders(chip, body, found)?,
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -233,9 +381,14 @@ pub(crate) fn lower(
             "a PX8 protocol controller cannot run alongside exported functions yet",
         ));
     }
-    let channel = (0..SHIFTERS)
-        .find(|&k| !chip.fifos[k].pull && !chip.fifos[k].push)
-        .ok_or_else(|| {
+    let free_channel = (0..SHIFTERS).find(|&k| !chip.fifos[k].pull && !chip.fifos[k].push);
+    let shared_start = if free_channel.is_none() {
+        chip.shared_dispatch
+    } else {
+        None
+    };
+    let shared_dispatch = shared_start.is_some();
+    let channel = free_channel.or_else(|| shared_start.map(|(channel, _, _)| channel)).ok_or_else(|| {
             Error::new(
                 function_parts(exported[0]).1.span,
                 "no channel to the computer is left for exported functions",
@@ -255,6 +408,14 @@ pub(crate) fn lower(
             .map(|f| (function_parts(f).1.text.clone(), *f))
             .collect(),
         channel,
+        shared_start,
+        shared_senders: {
+            let mut found = std::collections::BTreeMap::new();
+            for item in &exported {
+                collect_static_senders(chip, function_parts(item).4, &mut found)?;
+            }
+            found.keys().copied().collect()
+        },
         fails: Vec::new(),
         sends: Vec::new(),
         in_loop: false,
@@ -263,6 +424,12 @@ pub(crate) fn lower(
         drain,
     };
     let entries: Vec<Label> = exported.iter().map(|_| lowering.asm.label()).collect();
+
+    // The dispatcher must own the shared FIFO until it consumes the call's
+    // terminator. Disable both auto-pull and explicit start while it does so.
+    if let Some((shared_channel, _, _)) = shared_start {
+        lowering.asm.config(config::shifter(shared_channel, 3), 0);
+    }
 
     // Dispatch on the function id. XRC accumulates, so A ^ id_i is formed incrementally.
     // Forget events while idle, before the next call can start anything, so a
@@ -289,6 +456,18 @@ pub(crate) fn lower(
     for (id, (item, entry)) in exported.iter().zip(entries).enumerate() {
         let (_, name, params, returns, body) = function_parts(item);
         lowering.asm.place(entry);
+        if shared_dispatch {
+            // Consume the call's terminator before the shifter can claim this
+            // TX FIFO for its stored-data burst.
+            lowering.asm.pull(channel);
+            let (shared_channel, start_flag, start_selector) =
+                lowering.shared_start.expect("shared dispatch flag");
+            lowering.asm.config(
+                config::shifter(shared_channel, 3),
+                start_selector | (1 << 11),
+            );
+            lowering.asm.config(config::FLAGS, 1 << start_flag);
+        }
         let mut scope = HashMap::new();
         let mut params_json = Vec::new();
         for param in params {
@@ -296,7 +475,17 @@ pub(crate) fn lower(
         }
         lowering.sends.clear();
         lowering.body(body, &scope)?;
-        lowering.asm.pull(channel); // the terminator
+        if shared_dispatch {
+            for &sender in &lowering.shared_senders {
+                lowering.asm.wait(Line::shifter_stop(sender).0);
+            }
+            lowering.asm.config(config::FLAGS, 0);
+            let (shared_channel, _, _) = lowering.shared_start.expect("shared dispatch flag");
+            lowering.asm.config(config::shifter(shared_channel, 3), 0);
+        }
+        if !shared_dispatch {
+            lowering.asm.pull(channel); // the terminator
+        }
         lowering.asm.load(0);
         lowering.asm.push(channel, true, false);
         lowering.asm.jump(lowering.dispatch);
@@ -378,6 +567,8 @@ struct Lowering<'c, 'a> {
     asm: &'c mut Assembler,
     functions: HashMap<String, &'a Item>,
     channel: usize,
+    shared_start: Option<(usize, usize, u16)>,
+    shared_senders: Vec<usize>,
     fails: Vec<String>,
     /// What the host sends for the function being lowered.
     sends: Vec<Send>,
@@ -686,11 +877,141 @@ impl Lowering<'_, '_> {
         self.asm.keep_counter = true;
         self.in_loop = true;
         self.asm.place(top);
+        self.asm.begin_loop_config_prefix();
         body(self)?;
+        let config_prefix = self.asm.finish_loop_config_prefix();
+        self.asm.insert_loop_config_prefix(top, &config_prefix);
         self.asm.loop_back(top);
         self.in_loop = false;
         self.asm.keep_counter = false;
         self.asm.place(end);
+        Ok(())
+    }
+
+    fn parallel_send(
+        &mut self,
+        body: &[Stmt],
+        span: crate::Span,
+        scope: &HashMap<String, Binding>,
+    ) -> Result<()> {
+        if body.len() != 2 {
+            return Err(Error::new(
+                span,
+                "`parallel` needs exactly two shifter `.send` statements",
+            ));
+        }
+        let mut streams = Vec::new();
+        for stmt in body {
+            let StmtKind::Expr(Expr {
+                kind: ExprKind::Call(callee, args),
+                span: call_span,
+            }) = &stmt.kind
+            else {
+                return Err(Error::new(
+                    stmt.span,
+                    "`parallel` only accepts shifter `.send` statements",
+                ));
+            };
+            let ExprKind::Field(object, method) = &callee.kind else {
+                return Err(Error::new(
+                    *call_span,
+                    "`parallel` only accepts shifter `.send` statements",
+                ));
+            };
+            if method.text != "send" {
+                return Err(Error::new(
+                    *call_span,
+                    "`parallel` only accepts shifter `.send` statements",
+                ));
+            }
+            let [arg] = args.as_slice() else {
+                return Err(Error::new(
+                    *call_span,
+                    "`.send` takes one constant byte list",
+                ));
+            };
+            if arg.name.is_some() {
+                return Err(Error::new(
+                    *call_span,
+                    "pass the constant byte list directly",
+                ));
+            }
+            let value = self.env(scope).eval(&arg.value).map_err(|_| {
+                Error::new(
+                    arg.value.span,
+                    "parallel `.send` needs compile-time bytes stored in SRAM",
+                )
+            })?;
+            let bytes = match value {
+                Value::Str(s) => s.into_bytes(),
+                Value::List(items) => items
+                    .into_iter()
+                    .map(|item| match item {
+                        Value::Number(n) => {
+                            n.whole().and_then(|v| u8::try_from(v).ok()).ok_or_else(|| {
+                                Error::new(arg.value.span, "every stored byte must be in 0..255")
+                            })
+                        }
+                        _ => Err(Error::new(
+                            arg.value.span,
+                            "every stored byte must be a number",
+                        )),
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                _ => {
+                    return Err(Error::new(
+                        arg.value.span,
+                        "`.send` needs a constant byte list or string",
+                    ));
+                }
+            };
+            if bytes.is_empty() || bytes.len() > crate::hardware::SRAM_BYTES {
+                return Err(Error::new(
+                    arg.value.span,
+                    "parallel stored transfers need 1..1024 bytes",
+                ));
+            }
+            let channel = self.chip.shifter_index(object)?;
+            if streams
+                .iter()
+                .any(|other: &crate::StoredStream| other.channel == channel)
+            {
+                return Err(Error::new(
+                    object.span,
+                    "a parallel block needs two different shifters",
+                ));
+            }
+            streams.push(crate::StoredStream { channel, bytes });
+        }
+        self.stored_transfer(streams, span)
+    }
+
+    fn stored_transfer(
+        &mut self,
+        streams: Vec<crate::StoredStream>,
+        span: crate::Span,
+    ) -> Result<()> {
+        let mut transfer = crate::StoredTransfer::schedule(streams)
+            .map_err(|message| Error::new(span, message))?;
+        transfer.table_address = self.asm.static_data(&transfer.table);
+        for (index, phase) in transfer.phases.iter().enumerate() {
+            if index % 2 == 0 {
+                self.asm.load(phase.repetitions as u16);
+                self.counted_loop(span, |lowering| {
+                    for &(channel, eop) in &phase.writes {
+                        lowering.asm.load_memory();
+                        lowering.asm.transmit(channel, eop);
+                    }
+                    Ok(())
+                })?;
+            } else {
+                for &(channel, eop) in &phase.writes {
+                    self.asm.load_memory();
+                    self.asm.transmit(channel, eop);
+                }
+            }
+        }
+        self.asm.record_stored_transfer(transfer);
         Ok(())
     }
 
@@ -764,7 +1085,7 @@ impl Lowering<'_, '_> {
                     span: target.span,
                 };
                 for (address, value) in self.chip.tile(&tile, &merged)? {
-                    self.asm.config(address, value);
+                    self.asm.tile_config(address, value);
                 }
             }
             StmtKind::Assign { target, value } => {
@@ -859,15 +1180,7 @@ impl Lowering<'_, '_> {
                             "stored transfers need 1..1024 bytes and must fit alongside code/configuration",
                         ));
                     }
-                    self.asm.static_data(&bytes);
-                    self.asm.load((bytes.len() - 1) as u16);
-                    self.counted_loop(*span, |l| {
-                        l.asm.load_memory();
-                        l.asm.transmit(k, false);
-                        Ok(())
-                    })?;
-                    self.asm.load_memory();
-                    self.asm.transmit(k, true);
+                    self.stored_transfer(vec![crate::StoredStream { channel: k, bytes }], *span)?;
                 }
                 ExprKind::Field(object, method) if method.text == "load" => {
                     let k = self.chip.shifter_index(object)?;
@@ -1023,6 +1336,7 @@ impl Lowering<'_, '_> {
                     body: inner,
                 });
             }
+            StmtKind::Parallel(body) => self.parallel_send(body, stmt.span, scope)?,
             StmtKind::If {
                 condition,
                 then,

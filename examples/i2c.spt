@@ -84,6 +84,17 @@ test "reads a register" {
     expect sensor.read(1) == [0x01]
 }
 
+test "writes a multi-byte payload" {
+    attach i2c_target(scl: scl, sda: sda, address: 0x48, registers: [0x00]) as sensor
+    expect write_read(0x48, [0x01, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16], 1) == [0xFF]
+    expect sensor.read(8) == [0x01, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16]
+}
+
+test "empty payload skips the byte loop" {
+    attach i2c_target(scl: scl, sda: sda, address: 0x48, registers: [0x00]) as sensor
+    expect write_read(0x48, [], 1) == [0x00]
+}
+
 test "an absent device is reported" {
     attach i2c_target(scl: scl, sda: sda, address: 0x48, registers: [0x00]) as sensor
     expect write_read(0x50, [0x00], 1) fails "nack"

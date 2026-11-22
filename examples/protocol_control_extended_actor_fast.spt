@@ -1,0 +1,24 @@
+// The five-state, one-input graph fits the extended actor and accepts a new
+// pulse every cycle. The PX8 fallback is ineligible at this service rate.
+timer tick { every: 1 cycle, pulse, run: 1 }
+
+protocol handshake on tick.tick {
+    transition 0 low -> 0
+    transition 0 high -> 1
+    transition 1 low -> 1
+    transition 1 high -> 2
+    transition 2 low -> 2
+    transition 2 high -> 3
+    transition 3 low -> 3
+    transition 3 high -> 4 action 1
+    transition 4 low -> 4
+    transition 4 high -> 4
+}
+
+export fn wait_for_action() {
+    wait handshake.action1
+}
+
+test "extended actor handles consecutive one-cycle pulses" {
+    wait_for_action()
+}

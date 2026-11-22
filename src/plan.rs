@@ -61,15 +61,87 @@ pub(crate) fn plan(design: &Design<'_>, source: &str) -> Result<Json> {
             };
             (
                 name.clone(),
-                json!({ "channel": s.channel, "direction": direction, "packets": s.packets }),
+                json!({
+                    "channel": s.channel,
+                    "direction": direction,
+                    "packets": s.packets,
+                    "byte_stages": s.byte_stages.iter().enumerate().map(|(stage, kind)| json!({
+                        "stage": stage,
+                        "tile": 4 * s.channel + 2 * usize::from(s.direction == Direction::FromChip) + stage,
+                        "kind": kind,
+                    })).collect::<Vec<_>>(),
+                }),
             )
+        })
+        .collect();
+    let architecture_edges: Vec<Json> = design
+        .signal_connections
+        .iter()
+        .filter(|edge| edge.context.is_none() && edge.line.is_some())
+        .map(|edge| {
+            let destination = design
+                .resources
+                .iter()
+                .find(|resource| resource.name == edge.destination);
+            json!({
+                "source": edge.source,
+                "line": edge.line.expect("signal-line edges have a selector"),
+                "destination": edge.destination,
+                "destination_kind": destination.map(|resource| resource.kind),
+                "destination_index": destination.map(|resource| resource.index),
+                "input": edge.input,
+            })
+        })
+        .collect();
+    let byte_path_links: Vec<Json> = design
+        .signal_connections
+        .iter()
+        .filter(|edge| edge.context.is_none() && edge.transport == "byte_link")
+        .map(|edge| {
+            let tile_index = |name: &str| {
+                design
+                    .resources
+                    .iter()
+                    .find(|resource| resource.name == name && resource.kind.starts_with("byte "))
+                    .map(|resource| resource.index)
+            };
+            json!({
+                "source": edge.source,
+                "destination": edge.destination,
+                "source_tile": edge.source.as_deref().and_then(tile_index),
+                "destination_tile": tile_index(&edge.destination),
+            })
+        })
+        .collect();
+    let direct_links: Vec<Json> = design
+        .signal_connections
+        .iter()
+        .filter(|edge| edge.context.is_none() && edge.transport == "direct_link")
+        .map(|edge| {
+            let destination_index = design
+                .resources
+                .iter()
+                .find(|resource| resource.name == edge.destination)
+                .map(|resource| resource.index);
+            json!({
+                "source": edge.source,
+                "destination": edge.destination,
+                "source_index": edge.source_index,
+                "destination_index": destination_index,
+            })
         })
         .collect();
     Ok(json!({
         "clock_hz": design.clock_hz,
         "image": design.image,
+        "actor_abi": if design.protocol_mappings.iter().any(|mapping| mapping.actor.is_some()) { Some(2) } else { None },
         "pins": design.pins,
         "streams": streams,
+        "architecture": {
+            "signal_connections": architecture_edges,
+            "byte_path_links": byte_path_links,
+            "direct_links": direct_links,
+        },
         "calls": {
             "channel": design.exports.channel,
             "functions": design.exports.functions,

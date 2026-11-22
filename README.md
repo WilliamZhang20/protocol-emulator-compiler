@@ -24,22 +24,47 @@ assignment for each named tile: tile index, configuration address, and the
 pulse or level lines it drives. Pin-edge cells appear under their generated
 `uioN.rise` or `uioN.fall` names.
 
+To compare configured edges against coordinates extracted from an OpenDB
+placement, pass the coordinate JSON to `spatial check`:
+
+```sh
+spatial check examples/memory_dual_channel.spt \
+  --physical-map docs/spatial-placement-vector-output.json
+spatial run --test --physical-map docs/spatial-placement-vector-output.json \
+  examples/memory_dual_channel.spt
+```
+
+This reports per-edge and aggregate Manhattan distances between placed state
+centroids and GPIO terminals, then searches unique timer-index assignments for
+the same workload. Missing physical endpoints are counted and excluded from
+the cost. These coordinates are a placement-locality proxy; they are not
+routed wire lengths, timing, or PPA results.
+With `spatial run --test --physical-map`, the compiler recompiles the timer
+index candidate with the lowest modeled distance and runs the program tests
+against that image.
+
 Commands find the nearest `main.spt`, or take a file: `spatial run --test examples/spi.spt`.
 Running tests also needs [uv](https://docs.astral.sh/uv/), git, make, a C++
 compiler and Verilator 5.036 or newer. The first run fetches and builds the RTL
 once into `~/.cache/spatial`.
 
-This branch targets the 8×4 RTL at the revision in `HARDWARE_REVISION`.
+Most of this branch targets the 8×4 RTL revision in `HARDWARE_REVISION`.
+Programs mapped to protocol actors require the newer actor ABI 2 in the
+local RTL experiment; the pinned revision uses ABI 1. Actor images built by
+this compiler must not be loaded onto ABI 1 hardware. Simulation checks the
+RTL source for the ABI marker and reports a mismatch before building.
 For testing against a local architecture worktree, set
 `SPATIAL_RTL_DIR=/path/to/protocol-emulator` when running `spatial run`.
 The local checkout must contain `test/Makefile`; simulation builds that checkout
 and leaves the compiler repository's hardware pin unchanged.
 For RTL cycle occupancy, set `SPATIAL_PROFILE_RTL=1` as well. The run report
 then includes per-test sequencer event/FIFO wait share, shifter-active share,
-and maximum concurrent shifters. Full state occupancy is retained as an
-`RTL_PROFILE` record in `target/simulation.log`. This probe is RTL-only and
-does not report physical wire locality; use routed implementation reports for
-that.
+maximum concurrent shifters, SRAM-port busy fraction, and correlated TX FIFO
+empty stalls. For stored streams it also reports the controller scheduling
+interval from an SRAM data read to an engine FIFO push; this is not SRAM macro
+latency. Full state occupancy is retained as an `RTL_PROFILE` record in
+`target/simulation.log`. This probe is RTL-only and does not report physical
+wire locality; use routed implementation reports for that.
 
 ## Examples
 
@@ -62,9 +87,10 @@ protocol handshake on request {
 }
 ```
 
-The 8×4 target has two actors. Each mapped graph supports up to four states,
-one selected signal-space line, and three pulse outputs (`handshake.action1`
-through `.action3`). Before fitting, the compiler removes unreachable states
+The experimental actor ABI 2 has two actors. Each supports either four states
+with two selected signal-space lines, or eight states with one selected line,
+and three pulse outputs (`handshake.action1` through `.action3`). Before
+fitting, the compiler removes unreachable states
 and merges behaviorally equivalent states; it reports source and mapped state
 counts. A state/input pair can appear once; omitted rows hold their state
 without an action. `spatial check` reports actor placement and
@@ -412,3 +438,20 @@ python3 tests/ethernet_cases.py target/debug/spatial
 
 They cover zero/one/alternating payloads and a seeded 400-byte payload, plus
 wrong CRC polynomial, missing link pulses and wrong core clock.
+
+For experimental topology graphs and explicit memory-bank timing comparisons,
+see [the architecture laboratory](docs/architecture-laboratory.md). These
+models report their assumptions and are not RTL or physical verification.
+
+A `parallel` block may send different-length constant streams to the two
+shifters. The controller interleaves their SRAM data, marks each stream's last
+byte, and then drains the longer stream; FIFO backpressure can stall both.
+`spatial model-graph FILE` reports the selected transfer schedule and exact
+shared-SRAM image layout. See [the architecture laboratory](docs/architecture-laboratory.md)
+for its scope and limits.
+
+`spatial model-ir FILE` extracts logical protocol state machines without
+allocating the current chip. `spatial model-protocol` compares their reachable,
+minimized state requirements with a hypothetical control tile; see the
+[architecture laboratory](docs/architecture-laboratory.md) for the exact
+scope and examples.

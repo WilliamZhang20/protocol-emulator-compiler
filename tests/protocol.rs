@@ -3,6 +3,12 @@
 use spatial::compile;
 
 #[test]
+fn programs_without_actors_do_not_require_actor_abi() {
+    let build = compile(include_str!("../examples/uart.spt")).expect("UART compiles");
+    assert!(build.plan["actor_abi"].is_null());
+}
+
+#[test]
 fn protocol_transitions_map_to_an_actor_and_action_lines() {
     let build = compile(
         r#"
@@ -16,6 +22,7 @@ fn protocol_transitions_map_to_an_actor_and_action_lines() {
         "#,
     )
     .expect("the two-state protocol fits an actor");
+    assert_eq!(build.plan["actor_abi"], 2);
 
     let actor = build
         .resources
@@ -28,6 +35,39 @@ fn protocol_transitions_map_to_an_actor_and_action_lines() {
         actor.outputs,
         [("action1", 26), ("action2", 27), ("action3", 28)]
     );
+}
+
+#[test]
+fn two_input_protocol_actor_maps_joint_conditions() {
+    let build = compile(
+        r#"
+        pin tick: in
+        pin ack: in
+        protocol control on tick, ack {
+            transition 0 low low -> 0
+            transition 0 high low -> 0 action 1
+            transition 0 low high -> 0
+            transition 0 high high -> 0 action 2
+        }
+        "#,
+    )
+    .expect("two selected conditions map into the actor");
+
+    let mapping = &build.protocol_mappings[0];
+    assert_eq!(mapping.input_line2, Some(33));
+    assert_eq!(mapping.implementation, "spatial actor");
+}
+
+#[test]
+fn two_input_timer_protocol_compiles_to_one_spatial_actor() {
+    let build = compile(include_str!("../examples/protocol_control_two_input.spt"))
+        .expect("two timer conditions fit one spatial actor");
+    assert_eq!(
+        build.tests,
+        ["two-input actor handles both timer conditions"]
+    );
+    assert_eq!(build.protocol_mappings[0].input_line2, Some(41));
+    assert_eq!(build.protocol_mappings[0].mapped_states, 2);
 }
 
 #[test]
@@ -84,6 +124,37 @@ fn compiler_minimizes_protocol_states_before_actor_allocation() {
 }
 
 #[test]
+fn compiler_maps_five_state_one_input_graph_to_extended_actor() {
+    let build = compile(
+        r#"
+        timer request { every: 16 cycles, pulse, run: 1 }
+        protocol handshake on request.tick {
+            transition 0 low -> 0
+            transition 0 high -> 1
+            transition 1 low -> 1
+            transition 1 high -> 2
+            transition 2 low -> 2
+            transition 2 high -> 3
+            transition 3 low -> 3
+            transition 3 high -> 4 action 1
+            transition 4 low -> 4
+            transition 4 high -> 4
+        }
+        "#,
+    )
+    .expect("five states fit the one-input extended actor mode");
+    let mapping = &build.protocol_mappings[0];
+    assert_eq!(mapping.implementation, "spatial actor");
+    assert_eq!(mapping.actor, Some(0));
+    assert!(mapping.wide_state);
+    assert_eq!(mapping.source_states, 5);
+    assert_eq!(mapping.mapped_states, 5);
+    assert_eq!(mapping.actor_pipeline_cycles, Some(1));
+    assert_eq!(mapping.controller_service_cycles, None);
+    assert!(build.protocol_placement_search.candidates[0].feasible);
+}
+
+#[test]
 fn compiler_rejects_controller_fallback_for_a_level_input_graph() {
     let error = compile(
         r#"
@@ -98,11 +169,19 @@ fn compiler_rejects_controller_fallback_for_a_level_input_graph() {
             transition 3 low -> 3
             transition 3 high -> 4
             transition 4 low -> 4
-            transition 4 high -> 4 action 2
+            transition 4 high -> 5
+            transition 5 low -> 5
+            transition 5 high -> 6
+            transition 6 low -> 6
+            transition 6 high -> 7
+            transition 7 low -> 7
+            transition 7 high -> 8 action 1
+            transition 8 low -> 8
+            transition 8 high -> 8 action 2
         }
         "#,
     )
-    .expect_err("five observable states exceed one actor");
+    .expect_err("nine observable states exceed both actor modes");
     assert!(
         error
             .to_string()
@@ -125,7 +204,15 @@ fn controller_fallback_rejects_its_own_fire_lines_as_inputs() {
             transition 3 low -> 3
             transition 3 high -> 4
             transition 4 low -> 4
-            transition 4 high -> 4 action 2
+            transition 4 high -> 5
+            transition 5 low -> 5
+            transition 5 high -> 6
+            transition 6 low -> 6
+            transition 6 high -> 7
+            transition 7 low -> 7
+            transition 7 high -> 8 action 1
+            transition 8 low -> 8
+            transition 8 high -> 8 action 2
         }
         "#,
     )
@@ -151,15 +238,23 @@ fn compiler_selects_px8_controller_for_an_oversized_pulse_graph() {
             transition 3 low -> 3
             transition 3 high -> 4
             transition 4 low -> 4
-            transition 4 high -> 4 action 2
+            transition 4 high -> 5
+            transition 5 low -> 5
+            transition 5 high -> 6
+            transition 6 low -> 6
+            transition 6 high -> 7
+            transition 7 low -> 7
+            transition 7 high -> 8 action 1
+            transition 8 low -> 8
+            transition 8 high -> 8 action 2
         }
         "#,
     )
-    .expect("the controller backend handles pulse-driven graphs over four states");
+    .expect("the controller backend handles pulse-driven graphs over eight states");
     let mapping = &build.protocol_mappings[0];
     assert_eq!(mapping.implementation, "PX8 controller");
     assert_eq!(mapping.actor, None);
-    assert_eq!(mapping.mapped_states, 5);
+    assert_eq!(mapping.mapped_states, 9);
     assert_eq!(mapping.input_line, 4);
     assert_eq!(mapping.controller_service_cycles, Some(10));
     assert_eq!(mapping.minimum_input_interval_cycles, Some(16));
@@ -220,7 +315,15 @@ fn controller_fallback_rejects_pulses_faster_than_its_service_rate() {
             transition 3 low -> 3
             transition 3 high -> 4
             transition 4 low -> 4
-            transition 4 high -> 4 action 2
+            transition 4 high -> 5
+            transition 5 low -> 5
+            transition 5 high -> 6
+            transition 6 low -> 6
+            transition 6 high -> 7
+            transition 7 low -> 7
+            transition 7 high -> 8 action 1
+            transition 8 low -> 8
+            transition 8 high -> 8 action 2
         }
         "#,
     )

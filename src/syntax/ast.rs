@@ -46,6 +46,7 @@ pub(crate) enum Item {
     Protocol {
         name: Name,
         input: Expr,
+        input2: Option<Expr>,
         transitions: Vec<ProtocolTransition>,
     },
     /// `export stream send: host -> sender` or `export packets ...`
@@ -79,6 +80,7 @@ pub(crate) enum Item {
 pub(crate) struct ProtocolTransition {
     pub from: Expr,
     pub input_high: bool,
+    pub input2_high: bool,
     pub to: Expr,
     pub action: Option<Expr>,
 }
@@ -127,6 +129,8 @@ pub(crate) enum StmtKind {
         iter: Expr,
         body: Vec<Stmt>,
     },
+    /// Explicitly interleave two static shifter transfers from one SRAM table.
+    Parallel(Vec<Stmt>),
     If {
         condition: Expr,
         then: Vec<Stmt>,

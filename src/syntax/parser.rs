@@ -289,6 +289,11 @@ impl Parser {
                 let name = self.name()?;
                 self.expect("on")?;
                 let input = self.expr()?;
+                let input2 = if self.eat(",") {
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
                 self.expect("{")?;
                 let mut transitions = Vec::new();
                 while !self.eat("}") {
@@ -301,6 +306,17 @@ impl Parser {
                     } else {
                         return Err(self.unexpected("`low` or `high`"));
                     };
+                    let input2_high = if input2.is_some() {
+                        if self.eat("low") {
+                            false
+                        } else if self.eat("high") {
+                            true
+                        } else {
+                            return Err(self.unexpected("second `low` or `high` condition"));
+                        }
+                    } else {
+                        false
+                    };
                     self.expect("->")?;
                     let to = self.expr()?;
                     let action = if self.eat("action") {
@@ -311,6 +327,7 @@ impl Parser {
                     transitions.push(ProtocolTransition {
                         from,
                         input_high,
+                        input2_high,
                         to,
                         action,
                     });
@@ -318,6 +335,7 @@ impl Parser {
                 Item::Protocol {
                     name,
                     input,
+                    input2,
                     transitions,
                 }
             }
@@ -506,6 +524,10 @@ impl Parser {
                     iter: self.expr()?,
                     body: self.block()?,
                 }
+            }
+            "parallel" if is_keyword => {
+                self.bump();
+                StmtKind::Parallel(self.block()?)
             }
             "if" if is_keyword => {
                 self.bump();

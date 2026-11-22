@@ -6,7 +6,7 @@ across the middle half of its bit time (a wrong baud rate or a glitch fails
 this) and that every stop bit is 1.
 """
 
-from cocotb.triggers import ClockCycles, RisingEdge
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
 
 class UartDevice:
@@ -31,11 +31,27 @@ class UartDevice:
         while True:
             await RisingEdge(self.dut.clk)
             if self.bus.level(self.rx_pad) == 0:
-                await self._receive_frame()
+                # The next start bit can begin exactly when the previous
+                # frame's stop-bit sampling finishes. If so, this coroutine
+                # resumes after that falling edge and would otherwise miss
+                # the start while awaiting the next rising edge.
+                while self.bus.level(self.rx_pad) == 0:
+                    await self._receive_frame()
 
     async def _sample_bit(self, label):
-        """Sample at a quarter, half and three quarters of the bit; return the
-        middle sample, recording a problem if they disagree."""
+        """Sample the bit near its midpoint and check stability when the bit
+        period leaves enough cycles for three independent samples."""
+        if self.bit == 1:
+            await FallingEdge(self.dut.clk)
+            sample = self.bus.level(self.rx_pad)
+            await RisingEdge(self.dut.clk)
+            return sample
+        if self.bit < 4:
+            half = self.bit // 2
+            await ClockCycles(self.dut.clk, half)
+            sample = self.bus.level(self.rx_pad)
+            await ClockCycles(self.dut.clk, self.bit - half)
+            return sample
         quarter = self.bit // 4
         samples = []
         for _ in range(3):
@@ -43,7 +59,10 @@ class UartDevice:
             samples.append(self.bus.level(self.rx_pad))
         await ClockCycles(self.dut.clk, self.bit - 3 * quarter)
         if len(set(samples)) > 1:
-            self.problems.append(f"{label} bit changed in the middle of its bit time (baud rate mismatch?)")
+            self.problems.append(
+                f"{label} bit changed in the middle of its bit time "
+                f"(baud rate mismatch?): samples={samples}"
+            )
         return samples[1]
 
     async def _receive_frame(self):

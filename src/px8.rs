@@ -47,6 +47,10 @@ pub(crate) struct Assembler {
     fixups: Vec<(usize, u8, Target)>,
     pending: Vec<(u8, u16)>,
     byte_tables: std::collections::BTreeMap<Vec<u8>, usize>,
+    memory_objects: Vec<crate::MemoryObject>,
+    stored_transfers: Vec<crate::StoredTransfer>,
+    loop_config_prefix: Vec<(u8, u16)>,
+    capture_loop_config_prefix: bool,
     /// Inside a `DJNZ` loop, block loads would clobber the loop counter `C`.
     pub(crate) keep_counter: bool,
 }
@@ -54,7 +58,55 @@ pub(crate) struct Assembler {
 impl Assembler {
     /// Queue a configuration write; adjacent writes share one block load.
     pub(crate) fn config(&mut self, address: u8, value: u16) {
+        self.capture_loop_config_prefix = false;
         self.pending.push((address, value));
+    }
+
+    /// Queue a tile setting that may be invariant at the start of a loop.
+    pub(crate) fn tile_config(&mut self, address: u8, value: u16) {
+        if self.capture_loop_config_prefix {
+            self.loop_config_prefix.push((address, value));
+        } else {
+            self.config(address, value);
+        }
+    }
+
+    pub(crate) fn begin_loop_config_prefix(&mut self) {
+        self.loop_config_prefix.clear();
+        self.capture_loop_config_prefix = true;
+    }
+
+    pub(crate) fn finish_loop_config_prefix(&mut self) -> Vec<(u8, u16)> {
+        self.capture_loop_config_prefix = false;
+        std::mem::take(&mut self.loop_config_prefix)
+    }
+
+    /// Place leading constant tile settings before the loop body. The loop
+    /// counter is already in C, so `keep_counter` makes these direct writes.
+    pub(crate) fn insert_loop_config_prefix(&mut self, label: Label, writes: &[(u8, u16)]) {
+        if writes.is_empty() {
+            return;
+        }
+        self.flush();
+        let start = self.code.len();
+        for &(address, value) in writes {
+            self.pending.push((address, value));
+        }
+        self.flush();
+        let prefix = self.code.split_off(start);
+        let at = self.labels[label.0].expect("loop label is placed");
+        let inserted = prefix.len();
+        self.code.splice(at..at, prefix);
+        for (fixup_at, _, _) in &mut self.fixups {
+            if *fixup_at >= at {
+                *fixup_at += inserted;
+            }
+        }
+        for position in self.labels.iter_mut().flatten() {
+            if *position >= at {
+                *position += inserted;
+            }
+        }
     }
 
     fn flush(&mut self) {
@@ -65,6 +117,12 @@ impl Assembler {
                 self.emit(WCF, u16::from(address));
             }
         } else if !writes.is_empty() {
+            self.memory_objects.push(crate::MemoryObject {
+                kind: "configuration",
+                start: self.data.len(),
+                length: writes.len() * 3,
+                references: 1,
+            });
             self.fixed(SETP, Target::Data(self.data.len()));
             for (address, value) in &writes {
                 self.data.push(*address);
@@ -76,6 +134,7 @@ impl Assembler {
     }
 
     fn emit(&mut self, opcode: u8, operand: u16) {
+        self.capture_loop_config_prefix = false;
         self.flush();
         let digits = (0..4)
             .rev()
@@ -89,6 +148,7 @@ impl Assembler {
 
     /// Three-nibble instruction patched once its target address is known.
     fn fixed(&mut self, opcode: u8, target: Target) {
+        self.capture_loop_config_prefix = false;
         self.fixups.push((self.code.len(), opcode, target));
         self.code.extend([0, 0, 0]);
     }
@@ -99,6 +159,7 @@ impl Assembler {
     }
 
     pub(crate) fn place(&mut self, label: Label) {
+        self.capture_loop_config_prefix = false;
         self.flush();
         self.labels[label.0] = Some(self.code.len());
     }
@@ -183,14 +244,31 @@ impl Assembler {
     }
 
     /// Point P at an interned constant byte table in SRAM.
-    pub(crate) fn static_data(&mut self, bytes: &[u8]) {
+    pub(crate) fn static_data(&mut self, bytes: &[u8]) -> usize {
+        self.capture_loop_config_prefix = false;
         self.flush();
         let offset = *self.byte_tables.entry(bytes.to_vec()).or_insert_with(|| {
             let at = self.data.len();
             self.data.extend_from_slice(bytes);
+            self.memory_objects.push(crate::MemoryObject {
+                kind: "constant_data",
+                start: at,
+                length: bytes.len(),
+                references: 0,
+            });
             at
         });
+        self.memory_objects
+            .iter_mut()
+            .find(|object| object.kind == "constant_data" && object.start == offset)
+            .expect("interned data has an object")
+            .references += 1;
         self.fixed(SETP, Target::Data(offset));
+        offset
+    }
+
+    pub(crate) fn record_stored_transfer(&mut self, transfer: crate::StoredTransfer) {
+        self.stored_transfers.push(transfer);
     }
 
     /// A = SRAM[P++].
@@ -204,7 +282,7 @@ impl Assembler {
     }
 
     /// Lay out code then data, resolving every target.
-    pub(crate) fn assemble(mut self) -> Result<Vec<u8>, String> {
+    pub(crate) fn assemble(mut self) -> Result<(Vec<u8>, crate::ProgramMemoryLayout), String> {
         self.flush();
         let data_start = self.code.len();
         let mut image = std::mem::take(&mut self.code);
@@ -228,6 +306,19 @@ impl Assembler {
                 self.data.len()
             ));
         }
-        Ok(image)
+        for object in &mut self.memory_objects {
+            object.start += data_start;
+        }
+        for transfer in &mut self.stored_transfers {
+            transfer.table_address += data_start;
+        }
+        let layout = crate::ProgramMemoryLayout {
+            capacity: SRAM_BYTES,
+            code_bytes: data_start,
+            image_bytes: image.len(),
+            objects: self.memory_objects,
+            stored_transfers: self.stored_transfers,
+        };
+        Ok((image, layout))
     }
 }

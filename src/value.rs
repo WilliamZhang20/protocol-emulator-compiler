@@ -35,6 +35,11 @@ impl Ratio {
         (self.den == 1).then_some(self.num)
     }
 
+    /// Exact numerator and positive denominator for semantic IR exports.
+    pub(crate) fn parts(self) -> (i128, i128) {
+        (self.num, self.den)
+    }
+
     /// The nearest whole number; halves round away from zero.
     fn round(self) -> i128 {
         let twice = 2 * self.num.abs() + self.den;
