@@ -119,6 +119,8 @@ public:
   LogicalResult verify() {
     auto nodes=(*this)->getAttrOfType<ArrayAttr>("nodes"), edges=(*this)->getAttrOfType<ArrayAttr>("edges");
     if (!nodes || nodes.empty() || !edges) return emitOpError("requires nodes and edges arrays");
+    if ((*this)->getAttr("analysis_only") && !(*this)->getAttrOfType<BoolAttr>("analysis_only"))
+      return emitOpError("analysis_only must be Boolean");
     for (StringRef name : {"clock_hz", "half_period"}) {
       if (auto attr=(*this)->getAttr(name)) {
         auto value=dyn_cast<IntegerAttr>(attr);
@@ -169,6 +171,20 @@ public:
         if (!period || !period.getType().isInteger(64) || period.getInt()<1 || period.getInt()>1000000000)
           return emitOpError("timer requires a positive bounded period");
       }
+      if (op=="uart_timer") {
+        auto period=n.getAs<IntegerAttr>("period"), first=n.getAs<IntegerAttr>("first");
+        if (resource.getValue()!="timer" || !period || !first || !period.getType().isInteger(64) ||
+            !first.getType().isInteger(64) || first.getInt()<1 || first.getInt()>period.getInt() ||
+            period.getInt()>1000000 || ins.size()!=2 || outs.size()!=1 ||
+            !isWidth(ins[0],1) || !isWidth(ins[1],1) || !isWidth(outs[0],1))
+          return emitOpError("uart_timer requires two i1 controls, one i1 output and valid first/period cycles");
+      }
+      if (op=="uart_tx_8n1" && (resource.getValue()!="shifter" || ins.size()!=2 || outs.size()!=3 ||
+          !isWidth(ins[0],8) || !isWidth(ins[1],1) || !isWidth(outs[0],1) || !isWidth(outs[1],1) || !isWidth(outs[2],1)))
+        return emitOpError("uart_tx_8n1 requires i8 payload, i1 tick and three i1 outputs");
+      if (op=="uart_rx_8n1" && (resource.getValue()!="shifter" || ins.size()!=3 || outs.size()!=2 ||
+          !isWidth(ins[0],1) || !isWidth(ins[1],1) || !isWidth(ins[2],1) || !isWidth(outs[0],8) || !isWidth(outs[1],1)))
+        return emitOpError("uart_rx_8n1 requires three i1 controls and i8 payload and i1 done outputs");
       if (op=="read" && (resource.getValue()!="memory" || !n.getAs<IntegerAttr>("address") ||
           outs.empty() || !isWidth(outs[0],8))) return emitOpError("read requires a memory address and i8 result");
       if (op=="write" && (resource.getValue()!="memory" || !n.getAs<IntegerAttr>("address") ||

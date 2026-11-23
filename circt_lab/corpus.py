@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
@@ -70,7 +71,7 @@ def main():
         parser.error(f'no .spt files in {args.examples}')
     project = HERE.parent
     rust_sources = list((project / 'src').rglob('*.rs')) + [project / 'Cargo.toml', project / 'Cargo.lock']
-    mapper_sources = [HERE / 'map.cpp', HERE / 'graph_mapper.inc', HERE / 'dialect.cpp', HERE / 'dialect.h', HERE / 'corpus.py']
+    mapper_sources = [HERE / 'map.cpp', HERE / 'graph_mapper.inc', HERE / 'dialect.cpp', HERE / 'dialect.h', HERE / 'corpus.py', HERE / 'lower_uart.py']
     head = run(['git', '-C', str(project), 'rev-parse', 'HEAD'])
     dirty = run(['git', '-C', str(project), 'status', '--porcelain'])
     version = run([str(args.circt_opt), '--version'])
@@ -98,7 +99,17 @@ def main():
             # target placement: unsupported lowering says nothing about fit.
             graph = run([str(args.mapper), '--memory-spi-graph', str(frontend_file)])
             if graph.returncode:
-                record['typed_graph'] = {'status': 'lowering_unsupported', 'reason': last_error(graph)}
+                uart = run([sys.executable, str(HERE / 'lower_uart.py'), '--mapper', str(args.mapper), str(frontend_file)])
+                if uart.returncode:
+                    record['typed_graph'] = {'status': 'lowering_unsupported', 'reason': last_error(graph)}
+                else:
+                    graph_file = Path(tmp) / 'workload.mlir'
+                    graph_file.write_text(uart.stdout)
+                    checked = run([str(args.mapper), '--verify', str(graph_file)])
+                    if checked.returncode:
+                        raise RuntimeError(f'{file.name}: invalid UART graph: {last_error(checked)}')
+                    record['typed_graph'] = {'status': 'structural_graph_only',
+                        'reason': 'UART operation semantics, host transport and RTL mapping are not implemented; feasibility unknown.'}
             else:
                 graph_file = Path(tmp) / 'workload.mlir'
                 graph_file.write_text(graph.stdout)

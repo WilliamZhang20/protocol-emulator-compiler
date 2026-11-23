@@ -301,8 +301,23 @@ coverage or topology can be evaluated. The typed-graph probe reports lowering
 unsupported separately from mapping failure and abstract placement; none means
 whole-program fit or hardware equivalence. These numbers are a pipeline coverage
 snapshot, not a finding that the candidate fabric fits or fails the protocols.
-With the typed-graph probe, all 35 baseline examples currently report
-`lowering_unsupported`. In `circt_lab/examples`, the restricted
+The corpus now also probes an experimental UART 8N1 structural lowering.
+It builds a typed graph with separate TX and RX, frame operations, the RX
+falling-edge detector, host streams and source-derived first-tick timing.
+This narrow prototype currently runs in `lower_uart.py` over the verified
+frontend JSON and emits registered MLIR; it is not yet the intended CIRCT
+lowering pass. It marks the graph `analysis_only`, and the mapper refuses it:
+operation behavior, timing, host transport, selectors and RTL implementation
+have not been established. For example:
+
+```sh
+target/debug/spatial frontend-mlir examples/uart.spt > /tmp/uart.mlir
+python3 circt_lab/lower_uart.py --mapper /tmp/spatial-circt-map /tmp/uart.mlir > /tmp/uart-graph.mlir
+/tmp/spatial-circt-map --verify /tmp/uart-graph.mlir
+```
+
+The current baseline corpus yields one `structural_graph_only` (UART) and 34
+`lowering_unsupported` results. In `circt_lab/examples`, the restricted
 `memory_spi.spt` graph receives an abstract placement, while two control
 examples cannot yet use that lowering. This is a compiler coverage result,
 not a protocol-support verdict. The baseline USB example is a low-speed

@@ -19,6 +19,9 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$CIRCT_MAP" --memory-spi-graph "$TEST_TMP/memory-source.mlir" > "$TEST_TMP/memory-graph.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-graph.mlir" -o /dev/null
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/memory-spi-graph.mlir" -o /dev/null
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-source.mlir"
+python3 "$HERE/lower_uart.py" --mapper "$CIRCT_MAP" "$TEST_TMP/uart-source.mlir" > "$TEST_TMP/uart-graph.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/uart-graph.mlir" -o /dev/null
 if [ -n "${MEMORY_SPI_FIXTURE:-}" ]; then
   python3 "$HERE/test_graphs.py" --mapper "$CIRCT_MAP" --frontend "$SPATIAL_FRONTEND" --fixture "$MEMORY_SPI_FIXTURE"
 else
@@ -332,11 +335,13 @@ python3 "$HERE/test_control.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_
 python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --output "$TEST_TMP/corpus.json"
 python3 - "$TEST_TMP/corpus.json" <<'PY'
 import json, sys
-r=json.load(open(sys.argv[1]))['summary']
+report=json.load(open(sys.argv[1])); r=report['summary']
 assert r['total_programs'] > 0 and r['frontend_exported'] == r['total_programs']
 assert r['dialect_verified'] == r['total_programs']
 assert r['control_table_emitted_and_checked'] > 0
 assert r['typed_graph_lowering_unsupported'] > 0
+uart=next(p for p in report['programs'] if p['program']=='uart.spt')
+assert uart['typed_graph']['status']=='structural_graph_only'
 PY
 python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --examples "$HERE/examples" --output "$TEST_TMP/experiment-corpus.json"
 python3 - "$TEST_TMP/experiment-corpus.json" <<'PY'

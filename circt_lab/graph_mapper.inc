@@ -4,6 +4,8 @@ static int mapWorkloadGraph(ModuleOp targetModule, ModuleOp workModule) {
   Operation *target=findOne(targetModule,"spatial.target_graph");
   Operation *work=findOne(workModule,"spatial.workload_graph");
   if (!target || !work) return fail("expected one target_graph and one workload_graph");
+  if (auto analysis=work->getAttrOfType<BoolAttr>("analysis_only"))
+    if (analysis.getValue()) return fail("analysis-only graph has unimplemented operation semantics; hardware feasibility unknown");
   auto clock=work->getAttrOfType<IntegerAttr>("clock_hz");
   auto half=work->getAttrOfType<IntegerAttr>("half_period");
   auto pad=target->getAttrOfType<IntegerAttr>("pad_max_output_hz_estimate");

@@ -71,6 +71,40 @@ def main():
         if args.fixture:
             assert image.read_bytes() == args.fixture.read_bytes()
         candidate = HERE / 'candidates/memory-spi-graph.mlir'
+        uart_front = d / 'uart.mlir'
+        uart_source = HERE.parent / 'examples/uart.spt'
+        uart_front.write_text(run(args.frontend, 'frontend-mlir', uart_source).stdout)
+        uart_work = d / 'uart-work.mlir'
+        uart_work.write_text(run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, uart_front).stdout)
+        uart_graph = uart_work.read_text()
+        assert 'analysis_only = true' in uart_graph
+        assert 'period = 64 : i64, first = 62 : i64' in uart_graph
+        assert 'period = 64 : i64, first = 31 : i64' in uart_graph
+        assert 'uart_tx_8n1' in uart_graph and 'uart_rx_8n1' in uart_graph
+        run(args.mapper, '--verify', uart_work)
+        invalid_uart = d / 'uart-invalid.mlir'
+        invalid_uart.write_text(uart_graph.replace('first = 62 : i64', 'first = 65 : i64'))
+        run(args.mapper, '--verify', invalid_uart, ok=False)
+        rejected = run(args.mapper, '--map-graph', candidate, uart_work, ok=False)
+        assert 'feasibility unknown' in rejected.stderr
+        changed = d / 'uart-changed.spt'
+        changed.write_text(uart_source.read_text().replace('data(8)', 'data(7)'))
+        changed_front = d / 'uart-changed.mlir'
+        changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
+        run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front, ok=False)
+        changed.write_text(uart_source.read_text().replace('const BIT = 64 cycles', 'const BIT = 80 cycles'))
+        changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
+        changed_graph = run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front).stdout
+        assert 'period = 80 : i64, first = 78 : i64' in changed_graph
+        assert 'period = 80 : i64, first = 39 : i64' in changed_graph
+        renamed = uart_source.read_text()
+        for old, new in [('BIT','PERIOD'), ('tx_bit','txclock'), ('rx_bit','rxclock'),
+                         ('sender','transmitter'), ('receiver','listener'),
+                         ('tx','serial_out'), ('rx','serial_in'), ('send','outgoing'), ('recv','incoming')]:
+            renamed = re.sub(r'\b' + old + r'\b', new, renamed)
+        changed.write_text(renamed)
+        changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
+        assert 'uart_tx_8n1' in run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front).stdout
         report = json.loads(run(args.mapper, '--map-graph', candidate, work).stdout)
         report_file = d / 'report.json'
         report_file.write_text(json.dumps(report))
