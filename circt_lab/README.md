@@ -294,6 +294,8 @@ spatial frontend-mlir examples/uart.spt > /tmp/uart.mlir
 spatial-circt-map --compile-v2-spi /tmp/spi.mlir /tmp/v2-spi.mem
 spatial-circt-map --compile-v2-uart /tmp/uart.mlir /tmp/v2-uart.mem
 spatial-circt-map --compile-v2-uart-stream /tmp/uart.mlir /tmp/v2-uart-stream.mem
+spatial-circt-map --compile-v2-unified-spi /tmp/spi.mlir /tmp/v2-unified-spi.mem
+spatial-circt-map --compile-v2-unified-uart /tmp/uart.mlir /tmp/v2-unified-uart.mem
 ```
 
 The SPI compiler validates the restricted source and exact supported control
@@ -304,7 +306,9 @@ routes and SRAM packing. Reports explicitly mark `general_mapping` and
 SRAM adapters replace general transaction/stream lowering, the finite-wrapper
 UART receiver is not autonomous, and source-to-pin timing is not proved. The
 separate streaming wrapper supports independent UART RX with bounded queues and
-host-supplied SRAM regions. Unsupported
+host-supplied SRAM regions. The unified target produces 27-word images with
+an explicit SPI/UART mode; it uses the same tiles and SRAM for both modes.
+Host-provided TX length and RX capacity are outside the image. Unsupported
 changes are rejected rather than silently encoded. They are not production
 configuration images or evidence of broad protocol fit.
 
@@ -315,6 +319,10 @@ compiler-produced images against the same reconfigurable RTL and functional
 SRAM models. Set `V2_UART_STREAM_IMAGE_TB` to
 `build/verilator/fabric_v2_uart_stream/Vuart_stream_tb` to run the generated
 UART stream image, including receive-only and same-bank contention tests.
+Set `V2_UNIFIED_IMAGE_TB` and both `V2_UNIFIED_*_FIXTURE` paths to check
+both unified images and run the same-fabric RTL test. The hardware repository
+also has a black-box chip-pin test using these checked-in fixtures; gate-level
+and physical CI for the unified top are not yet established.
 These standalone RTL-only tests do not replace gate-level tests.
 
 Run `python3 circt_lab/corpus.py --help` for the required tool paths and JSON

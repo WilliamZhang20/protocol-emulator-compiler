@@ -28,6 +28,8 @@ if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inve
 "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/v2-spi.mem" > "$TEST_TMP/v2-spi.json"
 "$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-uart.mem" > "$TEST_TMP/v2-uart.json"
 "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-uart-stream.mem" > "$TEST_TMP/v2-uart-stream.json"
+"$CIRCT_MAP" --compile-v2-unified-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/v2-unified-spi.mem" > "$TEST_TMP/v2-unified-spi.json"
+"$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-unified-uart.mem" > "$TEST_TMP/v2-unified-uart.json"
 python3 - "$TEST_TMP" <<'PY'
 import json, pathlib, sys
 p=pathlib.Path(sys.argv[1]); spi=[int(x,16) for x in (p/'v2-spi.mem').read_text().splitlines()]
@@ -39,7 +41,16 @@ for name in ('v2-spi.json','v2-uart.json'):
 stream=json.loads((p/'v2-uart-stream.json').read_text())
 assert stream['target']=='fabric-v2-uart-stream-experiment' and not stream['full_source_program_compiled']
 assert (p/'v2-uart-stream.mem').read_bytes()==(p/'v2-uart.mem').read_bytes()
+for name,mode in [('spi',0),('uart',1)]:
+ image=[int(x,16) for x in (p/f'v2-unified-{name}.mem').read_text().splitlines()]
+ report=json.loads((p/f'v2-unified-{name}.json').read_text())
+ assert len(image)==27 and image[26]==mode and report['target']=='fabric-v2-unified-experiment' and not report['full_source_program_compiled']
 PY
+if [ -n "${V2_UNIFIED_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-spi.mem" "$V2_UNIFIED_SPI_FIXTURE"; fi
+if [ -n "${V2_UNIFIED_UART_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-uart.mem" "$V2_UNIFIED_UART_FIXTURE"; fi
+if [ -n "${V2_UNIFIED_IMAGE_TB:-}" ]; then
+  "$V2_UNIFIED_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-unified-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-unified-uart.mem"
+fi
 if [ -n "${V2_MEMORY_IMAGE_TB:-}" ]; then
   "$V2_MEMORY_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-uart.mem"
 fi
@@ -60,6 +71,7 @@ sed 's/const BIT = 64 cycles/const BIT = 80 cycles/' "$HERE/../examples/uart.spt
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-80.spt" > "$TEST_TMP/uart-80.mlir"
 "$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-80.mem" > /dev/null
 "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-stream-80.mem" > /dev/null
+"$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-unified-uart-80.mem" > /dev/null
 sed 's/data(12, msb_first)/data(9, msb_first)/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/spi-9.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/spi-9.spt" > "$TEST_TMP/spi-9.mlir"
 "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/spi-9.mlir" "$TEST_TMP/v2-spi-9.mem" > /dev/null
@@ -74,6 +86,9 @@ if [ -n "${V2_MEMORY_IMAGE_TB:-}" ]; then
 fi
 if [ -n "${V2_UART_STREAM_IMAGE_TB:-}" ]; then
   "$V2_UART_STREAM_IMAGE_TB" "+UART_IMAGE=$TEST_TMP/v2-uart-stream-80.mem"
+fi
+if [ -n "${V2_UNIFIED_IMAGE_TB:-}" ]; then
+  "$V2_UNIFIED_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-unified-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-unified-uart-80.mem"
 fi
 if [ -n "${MEMORY_SPI_FIXTURE:-}" ]; then
   python3 "$HERE/test_graphs.py" --mapper "$CIRCT_MAP" --frontend "$SPATIAL_FRONTEND" --fixture "$MEMORY_SPI_FIXTURE"

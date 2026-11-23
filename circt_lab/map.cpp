@@ -716,18 +716,20 @@ int main(int argc, char **argv) {
   bool v2Spi = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-spi";
   bool v2Uart = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-uart";
   bool v2UartStream = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-uart-stream";
+  bool v2UnifiedSpi = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-unified-spi";
+  bool v2UnifiedUart = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-unified-uart";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
   bool assessGraph = argc == 4 && llvm::StringRef(argv[1]) == "--assess-graph";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !mapGraph && !assessGraph && argc != 5)
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !v2UnifiedSpi && !v2UnifiedUart && !mapGraph && !assessGraph && argc != 5)
     return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --compile-v2-uart-stream FRONTEND OUTPUT | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
-  if (v2Spi || v2Uart || v2UartStream) {
+  if (v2Spi || v2Uart || v2UartStream || v2UnifiedSpi || v2UnifiedUart) {
     auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
-    return compileV2Image(*frontend,argv[3],v2Uart || v2UartStream,v2UartStream);
+    return compileV2Image(*frontend,argv[3],v2Uart || v2UartStream || v2UnifiedUart,v2UartStream,v2UnifiedSpi || v2UnifiedUart);
   }
   if (uartGraph) {
     auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);

@@ -1,7 +1,7 @@
 // Restricted, source-validated image generation for the experimental v2
 // fabric. Placement and SRAM stream framing are currently fixed; this is not
 // general graph mapping or full .spt transaction lowering.
-static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool streaming=false) {
+static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool streaming=false, bool unified=false) {
   std::string text;
   llvm::raw_string_ostream stream(text);
   int rc=uart ? lowerUart(frontend,stream) : compileMemorySpi(frontend,"0",nullptr,true,stream);
@@ -11,7 +11,7 @@ static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool
   if (!graph || failed(verify(*graph))) return fail("generated v2 source graph failed verification");
   Operation *work=findOne(*graph,"spatial.workload_graph");
   if (!work) return fail("missing v2 source graph");
-  std::array<uint16_t,26> words{};
+  std::array<uint16_t,27> words{};
   auto route=[&](int sink,int source) {words[6+sink]=static_cast<uint16_t>(source);};
   // Fixed named port assignment for this experiment. Each sink owns its own
   // selector, so no selector is shared by two independently driven sinks.
@@ -54,11 +54,12 @@ static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool
   }
   std::ofstream image(output);
   if (!image) return fail("cannot open v2 image");
-  for (auto word:words) image << std::hex << std::setfill('0') << std::setw(4) << word << '\n';
+  words[26]=uart ? 1 : 0;
+  for (size_t i=0;i<(unified ? 27u : 26u);++i) image << std::hex << std::setfill('0') << std::setw(4) << words[i] << '\n';
   if (!image) return fail("cannot write v2 image");
-  llvm::json::Object report{{"target",streaming ? "fabric-v2-uart-stream-experiment" : "fabric-v2-memory-experiment"}, {"component",uart ? "uart-8n1" : "memory-spi"},
+  llvm::json::Object report{{"target",unified ? "fabric-v2-unified-experiment" : streaming ? "fabric-v2-uart-stream-experiment" : "fabric-v2-memory-experiment"}, {"component",uart ? "uart-8n1" : "memory-spi"},
       {"source_validated",true},{"general_mapping",false},{"full_source_program_compiled",false},
-      {"limitations",streaming ? "Fixed placement, routes and hand-written bounded SRAM stream adapter; host supplies memory regions and lengths; no general stream/function lowering, framing-error detection, static route conflict analysis, or pin timing proof." :
+      {"limitations",(streaming || unified) ? "Fixed placement, routes and hand-written SRAM adapters; host supplies memory regions and lengths; no general stream/function lowering, framing-error detection, static route conflict analysis, or pin timing proof." :
        "Fixed placement and route assignment; finite hand-written SRAM adapter; no general stream/function lowering, static route conflict analysis, pin timing proof, or RTL equivalence guarantee."}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }
