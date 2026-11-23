@@ -306,7 +306,7 @@ It builds a typed graph with separate TX and RX, frame operations, the RX
 falling-edge detector, host streams and source-derived first-tick timing.
 This narrow prototype runs in the CIRCT-side tool over verified frontend MLIR
 and emits registered MLIR; it is not yet a general CIRCT conversion pass.
-It marks the graph `analysis_only`, and the mapper refuses it:
+It marks the graph `analysis_only`, and image mapping refuses it:
 operation behavior, timing, host transport, selectors and RTL implementation
 have not been established. For example:
 
@@ -314,7 +314,15 @@ have not been established. For example:
 target/debug/spatial frontend-mlir examples/uart.spt > /tmp/uart.mlir
 /tmp/spatial-circt-map --uart-graph /tmp/uart.mlir > /tmp/uart-graph.mlir
 /tmp/spatial-circt-map --verify /tmp/uart-graph.mlir
+/tmp/spatial-circt-map --assess-graph circt_lab/candidates/memory-spi-graph.mlir /tmp/uart-graph.mlir
+/tmp/spatial-circt-map --assess-graph circt_lab/candidates/uart-capability-hypothesis.mlir /tmp/uart-graph.mlir
 ```
+
+The explicit assessment mode reports capability and exclusive-resource
+deficits or an abstract placement without claiming hardware fit or timing.
+The corpus includes both assessments for UART. For operation assumptions,
+RTL inventory, target scope and exact limitations see
+[UART architecture assessment](UART_ARCHITECTURE_ASSESSMENT.md).
 
 The current baseline corpus yields one `structural_graph_only` (UART) and 34
 `lowering_unsupported` results. In `circt_lab/examples`, the restricted

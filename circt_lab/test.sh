@@ -19,6 +19,9 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$CIRCT_MAP" --memory-spi-graph "$TEST_TMP/memory-source.mlir" > "$TEST_TMP/memory-graph.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-graph.mlir" -o /dev/null
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/memory-spi-graph.mlir" -o /dev/null
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/uart-capability-hypothesis.mlir" -o /dev/null
+RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"}
+if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inventory.py" "$RTL_ROOT"; fi
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-source.mlir"
 "$CIRCT_MAP" --uart-graph "$TEST_TMP/uart-source.mlir" > "$TEST_TMP/uart-graph.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/uart-graph.mlir" -o /dev/null
@@ -342,6 +345,8 @@ assert r['control_table_emitted_and_checked'] > 0
 assert r['typed_graph_lowering_unsupported'] > 0
 uart=next(p for p in report['programs'] if p['program']=='uart.spt')
 assert uart['typed_graph']['status']=='structural_graph_only'
+assert uart['typed_graph']['assessments']['current_slice']['status']=='infeasible_in_model'
+assert uart['typed_graph']['assessments']['hypothetical_uart']['status']=='abstract_placement_found'
 PY
 python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --examples "$HERE/examples" --output "$TEST_TMP/experiment-corpus.json"
 python3 - "$TEST_TMP/experiment-corpus.json" <<'PY'

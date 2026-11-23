@@ -1,0 +1,28 @@
+{
+  "schema": "spatial.rtl-slice-inventory.v1",
+  "scope": "memory_spi_fabric only; an inventory, not a complete timing, host-stream or UART implementation model",
+  "rtl": "src/memory_spi_fabric.v",
+  "resources": {"proto_timer": 1, "proto_shift": 1, "proto_control": 1, "proto_pin_in": 1, "proto_pin_out": 3, "proto_route": 8, "experiment_memory_fabric": 1},
+  "timer": {"instance": "timer", "inputs": ["clk", "live", "routed_run", "half_period"], "outputs": ["timer_level", "timer_rise", "timer_fall"], "half_period_bits": 8, "initial_delay_independently_programmable": false},
+  "shifter": {"instance": "shift", "inputs": ["clk", "live", "routed_start", "routed_rise", "routed_fall", "routed_in", "transmit", "width"], "outputs": ["serial_out", "shift_busy", "shift_done", "receive"], "bit_order": "msb_first", "simultaneously_independent_tx_rx": false},
+  "other_ports": [
+    {"module": "proto_control", "instance": "control", "ports": ["clk", "rst_n", "live", "cfg_control", "cfg_row", "cfg_data[4:0]", "fire", "shift_done", "selected", "shift_start", "control_done"]},
+    {"module": "proto_pin_in", "instance": "input_pin", "ports": ["clk", "rst_n", "miso", "serial_in"]},
+    {"module": "proto_pin_out", "instance": "cs_pin", "ports": ["clk", "rst_n", "live && cs_route_ready", "routed_cs", "cs", "oe[0]"]},
+    {"module": "proto_pin_out", "instance": "sck_pin", "ports": ["clk", "rst_n", "live", "routed_sck", "sck", "oe[1]"]},
+    {"module": "proto_pin_out", "instance": "mosi_pin", "ports": ["clk", "rst_n", "live", "routed_serial", "mosi", "oe[2]"]}
+  ],
+  "memory": {"banks": 2, "bank_depth_bytes": 1024, "read_write_ports_per_bank": 1, "host_interface": "request/ready byte memory interface, not a modeled UART stream"},
+  "routes": [
+    {"instance": "r0", "select_bits": [1, 0], "destination": "routed_start", "choices": ["shift_start", "1'b0", "fire", "timer_rise"]},
+    {"instance": "r1", "select_bits": [3, 2], "destination": "routed_run", "choices": ["shift_busy", "selected", "1'b0", "1'b1"]},
+    {"instance": "r2", "select_bits": [5, 4], "destination": "routed_rise", "choices": ["timer_rise", "timer_fall", "1'b0", "fire"]},
+    {"instance": "r3", "select_bits": [7, 6], "destination": "routed_fall", "choices": ["timer_fall", "timer_rise", "1'b0", "fire"]},
+    {"instance": "r4", "select_bits": [9, 8], "destination": "routed_in", "choices": ["serial_in", "1'b0", "1'b1", "serial_out"]},
+    {"instance": "r5", "select_bits": [11, 10], "destination": "routed_serial", "choices": ["serial_out", "timer_level", "1'b0", "1'b1"]},
+    {"instance": "r6", "select_bits": [13, 12], "destination": "routed_sck", "choices": ["timer_level", "serial_out", "1'b0", "1'b1"]},
+    {"instance": "r7", "select_bits": [15, 14], "destination": "routed_cs", "choices": ["!selected", "selected", "!shift_busy", "1'b1"]}
+  ],
+  "route_timing": "proto_route registers the selected signal; choices are indexed from 0 at the rightmost concatenation bit",
+  "limitations": ["no selector or port-level fit proof in graph assessment", "no UART host stream implementation", "no pin electrical or full physical timing model"]
+}

@@ -87,6 +87,32 @@ def main():
         run(args.mapper, '--verify', invalid_uart, ok=False)
         rejected = run(args.mapper, '--map-graph', candidate, uart_work, ok=False)
         assert 'feasibility unknown' in rejected.stderr
+        result = json.loads(run(args.mapper, '--assess-graph', candidate, uart_work).stdout)
+        assert result['status'] == 'infeasible_in_model'
+        deficits = result['deficits']
+        assert any(x.get('resource') == 'timer' and x.get('required') == 2 and x.get('available') == 1 for x in deficits)
+        assert any(x.get('resource') == 'shifter' and x.get('required') == 2 and x.get('available') == 1 for x in deficits)
+        hypothesis = HERE / 'candidates/uart-capability-hypothesis.mlir'
+        assessed = json.loads(run(args.mapper, '--assess-graph', hypothesis, uart_work).stdout)
+        assert assessed['status'] == 'abstract_placement_found'
+        assert not assessed['rtl_fidelity_verified'] and not assessed['timing_feasibility_verified']
+        assert not assessed['image_emitted'] and 'schedule' not in assessed
+        assigned = {x['node']: x['tile'] for x in assessed['assignments']}
+        # Independent enumeration of the only two possible timer assignments.
+        # Directed paths in this hypothesis allow tx only on timer0 and rx only on timer1.
+        legal = [(tx, rx) for tx, rx in itertools.permutations(['timer0', 'timer1'])
+                 if tx == 'timer0' and rx == 'timer1']
+        assert (assigned['tx_timer'], assigned['rx_timer']) in legal and len(legal) == 1
+        broken_target = d / 'broken-uart-target.mlir'
+        text = hypothesis.read_text()
+        broken_target.write_text('\n'.join(line for line in text.splitlines() if not ('from = "timer1"' in line and 'to = "rx_shifter"' in line)) + '\n')
+        broken = json.loads(run(args.mapper, '--assess-graph', broken_target, uart_work).stdout)
+        assert broken['status'] == 'infeasible_in_model' and 'directed paths' in broken['reason']
+        # A tile may have the right opcode but be unable to represent the first tick.
+        broken_target.write_text(text.replace('first_max = 255 : i64', 'first_max = 30 : i64'))
+        broken = json.loads(run(args.mapper, '--assess-graph', broken_target, uart_work).stdout)
+        assert broken['status'] == 'infeasible_in_model'
+        assert any(x.get('node') == 'rx_timer' and x['kind'] == 'no_compatible_tile' and x['reason'] == 'capability_limits' and x['first'] == 31 for x in broken['deficits'])
         changed = d / 'uart-changed.spt'
         changed.write_text(uart_source.read_text().replace('data(8)', 'data(7)'))
         changed_front = d / 'uart-changed.mlir'
@@ -105,6 +131,13 @@ def main():
         changed_graph = run(args.mapper, '--uart-graph', changed_front).stdout
         assert 'period = 80 : i64, first = 78 : i64' in changed_graph
         assert 'period = 80 : i64, first = 39 : i64' in changed_graph
+        changed.write_text(uart_source.read_text().replace('const BIT = 64 cycles', 'const BIT = 400 cycles'))
+        changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
+        changed_work = d / 'uart-slow.mlir'
+        changed_work.write_text(run(args.mapper, '--uart-graph', changed_front).stdout)
+        slow = json.loads(run(args.mapper, '--assess-graph', hypothesis, changed_work).stdout)
+        assert slow['status'] == 'infeasible_in_model'
+        assert any(x.get('node') == 'tx_timer' and x['kind'] == 'no_compatible_tile' and x['reason'] == 'capability_limits' and x['period'] == 400 for x in slow['deficits'])
         renamed = uart_source.read_text()
         for old, new in [('BIT','PERIOD'), ('tx_bit','txclock'), ('rx_bit','rxclock'),
                          ('sender','transmitter'), ('receiver','listener'),

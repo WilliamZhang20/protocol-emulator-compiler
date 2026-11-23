@@ -274,11 +274,17 @@ public:
             states.getInt()<1 || states.getInt()>1024 || inputs.getInt()<1 || inputs.getInt()>64)
           return emitOpError("protocol tile requires bounded states and control_inputs");
       }
-      if (supported.count("timer")) {
+      if (supported.count("timer") || supported.count("uart_timer")) {
         auto min=t.getAs<IntegerAttr>("period_min"), max=t.getAs<IntegerAttr>("period_max");
         if (!min || !max || !min.getType().isInteger(64) || !max.getType().isInteger(64) ||
             min.getInt()<1 || max.getInt()<min.getInt() || max.getInt()>1000000000)
           return emitOpError("timer tile requires valid period_min and period_max");
+      }
+      if (supported.count("uart_timer")) {
+        auto min=t.getAs<IntegerAttr>("first_min"), max=t.getAs<IntegerAttr>("first_max");
+        if (!min || !max || !min.getType().isInteger(64) || !max.getType().isInteger(64) ||
+            min.getInt()<1 || max.getInt()<min.getInt() || max.getInt()>1000000000)
+          return emitOpError("uart_timer tile requires valid first_min and first_max");
       }
       if (auto depth=t.getAs<IntegerAttr>("depth"))
         if (!depth.getType().isInteger(64) || depth.getInt()<1 || depth.getInt()>1000000) return emitOpError("invalid tile depth");

@@ -712,8 +712,9 @@ int main(int argc, char **argv) {
   bool workloadGraph = argc == 3 && llvm::StringRef(argv[1]) == "--memory-spi-graph";
   bool uartGraph = argc == 3 && llvm::StringRef(argv[1]) == "--uart-graph";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !mapGraph && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --map-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  bool assessGraph = argc == 4 && llvm::StringRef(argv[1]) == "--assess-graph";
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !mapGraph && !assessGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
@@ -723,11 +724,11 @@ int main(int argc, char **argv) {
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
     return lowerUart(*frontend);
   }
-  if (mapGraph) {
+  if (mapGraph || assessGraph) {
     auto target = parseSourceFile<ModuleOp>(argv[2], &context);
     auto workload = parseSourceFile<ModuleOp>(argv[3], &context);
     if (!target || !workload || failed(verify(*target)) || failed(verify(*workload))) return fail("invalid graph MLIR");
-    return mapWorkloadGraph(*target,*workload);
+    return mapWorkloadGraph(*target,*workload,assessGraph);
   }
   if (workloadGraph) {
     auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);

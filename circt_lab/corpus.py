@@ -62,6 +62,7 @@ def main():
     parser.add_argument('--dialect', type=Path, required=True)
     parser.add_argument('--examples', type=Path, default=HERE.parent / 'examples')
     parser.add_argument('--graph-target', type=Path, default=HERE / 'candidates/memory-spi-graph.mlir')
+    parser.add_argument('--uart-hypothesis', type=Path, default=HERE / 'candidates/uart-capability-hypothesis.mlir')
     parser.add_argument('--output', type=Path, help='Write JSON here instead of stdout')
     parser.add_argument('--require-full', action='store_true', help='Exit nonzero if any full program is not mapped')
     args = parser.parse_args()
@@ -109,6 +110,13 @@ def main():
                         raise RuntimeError(f'{file.name}: invalid UART graph: {last_error(checked)}')
                     record['typed_graph'] = {'status': 'structural_graph_only',
                         'reason': 'UART operation semantics, host transport and RTL mapping are not implemented; feasibility unknown.'}
+                    assessments = {}
+                    for label, target in [('current_slice', args.graph_target), ('hypothetical_uart', args.uart_hypothesis)]:
+                        assessed = run([str(args.mapper), '--assess-graph', str(target), str(graph_file)])
+                        if assessed.returncode:
+                            raise RuntimeError(f'{file.name}: {label} assessment failed: {last_error(assessed)}')
+                        assessments[label] = json.loads(assessed.stdout)
+                    record['typed_graph']['assessments'] = assessments
             else:
                 graph_file = Path(tmp) / 'workload.mlir'
                 graph_file.write_text(graph.stdout)
@@ -204,6 +212,7 @@ def main():
                              'rust_source_sha256': source_digest(rust_sources, project),
                              'mapper_source_sha256': source_digest(mapper_sources, project),
                              'graph_target_sha256': hashlib.sha256(args.graph_target.read_bytes()).hexdigest(),
+                             'uart_hypothesis_sha256': hashlib.sha256(args.uart_hypothesis.read_bytes()).hexdigest(),
                              'corpus_sha256': source_digest(files, args.examples),
                              'circt_opt_version': version.stdout.strip() if not version.returncode else None},
               'summary': dict(sorted(summaries.items())), 'programs': records}
