@@ -293,6 +293,7 @@ spatial frontend-mlir circt_lab/examples/memory_spi.spt > /tmp/spi.mlir
 spatial frontend-mlir examples/uart.spt > /tmp/uart.mlir
 spatial-circt-map --compile-v2-spi /tmp/spi.mlir /tmp/v2-spi.mem
 spatial-circt-map --compile-v2-uart /tmp/uart.mlir /tmp/v2-uart.mem
+spatial-circt-map --compile-v2-uart-stream /tmp/uart.mlir /tmp/v2-uart-stream.mem
 ```
 
 The SPI compiler validates the restricted source and exact supported control
@@ -300,8 +301,10 @@ table; the UART compiler validates the restricted 8N1 source. Both preserve
 the supported source timing and widths in the image, but use fixed placement,
 routes and SRAM packing. Reports explicitly mark `general_mapping` and
 `full_source_program_compiled` false. In particular, the hand-written finite
-SRAM adapter replaces general transaction/stream lowering, the UART receiver
-is not autonomous, and source-to-pin timing is not proved. Unsupported
+SRAM adapters replace general transaction/stream lowering, the finite-wrapper
+UART receiver is not autonomous, and source-to-pin timing is not proved. The
+separate streaming wrapper supports independent UART RX with bounded queues and
+host-supplied SRAM regions. Unsupported
 changes are rejected rather than silently encoded. They are not production
 configuration images or evidence of broad protocol fit.
 
@@ -309,7 +312,10 @@ configuration images or evidence of broad protocol fit.
 Set `V2_MEMORY_IMAGE_TB` to the hardware repository's built
 `build/verilator/fabric_v2_memory/Vmemory_fabric_tb` to run the actual
 compiler-produced images against the same reconfigurable RTL and functional
-SRAM models. This standalone RTL-only test does not replace gate-level tests.
+SRAM models. Set `V2_UART_STREAM_IMAGE_TB` to
+`build/verilator/fabric_v2_uart_stream/Vuart_stream_tb` to run the generated
+UART stream image, including receive-only and same-bank contention tests.
+These standalone RTL-only tests do not replace gate-level tests.
 
 Run `python3 circt_lab/corpus.py --help` for the required tool paths and JSON
 output options. It exports and verifies every `.spt` in the selected directory,

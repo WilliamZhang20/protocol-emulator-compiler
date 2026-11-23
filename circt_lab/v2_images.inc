@@ -1,7 +1,7 @@
 // Restricted, source-validated image generation for the experimental v2
 // fabric. Placement and SRAM stream framing are currently fixed; this is not
 // general graph mapping or full .spt transaction lowering.
-static int compileV2Image(ModuleOp frontend, const char *output, bool uart) {
+static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool streaming=false) {
   std::string text;
   llvm::raw_string_ostream stream(text);
   int rc=uart ? lowerUart(frontend,stream) : compileMemorySpi(frontend,"0",nullptr,true,stream);
@@ -56,8 +56,9 @@ static int compileV2Image(ModuleOp frontend, const char *output, bool uart) {
   if (!image) return fail("cannot open v2 image");
   for (auto word:words) image << std::hex << std::setfill('0') << std::setw(4) << word << '\n';
   if (!image) return fail("cannot write v2 image");
-  llvm::json::Object report{{"target","fabric-v2-memory-experiment"}, {"component",uart ? "uart-8n1" : "memory-spi"},
+  llvm::json::Object report{{"target",streaming ? "fabric-v2-uart-stream-experiment" : "fabric-v2-memory-experiment"}, {"component",uart ? "uart-8n1" : "memory-spi"},
       {"source_validated",true},{"general_mapping",false},{"full_source_program_compiled",false},
-      {"limitations","Fixed placement and route assignment; finite hand-written SRAM adapter; no general stream/function lowering, static route conflict analysis, pin timing proof, or RTL equivalence guarantee."}};
+      {"limitations",streaming ? "Fixed placement, routes and hand-written bounded SRAM stream adapter; host supplies memory regions and lengths; no general stream/function lowering, framing-error detection, static route conflict analysis, or pin timing proof." :
+       "Fixed placement and route assignment; finite hand-written SRAM adapter; no general stream/function lowering, static route conflict analysis, pin timing proof, or RTL equivalence guarantee."}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }
