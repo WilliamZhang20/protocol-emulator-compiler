@@ -331,6 +331,10 @@ examples cannot yet use that lowering. This is a compiler coverage result,
 not a protocol-support verdict. The baseline USB example is a low-speed
 packet transmitter and the Ethernet examples are 10BASE-T transmitters;
 their presence is not evidence of full USB or Ethernet support.
+For source-derived I2C/JTAG connections, hypothetical selector conflicts,
+route-cycle probes, and an explicit memory contention comparison, see
+[the follow-up investigations](investigations/README.md). These do not lower
+complete I2C/JTAG programs or constitute mapped/physical results.
 The restricted timer/shifter pattern matched one of 80 pairs probed across the
 corpus: the timer and shifter in `spi.spt`. That count measures this extractor's
 coverage, not how many protocols the hardware could support.

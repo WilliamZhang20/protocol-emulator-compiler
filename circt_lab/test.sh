@@ -335,6 +335,29 @@ fi
 grep -Fq 'route references missing relay' "$TEST_TMP/error"
 python3 "$HERE/test_routes.py" --mapper "$CIRCT_MAP" --cases 30
 python3 "$HERE/test_control.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --cases 40
+python3 "$HERE/test_workload_evidence.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP"
+python3 "$HERE/investigations/route_timing_probe.py" --frontend "$SPATIAL_FRONTEND" > "$TEST_TMP/route-timing.json"
+python3 - "$TEST_TMP/route-timing.json" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1]))
+assert r['source_values']=={'ethernet_half_bit_period_cycles':2, 'i2c_half_period_cycles':250}
+assert all(x['minimum_arrival_spacing']==2 for x in r['ethernet'])
+assert [x['consumer_sampling_edge_after_first_sampling_edge'] for x in r['i2c_stretch']]==[2,3,4]
+PY
+python3 "$HERE/investigations/compare_memory.py" --frontend "$SPATIAL_FRONTEND" > "$TEST_TMP/memory-comparison.json"
+python3 - "$TEST_TMP/memory-comparison.json" <<'PY'
+import json, sys
+report=json.load(open(sys.argv[1])); r={(x['candidate'], x['prefetch_depth']): x for x in report['results']}
+assert r['one_1k_bank',0]['actor_deadline_misses']==2
+assert r['two_1k_banks',0]['actor_deadline_misses']==0
+assert r['one_1k_bank',4]['actor_deadline_misses']==0
+assert r['one_1k_bank',4]['max_prefetch_occupancy']==4
+s={(x['candidate'], x['prefetch_depth']): x for x in report['phase_sweep']}
+assert s['one_1k_bank',0]['phases_with_misses']==13
+assert s['one_1k_bank',4]['phases_with_misses']==0
+assert report['frame_capacity_probe']['stored_frame_bytes']==60
+assert report['frame_capacity_probe']['source_wire_frame_bytes_without_crc_tail']==68
+PY
 python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --output "$TEST_TMP/corpus.json"
 python3 - "$TEST_TMP/corpus.json" <<'PY'
 import json, sys
