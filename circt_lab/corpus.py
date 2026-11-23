@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -97,6 +98,21 @@ def main():
                 record['error'] = last_error(model)
                 records.append(record); continue
             logical = json.loads(model.stdout)
+            timers = [x['name'] for x in logical['items'] if x['kind'] == 'resource' and x['resource_kind'] == 'timer']
+            shifters = [x['name'] for x in logical['items'] if x['kind'] == 'resource' and x['resource_kind'] == 'shifter']
+            record['spi_component_probes'] = {'attempts': 0, 'matches': [], 'scope':
+                'Timer/shifter component only; pin binding, control, streams and whole program are not mapped.'}
+            for timer in timers:
+                for shifter in shifters:
+                    record['spi_component_probes']['attempts'] += 1
+                    probe = run([str(args.mapper), '--derive-spi-component', str(frontend_file), timer, shifter, '0'])
+                    if not probe.returncode:
+                        match = re.search(r'width = (\d+) : i64, half_period = (\d+) : i64', probe.stdout)
+                        if not match:
+                            raise RuntimeError(f'{file.name}: malformed derived SPI component')
+                        record['spi_component_probes']['matches'].append({
+                            'timer': timer, 'shifter': shifter,
+                            'width': int(match.group(1)), 'half_period_cycles': int(match.group(2))})
             full_file = Path(tmp) / 'full.mem'
             full_file.unlink(missing_ok=True)
             full = run([str(args.mapper), '--compile-control', str(frontend_file), str(full_file)])
@@ -139,6 +155,9 @@ def main():
         summaries['dialect_verified'] += rec['dialect'] == 'verified'
         summaries['full_programs_mapped'] += rec['whole_program']['status'] == 'mapped'
         summaries['programs_with_explicit_protocol_graph'] += bool(rec['control_components'])
+        probes = rec.get('spi_component_probes', {})
+        summaries['spi_component_pairs_probed'] += probes.get('attempts', 0)
+        summaries['spi_component_pairs_derived'] += len(probes.get('matches', []))
         for component in rec['control_components']:
             summaries['control_' + component['status']] += 1
     # Materialize zeros so the absence of support is visible in the report.

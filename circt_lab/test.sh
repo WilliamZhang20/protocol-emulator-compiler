@@ -11,6 +11,53 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/spi.spt" > "$TEST_TMP/frontend.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend.mlir" -o "$TEST_TMP/frontend-checked.mlir"
 "$CIRCT_MAP" --verify "$TEST_TMP/frontend.mlir" > /dev/null
+# Extract only the timer/shifter component from a real SPI source. The hand-
+# authored transaction controller and supplied payload remain separate.
+"$CIRCT_MAP" --derive-spi-component "$TEST_TMP/frontend.mlir" sck_clock bits 165 > "$TEST_TMP/derived-spi.mlir" 2> "$TEST_TMP/derived-warning"
+grep -Fq 'full-program semantics are not mapped' "$TEST_TMP/derived-warning"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/derived-spi.mlir" -o /dev/null
+"$CIRCT_MAP" "$HERE/prototype.mlir" "$TEST_TMP/derived-spi.mlir" "$HERE/control_fsm.mlir" "$TEST_TMP/derived-spi.mem" > /dev/null
+python3 - "$TEST_TMP/derived-spi.mem" <<'PY'
+import sys
+image = [int(x, 16) for x in open(sys.argv[1])]
+assert image[0] == 0x0808 and image[18] == 0xa500
+PY
+if [ -n "${SPI_IMAGE_TB:-}" ]; then
+  "$SPI_IMAGE_TB" "+IMAGE=$TEST_TMP/derived-spi.mem"
+fi
+python3 - "$HERE/../examples/spi.spt" "$TEST_TMP" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+out = Path(sys.argv[2])
+for name, old, new in [
+    ('width12', 'data(8, msb_first)', 'data(12, msb_first)'),
+    ('period10', 'const HALF = 8 cycles', 'const HALF = 10 cycles'),
+    ('lsb', 'data(8, msb_first)', 'data(8, lsb_first)'),
+    ('edge', 'shift: sck_clock.fall', 'shift: sck_clock.rise'),
+    ('fast', 'const HALF = 8 cycles', 'const HALF = 7 cycles'),
+]:
+    assert old in source
+    (out / (name + '.spt')).write_text(source.replace(old, new, 1))
+PY
+for variant in width12 period10 lsb edge fast; do
+  "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/$variant.spt" > "$TEST_TMP/$variant.mlir"
+done
+for variant in width12 period10; do
+  "$CIRCT_MAP" --derive-spi-component "$TEST_TMP/$variant.mlir" sck_clock bits 165 > "$TEST_TMP/$variant-spi.mlir"
+  "$CIRCT_MAP" "$HERE/prototype.mlir" "$TEST_TMP/$variant-spi.mlir" "$HERE/control_fsm.mlir" "$TEST_TMP/$variant.mem" > /dev/null
+  if [ -n "${SPI_IMAGE_TB:-}" ]; then "$SPI_IMAGE_TB" "+IMAGE=$TEST_TMP/$variant.mem"; fi
+done
+python3 - "$TEST_TMP/width12.mem" "$TEST_TMP/period10.mem" <<'PY'
+import sys
+assert int(open(sys.argv[1]).readline(), 16) == 0x0c08
+assert int(open(sys.argv[2]).readline(), 16) == 0x080a
+PY
+for variant in lsb edge fast; do
+  if "$CIRCT_MAP" --derive-spi-component "$TEST_TMP/$variant.mlir" sck_clock bits 165 > /dev/null 2> "$TEST_TMP/error"; then
+    echo "unsupported $variant component was accepted" >&2; exit 1
+  fi
+done
 test "$(grep -c 'spatial.frontend_item' "$TEST_TMP/frontend-checked.mlir")" -eq 19
 test "$(grep -c 'spatial.frontend_input' "$TEST_TMP/frontend-checked.mlir")" -gt 0
 sed '0,/kind = "clock"/s/kind = "clock"/kind = "not_clock"/' "$TEST_TMP/frontend.mlir" > "$TEST_TMP/frontend-bad.mlir"

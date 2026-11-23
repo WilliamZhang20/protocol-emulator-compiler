@@ -6,6 +6,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "byte_filter.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -17,6 +22,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "byte_framing.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -28,6 +38,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "byte_tag_errors.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -39,6 +54,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "byte_tag_gap.spt",
+      "spi_component_probes": {
+        "attempts": 6,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -50,6 +70,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "byte_xor.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -61,6 +86,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "contexts.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric requires valid base-context inputs",
@@ -72,6 +102,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "contexts_initial_one.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric requires valid base-context inputs",
@@ -83,6 +118,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "contexts_logic.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric requires valid base-context inputs",
@@ -94,6 +134,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "crc_link_trace.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -105,6 +150,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "ethernet_tx.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires valid base-context inputs",
@@ -116,6 +166,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "ethernet_tx_coded.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires valid base-context inputs",
@@ -127,6 +182,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "i2c.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -138,6 +198,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "io_saturation.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -149,6 +214,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "jtag.spt",
+      "spi_component_probes": {
+        "attempts": 2,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -160,6 +230,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "loopback.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -171,6 +246,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_bandwidth.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -182,6 +262,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_bandwidth_bit2.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -193,6 +278,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_bandwidth_fast.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -204,6 +294,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_dual_channel.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -215,6 +310,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_dual_channel_bit2.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -226,6 +326,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_dual_channel_serial.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -237,6 +342,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "memory_unequal_parallel.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -248,6 +358,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "packet_errors.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -259,6 +374,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "packets.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -281,6 +401,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "protocol_control.spt",
+      "spi_component_probes": {
+        "attempts": 0,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric does not support source item: resource",
@@ -301,6 +426,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "protocol_control_controller.spt",
+      "spi_component_probes": {
+        "attempts": 2,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -321,6 +451,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "protocol_control_extended_actor.spt",
+      "spi_component_probes": {
+        "attempts": 2,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -341,6 +476,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "protocol_control_extended_actor_fast.spt",
+      "spi_component_probes": {
+        "attempts": 0,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric does not support source item: resource",
@@ -363,6 +503,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "protocol_control_two_input.spt",
+      "spi_component_probes": {
+        "attempts": 0,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric does not support source item: resource",
@@ -374,6 +519,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "ps2.spt",
+      "spi_component_probes": {
+        "attempts": 0,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 1,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -385,6 +535,18 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "spi.spt",
+      "spi_component_probes": {
+        "attempts": 3,
+        "matches": [
+          {
+            "half_period_cycles": 8,
+            "shifter": "bits",
+            "timer": "sck_clock",
+            "width": 8
+          }
+        ],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -396,6 +558,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "stored_bytes.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -407,6 +574,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "swd.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -418,6 +590,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "uart.spt",
+      "spi_component_probes": {
+        "attempts": 4,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 2,
       "whole_program": {
         "reason": "mapping error: control fabric does not support streams or unknown frontend operations",
@@ -429,6 +606,11 @@
       "dialect": "verified",
       "frontend": "exported",
       "program": "usb.spt",
+      "spi_component_probes": {
+        "attempts": 1,
+        "matches": [],
+        "scope": "Timer/shifter component only; pin binding, control, streams and whole program are not mapped."
+      },
       "unmodeled_word_streams": 0,
       "whole_program": {
         "reason": "mapping error: control fabric requires exactly one protocol",
@@ -439,9 +621,9 @@
   "provenance": {
     "circt_opt_version": "LLVM (http://llvm.org/):\n  LLVM version 24.0.0git\n  Optimized build.\nCIRCT firtool-1.164.0",
     "corpus_sha256": "d71b74b4957d6bd3e3c7dcf52451c39d2a943d8f654d908fe9d60f47e23d1569",
-    "frontend_git_head": "d2c8de276885ae18e1c983bf21ec70b55aa848d7",
+    "frontend_git_head": "083fefa09a87502c332381b5625d4a868691334b",
     "frontend_worktree_clean": false,
-    "mapper_source_sha256": "fe8052a51b058b10105e65d40408b44378865ea90bc226506c5018ad8815694d",
+    "mapper_source_sha256": "c34d4dced7bab09d606cc41615d5242add1d239e951b34a0592b44ec6b1b2168",
     "rust_source_sha256": "dfebd432960194ed9bc1ee92db2531d92b128b458abf689a8528d41b7e0f1d4b"
   },
   "schema": "spatial.circt-corpus-coverage.v1",
@@ -453,6 +635,8 @@
     "frontend_exported": 35,
     "full_programs_mapped": 0,
     "programs_with_explicit_protocol_graph": 5,
+    "spi_component_pairs_derived": 1,
+    "spi_component_pairs_probed": 80,
     "total_programs": 35
   }
 }

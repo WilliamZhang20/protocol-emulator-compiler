@@ -5,8 +5,10 @@ compiler. It connects the existing frontend to registered MLIR operations and
 uses a CIRCT FSM in a narrow, working RTL-image path. It also analyzes a family
 of hypothetical selector topologies. Frontend-derived Boolean dependencies can
 be analyzed against a hypothetical graph. A restricted control-only `.spt`
-program now produces an image for a separate control-fabric RTL prototype; the
-SPI image still uses a hand-authored workload. Do not treat frontend export
+program now produces an image for a separate control-fabric RTL prototype.
+An SPI timer/shifter component can also be derived from a real source program;
+its transaction controller and payload remain supplied by the experiment.
+Do not treat frontend export
 or topology analysis as compilation/fit.
 
 ## Existing frontend and registered dialect
@@ -43,6 +45,17 @@ bindings are reported in JSON. The separate `control_fabric` RTL implements
 this exact target, with synchronized inputs and registered outputs; it is not
 the existing chip or a general heterogeneous fabric. Other source constructs
 are rejected. `examples/control_full.spt` is an end-to-end example.
+
+`--derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD` extracts one specific
+source pattern: an idle-low timer driven by shifter busy until done, an
+MSB-first data-only frame, falling-edge shifts and rising-edge pin sampling.
+It resolves a literal cycle period or one named cycle constant, and emits a
+`spatial.spi` workload for the existing SPI prototype mapper. The source's
+transaction functions, start expression, output pin binding, other resources,
+streams, and tests are not lowered. The supplied payload and hand-written
+control FSM are experiment inputs. This is a component experiment, not a
+complete compilation of `examples/spi.spt`. Unsupported widths, periods,
+frame formats, and clocking relationships are rejected.
 
 `dialect.cpp` registers these operations, `spatial.fabric`, `spatial.spi`,
 `spatial.config_write`, and `spatial.payload` as a real loadable MLIR dialect.
@@ -126,6 +139,11 @@ SPATIAL_DIALECT=/tmp/libSpatialDialect.so
 ./target/debug/spatial frontend-mlir circt_lab/examples/control.spt > /tmp/control.mlir
 /tmp/spatial-circt-map --control-rows /tmp/control.mlir handshake /tmp/control.mem
 make -C ../protocol-emulator tile-control-image-test IMAGE=/tmp/control.mem
+./target/debug/spatial frontend-mlir examples/spi.spt > /tmp/source-spi.mlir
+/tmp/spatial-circt-map --derive-spi-component /tmp/source-spi.mlir sck_clock bits 165 > /tmp/source-component.mlir
+/tmp/spatial-circt-map circt_lab/prototype.mlir /tmp/source-component.mlir \
+  circt_lab/control_fsm.mlir /tmp/source-component.mem > /tmp/source-mapped.mlir
+make -C ../protocol-emulator tile-circt-image-test IMAGE=/tmp/source-component.mem
 ./target/debug/spatial frontend-mlir circt_lab/examples/control_full.spt > /tmp/control-full.mlir
 /tmp/spatial-circt-map --compile-control /tmp/control-full.mlir /tmp/control-full.mem
 make -C ../protocol-emulator control-fabric-image-test IMAGE=/tmp/control-full.mem
@@ -163,7 +181,8 @@ Set `FULL_CONTROL_IMAGE_TB` to the executable built by
 Run `python3 circt_lab/corpus.py --help` for the required tool paths and JSON
 output options. It exports and verifies every `.spt` in the selected directory,
 then tries each explicit protocol graph on the control tile and independently
-checks emitted tables against source semantics. It also attempts complete
+checks emitted tables against source semantics. It probes each declared
+timer/shifter pair against the restricted SPI component pattern. It also attempts complete
 mapping to the restricted control fabric, recording per-program rejection reasons.
 `--require-full` exits nonzero until every full program has a real mapping.
 
@@ -175,6 +194,9 @@ protocol through timers, shifters, functions and streams rather than explicit
 protocol graphs; they need semantic lowering before the new architecture's
 coverage or topology can be evaluated. These numbers are a pipeline coverage
 snapshot, not a finding that the candidate fabric fits or fails the protocols.
+The restricted timer/shifter pattern matched one of 80 pairs probed across the
+corpus: the timer and shifter in `spi.spt`. That count measures this extractor's
+coverage, not how many protocols the hardware could support.
 
 The next compiler milestone is to lower more checked frontend operations into
 typed operations, then place and route those operations onto

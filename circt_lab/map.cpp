@@ -290,6 +290,107 @@ static int compileControl(ModuleOp module, const char *output) {
   return mapControl(module, protocolName, output, mask, std::move(bindings));
 }
 
+// Derive a *component experiment*, not a complete SPI implementation: the
+// host supplies a payload and trigger, and the existing hand-authored control
+// machine supplies transaction control. Reject unsupported frame/timer shapes.
+static int deriveSpiComponent(ModuleOp module, llvm::StringRef timerName,
+                              llvm::StringRef shiftName, llvm::StringRef txText) {
+  Operation *root = findOne(module, "spatial.frontend_program");
+  if (!root) return fail("expected exactly one spatial.frontend_program");
+  std::vector<llvm::json::Value> items;
+  for (Operation &op : root->getRegion(0).front()) {
+    if (op.getName().getStringRef() != "spatial.frontend_item") continue;
+    auto item = llvm::json::parse(op.getAttrOfType<StringAttr>("item_json").getValue());
+    if (!item) return fail("invalid frontend item");
+    items.push_back(std::move(*item));
+  }
+  llvm::json::Object *timer = nullptr, *shift = nullptr;
+  std::map<std::string, llvm::json::Object *> constants;
+  std::set<std::string> pins;
+  for (auto &v : items) {
+    auto *o = v.getAsObject();
+    if (!o) return fail("invalid item");
+    auto kind = o->getString("kind"), name = o->getString("name");
+    if (!kind || !name) continue;
+    if (*kind == "constant") {
+      if (!constants.emplace(name->str(), o).second) return fail("duplicate constant");
+    } else if (*kind == "pin" && o->getString("mode") == "in") pins.insert(name->str());
+    else if (*kind == "resource" && *name == timerName && o->getString("resource_kind") == "timer") {
+      if (timer) return fail("duplicate timer"); timer = o;
+    } else if (*kind == "resource" && *name == shiftName && o->getString("resource_kind") == "shifter") {
+      if (shift) return fail("duplicate shifter"); shift = o;
+    }
+  }
+  if (!timer || !shift || timerName == shiftName) return fail("timer or shifter not found");
+  auto fields = [](llvm::json::Object *o, std::map<std::string, llvm::json::Object *> &out) {
+    auto *a = o->getArray("fields"); if (!a) return false;
+    for (auto &entry : *a) {
+      auto *field = entry.getAsObject();
+      if (!field || !field->getString("name") || !field->getObject("value") ||
+          !out.emplace(field->getString("name")->str(), field->getObject("value")).second) return false;
+    }
+    return true;
+  };
+  std::map<std::string, llvm::json::Object *> tf, sf;
+  if (!fields(timer, tf) || !fields(shift, sf) || tf.size()!=3 || sf.size()!=4 ||
+      !tf.count("every") || !tf.count("idle") || !tf.count("run") ||
+      !sf.count("frame") || !sf.count("start") || !sf.count("shift") || !sf.count("sample"))
+    return fail("unsupported timer or shifter fields");
+  auto fieldRef = [](llvm::json::Object *o, llvm::StringRef resource, llvm::StringRef field) {
+    auto *object = o ? o->getObject("object") : nullptr;
+    return o && o->getString("kind") == "field" && o->getString("field") == field && object &&
+        object->getString("kind") == "name" && object->getString("name") == resource;
+  };
+  auto *run = tf["run"], *sample = sf["sample"];
+  if (tf["idle"]->getString("kind") != "integer" || tf["idle"]->getString("value") != "0" ||
+      run->getString("kind") != "binary" || run->getString("op") != "until" ||
+      !fieldRef(run->getObject("left"), shiftName, "busy") || !fieldRef(run->getObject("right"), shiftName, "done") ||
+      !fieldRef(sf["shift"], timerName, "fall") || sample->getString("kind") != "binary" ||
+      sample->getString("op") != "at" || !fieldRef(sample->getObject("right"), timerName, "rise"))
+    return fail("timer/shifter relationship is not the supported SPI component");
+  auto *input = sample->getObject("left");
+  if (!input || input->getString("kind") != "name" || !input->getString("name") ||
+      !pins.count(input->getString("name")->str())) return fail("sample must reference an input pin");
+  auto *period = tf["every"];
+  if (period->getString("kind") == "name") {
+    auto name = period->getString("name");
+    auto found = name ? constants.find(name->str()) : constants.end();
+    if (found == constants.end() || !(period = found->second->getObject("value"))) return fail("unresolved timer constant");
+  }
+  int64_t half = 0, width = 0, tx = 0, clock = 0;
+  auto periodValue = period->getString("value");
+  if (period->getString("kind") != "quantity" || period->getString("unit") != "cycles" ||
+      !periodValue || periodValue->getAsInteger(10, half) || half < 8 || half > 255)
+    return fail("timer period must be 8..255 whole cycles");
+  auto *frame = sf["frame"];
+  auto *values = frame->getArray("values");
+  auto *call = values && values->size()==1 ? (*values)[0].getAsObject() : nullptr;
+  auto *callee = call ? call->getObject("callee") : nullptr;
+  auto *args = call ? call->getArray("args") : nullptr;
+  auto *arg0 = args && args->size()==2 ? (*args)[0].getAsObject() : nullptr;
+  auto *arg1 = args && args->size()==2 ? (*args)[1].getAsObject() : nullptr;
+  auto *bits = arg0 ? arg0->getObject("value") : nullptr;
+  auto *order = arg1 ? arg1->getObject("value") : nullptr;
+  auto bitValue = bits ? bits->getString("value") : std::nullopt;
+  if (frame->getString("kind") != "list" || !call || call->getString("kind") != "call" ||
+      !callee || callee->getString("kind") != "name" || callee->getString("name") != "data" ||
+      !arg0 || !arg1 || !arg0->get("name") || !arg0->get("name")->getAsNull() ||
+      !arg1->get("name") || !arg1->get("name")->getAsNull() || !bits || bits->getString("kind") != "integer" ||
+      !bitValue || bitValue->getAsInteger(10, width) || width < 1 || width > 16 || !order ||
+      order->getString("kind") != "name" || order->getString("name") != "msb_first")
+    return fail("frame must be one 1..16-bit MSB-first data field");
+  if (txText.getAsInteger(0, tx) || tx < 0 || tx >= (int64_t(1) << width) ||
+      root->getAttrOfType<StringAttr>("clock_hz").getValue().getAsInteger(10, clock) || clock <= 0)
+    return fail("invalid payload or source clock");
+  llvm::outs() << "module {\n  %received = \"spatial.spi\"() {\n"
+      << "    target = \"spi-fabric-v1\", width = " << width << " : i64, half_period = " << half << " : i64,\n"
+      << "    clock_hz = " << clock << " : i64, tx_value = " << tx << " : i64, storage_words_required = 2 : i64,\n"
+      << "    connections = {start = \"control.start\", run = \"shift.busy\", rise = \"timer.rise\", fall = \"timer.fall\", input = \"pin.miso\", mosi = \"shift.out\", sck = \"timer.level\", cs = \"control.not_selected\"}\n"
+      << "  } : () -> i" << width << "\n}\n";
+  llvm::errs() << "Component experiment only: source transaction control, input binding, streams and full-program semantics are not mapped.\n";
+  return 0;
+}
+
 // Route independent selectors, including explicit route.<sink> relays. This
 // bounded exact search considers earlier choices when solving later demands;
 // it does not yet place tiles or model link capacity/fanout/physical wires.
@@ -436,12 +537,18 @@ int main(int argc, char **argv) {
   bool analyzeOnly = argc == 4 && llvm::StringRef(argv[1]) == "--analyze";
   bool controlOnly = argc == 5 && llvm::StringRef(argv[1]) == "--control-rows";
   bool fullControl = argc == 4 && llvm::StringRef(argv[1]) == "--compile-control";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  bool deriveSpi = argc == 6 && llvm::StringRef(argv[1]) == "--derive-spi-component";
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (deriveSpi) {
+    auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return deriveSpiComponent(*frontend, argv[3], argv[4], argv[5]);
+  }
   if (fullControl) {
     auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
