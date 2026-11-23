@@ -78,6 +78,11 @@ and byte transfers still use a hand-written hardware adapter and test driver.
 Functions, general streams, arbitrary topology, and cycle-accurate source
 timing are not lowered. The source `trigger` is staged until the adapter has
 prefetched the word. The result reports `full_program_compiled: false`.
+In particular, the legacy backend rejects host-exchanged words wider than
+eight bits; its `bytes via bits` calling convention is not evidence for how
+12-bit words should be packed. The next compiler step is an explicit typed
+word/stream representation and a specified host-to-SRAM packing contract,
+before claiming a general source transaction function has been compiled.
 
 `dialect.cpp` registers these operations, `spatial.fabric`, `spatial.spi`,
 `spatial.config_write`, and `spatial.payload` as a real loadable MLIR dialect.
