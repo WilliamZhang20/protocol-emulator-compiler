@@ -7,6 +7,7 @@ from pathlib import Path
 import random
 import re
 import subprocess
+import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
@@ -71,6 +72,13 @@ def main():
             assert image.read_bytes() == args.fixture.read_bytes()
         candidate = HERE / 'candidates/memory-spi-graph.mlir'
         report = json.loads(run(args.mapper, '--map-graph', candidate, work).stdout)
+        report_file = d / 'report.json'
+        report_file.write_text(json.dumps(report))
+        rendered = run(sys.executable, HERE / 'show_graph.py', report_file).stdout
+        assert '[bank1] memory i8: read_hi, read_lo, write_hi, write_lo' in rendered
+        assert '[bank0] memory i8: (unused)' in rendered
+        assert 'not hardware utilization' in rendered and 'Not RTL timing' in rendered
+        run(sys.executable, HERE / 'show_graph.py', candidate, ok=False)
         mapping = {x['node']: x['tile'] for x in report['assignments']}
         assert len(set(mapping[x] for x in ('read_hi', 'read_lo', 'write_hi', 'write_lo'))) == 1
         assert mapping['read_hi'] == 'bank1'  # The standalone RTL test selects bank 1.

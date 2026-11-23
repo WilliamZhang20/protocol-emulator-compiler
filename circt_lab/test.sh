@@ -336,6 +336,15 @@ r=json.load(open(sys.argv[1]))['summary']
 assert r['total_programs'] > 0 and r['frontend_exported'] == r['total_programs']
 assert r['dialect_verified'] == r['total_programs']
 assert r['control_table_emitted_and_checked'] > 0
+assert r['typed_graph_lowering_unsupported'] > 0
+PY
+python3 "$HERE/corpus.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" --examples "$HERE/examples" --output "$TEST_TMP/experiment-corpus.json"
+python3 - "$TEST_TMP/experiment-corpus.json" <<'PY'
+import json, sys
+records = {p['program']: p for p in json.load(open(sys.argv[1]))['programs']}
+assert records['memory_spi.spt']['typed_graph']['status'] == 'abstract_graph_placed'
+assert not records['memory_spi.spt']['typed_graph']['full_source_program_compiled']
+assert records['control.spt']['typed_graph']['status'] == 'lowering_unsupported'
 PY
 mkdir "$TEST_TMP/one-example"
 cp "$HERE/examples/control.spt" "$TEST_TMP/one-example/control.spt"

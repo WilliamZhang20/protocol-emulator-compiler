@@ -61,6 +61,7 @@ def main():
     parser.add_argument('--circt-opt', type=Path, required=True)
     parser.add_argument('--dialect', type=Path, required=True)
     parser.add_argument('--examples', type=Path, default=HERE.parent / 'examples')
+    parser.add_argument('--graph-target', type=Path, default=HERE / 'candidates/memory-spi-graph.mlir')
     parser.add_argument('--output', type=Path, help='Write JSON here instead of stdout')
     parser.add_argument('--require-full', action='store_true', help='Exit nonzero if any full program is not mapped')
     args = parser.parse_args()
@@ -93,6 +94,23 @@ def main():
                 record['dialect'] = 'failed'; record['error'] = last_error(verify)
                 records.append(record); continue
             record['dialect'] = 'verified'
+            # Probe the restricted workload lowering separately from actual
+            # target placement: unsupported lowering says nothing about fit.
+            graph = run([str(args.mapper), '--memory-spi-graph', str(frontend_file)])
+            if graph.returncode:
+                record['typed_graph'] = {'status': 'lowering_unsupported', 'reason': last_error(graph)}
+            else:
+                graph_file = Path(tmp) / 'workload.mlir'
+                graph_file.write_text(graph.stdout)
+                mapped_graph = run([str(args.mapper), '--map-graph', str(args.graph_target), str(graph_file)])
+                if mapped_graph.returncode:
+                    record['typed_graph'] = {'status': 'mapping_failed_or_inconclusive', 'reason': last_error(mapped_graph)}
+                else:
+                    mapping = json.loads(mapped_graph.stdout)
+                    record['typed_graph'] = {'status': 'abstract_graph_placed',
+                        'full_source_program_compiled': mapping['full_source_program_compiled'],
+                        'rtl_fidelity_verified': mapping['rtl_fidelity_verified'],
+                        'limitations': mapping['limitations']}
             model = run([str(args.frontend), 'model-ir', str(file)])
             if model.returncode:
                 record['error'] = last_error(model)
@@ -154,6 +172,9 @@ def main():
         summaries['frontend_exported'] += rec['frontend'] == 'exported'
         summaries['dialect_verified'] += rec['dialect'] == 'verified'
         summaries['full_programs_mapped'] += rec['whole_program']['status'] == 'mapped'
+        graph = rec.get('typed_graph', {})
+        if graph:
+            summaries['typed_graph_' + graph['status']] += 1
         summaries['programs_with_explicit_protocol_graph'] += bool(rec['control_components'])
         probes = rec.get('spi_component_probes', {})
         summaries['spi_component_pairs_probed'] += probes.get('attempts', 0)
@@ -166,12 +187,13 @@ def main():
                 'control_table_emitted_and_checked', 'control_unsupported'):
         summaries[key] += 0
     report = {'schema': 'spatial.circt-corpus-coverage.v1',
-              'scope': 'Frontend, isolated control tables and restricted control-only target coverage; not general topology fit or physical timing.',
+              'scope': 'Frontend, restricted typed graph, isolated control tables and restricted control-only target coverage; not general topology fit or physical timing.',
               'candidate': 'prototype-control-v1: 4 states, 2 inputs, 3 action outputs; reachable-state Mealy minimization',
               'provenance': {'frontend_git_head': head.stdout.strip() if not head.returncode else None,
                              'frontend_worktree_clean': not dirty.returncode and not dirty.stdout.strip(),
                              'rust_source_sha256': source_digest(rust_sources, project),
                              'mapper_source_sha256': source_digest(mapper_sources, project),
+                             'graph_target_sha256': hashlib.sha256(args.graph_target.read_bytes()).hexdigest(),
                              'corpus_sha256': source_digest(files, args.examples),
                              'circt_opt_version': version.stdout.strip() if not version.returncode else None},
               'summary': dict(sorted(summaries.items())), 'programs': records}

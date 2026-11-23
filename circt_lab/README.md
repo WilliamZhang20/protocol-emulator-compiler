@@ -156,6 +156,13 @@ For example:
 /tmp/spatial-circt-map --map-graph circt_lab/candidates/memory-spi-graph.mlir /tmp/workload.mlir
 ```
 
+The existing Rust `spatial check` / `spatial build` hardware map is retained
+for the older target. For this graph mapper, save its JSON output and run
+`python3 circt_lab/show_graph.py report.json` (or pipe JSON to the script).
+It shows every modeled tile, including unused tiles, assigned operations, and
+the chosen routes. These are model assignments, not measured utilization;
+multiple operations on a tile need not be active concurrently.
+
 The graph tests compare the source-derived control rows and packing with the
 RTL-tested image; the standalone RTL-only test also checks the adapter's
 read-100, read-101, write-200, write-201 request sequence. They check alternative bank placement and multihop routes,
@@ -278,7 +285,7 @@ reference transfer.
 
 Run `python3 circt_lab/corpus.py --help` for the required tool paths and JSON
 output options. It exports and verifies every `.spt` in the selected directory,
-then tries each explicit protocol graph on the control tile and independently
+then tries the restricted typed-workload lowering and graph mapping, each explicit protocol graph on the control tile and independently
 checks emitted tables against source semantics. It probes each declared
 timer/shifter pair against the restricted SPI component pattern. It also attempts complete
 mapping to the restricted control fabric, recording per-program rejection reasons.
@@ -290,8 +297,17 @@ tables were emitted and checked, and three minimized graphs exceeded four
 states. **Zero complete programs were mapped.** Most examples describe their
 protocol through timers, shifters, functions and streams rather than explicit
 protocol graphs; they need semantic lowering before the new architecture's
-coverage or topology can be evaluated. These numbers are a pipeline coverage
+coverage or topology can be evaluated. The typed-graph probe reports lowering
+unsupported separately from mapping failure and abstract placement; none means
+whole-program fit or hardware equivalence. These numbers are a pipeline coverage
 snapshot, not a finding that the candidate fabric fits or fails the protocols.
+With the typed-graph probe, all 35 baseline examples currently report
+`lowering_unsupported`. In `circt_lab/examples`, the restricted
+`memory_spi.spt` graph receives an abstract placement, while two control
+examples cannot yet use that lowering. This is a compiler coverage result,
+not a protocol-support verdict. The baseline USB example is a low-speed
+packet transmitter and the Ethernet examples are 10BASE-T transmitters;
+their presence is not evidence of full USB or Ethernet support.
 The restricted timer/shifter pattern matched one of 80 pairs probed across the
 corpus: the timer and shifter in `spi.spt`. That count measures this extractor's
 coverage, not how many protocols the hardware could support.

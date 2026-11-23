@@ -137,7 +137,13 @@ static int mapWorkloadGraph(ModuleOp targetModule, ModuleOp workModule) {
     finish[n]=start[n]+std::max(nodes[n].duration,tiles[placed[n]].latency);
     available[placed[n]]=start[n]+tiles[placed[n]].interval;
   }
-  llvm::json::Array assignments,schedule,routes;
+  llvm::json::Array assignments,schedule,routes,resources;
+  for (size_t i=0;i<tiles.size();++i) {
+    llvm::json::Array assigned;
+    for (size_t n=0;n<nodes.size();++n) if (placed[n]==static_cast<int>(i)) assigned.push_back(nodes[n].id);
+    resources.push_back(llvm::json::Object{{"tile",tiles[i].id},{"kind",tiles[i].kind},
+        {"width",tiles[i].width},{"assigned_nodes",std::move(assigned)}});
+  }
   for (size_t n=0;n<nodes.size();++n) {
     assignments.push_back(llvm::json::Object{{"node",nodes[n].id},{"tile",tiles[placed[n]].id}});
     llvm::json::Object entry{{"node",nodes[n].id},{"tile",tiles[placed[n]].id},{"start",start[n]},{"finish",finish[n]}};
@@ -152,7 +158,7 @@ static int mapWorkloadGraph(ModuleOp targetModule, ModuleOp workModule) {
   }
   int64_t end=0;for (auto t:finish) end=std::max(end,t);
   llvm::json::Object report{{"model","typed-resource-graph-v1"},{"assignments",std::move(assignments)},
-      {"schedule",std::move(schedule)},{"routes",std::move(routes)}, {"search_steps",search},
+      {"schedule",std::move(schedule)},{"routes",std::move(routes)}, {"resources",std::move(resources)}, {"search_steps",search},
       {"resource_wait_cycles",contention},{"model_makespan",end},{"image_emitted",false},
       {"rtl_fidelity_verified",false},{"physical_timing_verified",false},{"full_source_program_compiled",false},
       {"nominal_pad_frequency_checked",padChecked},
