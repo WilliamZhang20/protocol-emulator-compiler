@@ -11,6 +11,11 @@ its transaction controller and payload remain supplied by the experiment.
 Do not treat frontend export
 or topology analysis as compilation/fit.
 
+The compiler's legacy example CI runs against the pinned, ABI-2 actor RTL
+experiment (`c053034`), because the older default chip revision lacks that
+actor ABI. That legacy regression is separate from this CIRCT fabric path and
+does not validate the new two-SRAM placement top.
+
 ## Existing frontend and registered dialect
 
 `spatial frontend-mlir FILE.spt` invokes the existing Rust parser and logical
