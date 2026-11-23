@@ -87,7 +87,8 @@ static int exportFrontend(ModuleOp module) {
 // proto_control's 16-row table. This is a component mapping, not a full
 // program image: inputs and action outputs still need placement and routes.
 static int mapControl(ModuleOp module, llvm::StringRef requested, const char *output,
-                      int outputMask = -1, llvm::json::Object pinBindings = {}) {
+                      int outputMask = -1, llvm::json::Object pinBindings = {},
+                      std::vector<uint16_t> *resultTable = nullptr) {
   Operation *root = findOne(module, "spatial.frontend_program");
   if (!root) return fail("expected exactly one spatial.frontend_program");
   Operation *protocol = nullptr;
@@ -176,6 +177,7 @@ static int mapControl(ModuleOp module, llvm::StringRef requested, const char *ou
       table[(target<<2)|(a<<1)|b]=static_cast<uint16_t>(sourceToTarget[step.next] | (outputBits<<2));
     }
   }
+  if (resultTable) { *resultTable = table; return 0; }
   std::ofstream image(output);
   if (!image) return fail("cannot open control-table output");
   for (uint16_t row : table) image << std::hex << std::setfill('0') << std::setw(4) << row << '\n';
@@ -294,7 +296,8 @@ static int compileControl(ModuleOp module, const char *output) {
 // host supplies a payload and trigger, and the existing hand-authored control
 // machine supplies transaction control. Reject unsupported frame/timer shapes.
 static int deriveSpiComponent(ModuleOp module, llvm::StringRef timerName,
-                              llvm::StringRef shiftName, llvm::StringRef txText) {
+                              llvm::StringRef shiftName, llvm::StringRef txText,
+                              llvm::raw_ostream &out = llvm::outs(), bool report = true) {
   Operation *root = findOne(module, "spatial.frontend_program");
   if (!root) return fail("expected exactly one spatial.frontend_program");
   std::vector<llvm::json::Value> items;
@@ -382,12 +385,126 @@ static int deriveSpiComponent(ModuleOp module, llvm::StringRef timerName,
   if (txText.getAsInteger(0, tx) || tx < 0 || tx >= (int64_t(1) << width) ||
       root->getAttrOfType<StringAttr>("clock_hz").getValue().getAsInteger(10, clock) || clock <= 0)
     return fail("invalid payload or source clock");
-  llvm::outs() << "module {\n  %received = \"spatial.spi\"() {\n"
+  out << "module {\n  %received = \"spatial.spi\"() {\n"
       << "    target = \"spi-fabric-v1\", width = " << width << " : i64, half_period = " << half << " : i64,\n"
       << "    clock_hz = " << clock << " : i64, tx_value = " << tx << " : i64, storage_words_required = 2 : i64,\n"
       << "    connections = {start = \"control.start\", run = \"shift.busy\", rise = \"timer.rise\", fall = \"timer.fall\", input = \"pin.miso\", mosi = \"shift.out\", sck = \"timer.level\", cs = \"control.not_selected\"}\n"
       << "  } : () -> i" << width << "\n}\n";
-  llvm::errs() << "Component experiment only: source transaction control, input binding, streams and full-program semantics are not mapped.\n";
+  if (report) llvm::errs() << "Component experiment only: source transaction control, input binding, streams and full-program semantics are not mapped.\n";
+  return 0;
+}
+
+// A strict source-driven control/datapath component for the experimental
+// memory-backed SPI fabric. SRAM layout, host trigger staging and transport
+// are still supplied externally; this deliberately does not claim complete
+// compilation of arbitrary .spt transaction functions or byte streams.
+static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char *output) {
+  Operation *root = findOne(module, "spatial.frontend_program");
+  if (!root) return fail("expected frontend program");
+  std::vector<llvm::json::Value> items;
+  Operation *protocol = nullptr;
+  for (Operation &op : root->getRegion(0).front()) {
+    auto kind = op.getName().getStringRef();
+    if (kind == "spatial.frontend_item") {
+      auto item = llvm::json::parse(op.getAttrOfType<StringAttr>("item_json").getValue());
+      if (!item) return fail("invalid frontend item");
+      items.push_back(std::move(*item));
+    } else if (kind == "spatial.protocol") {
+      if (protocol) return fail("exactly one protocol is supported");
+      protocol = &op;
+    } else if (kind == "spatial.frontend_input") {
+      auto input = llvm::json::parse(op.getAttrOfType<StringAttr>("input_json").getValue());
+      auto *obj = input ? input->getAsObject() : nullptr;
+      auto *check = obj ? obj->getObject("check") : nullptr;
+      if (!check || check->getString("status") != "valid" || !obj->get("context") || !obj->get("context")->getAsNull())
+        return fail("all source connections must be valid in the base context");
+    } else return fail("source streams and unknown operations are not supported");
+  }
+  if (!protocol || protocol->getAttrOfType<StringAttr>("name").getValue() != "transfer_control")
+    return fail("expected transfer_control protocol");
+  auto inputs = protocol->getAttrOfType<ArrayAttr>("inputs");
+  if (inputs.size()!=2 || cast<StringAttr>(inputs[0]).getValue()!="resource:trigger" ||
+      cast<StringAttr>(inputs[1]).getValue()!="resource:bits.done")
+    return fail("control inputs must be trigger and bits.done in that order");
+  std::map<std::string, llvm::json::Object *> named;
+  int clocks=0;
+  for (auto &v : items) {
+    auto *obj=v.getAsObject();
+    if (!obj || !obj->getString("kind")) return fail("invalid source item");
+    if (obj->getString("kind")=="clock") { ++clocks; continue; }
+    auto name=obj->getString("name");
+    if (!name || !named.emplace(name->str(),obj).second) return fail("unnamed or duplicate source item");
+  }
+  const std::set<std::string> expected={"trigger","miso","cs_n","cs","sck","mosi","transfer_control","sck_clock","bits"};
+  std::set<std::string> actual;
+  for (const auto &entry : named) actual.insert(entry.first);
+  if (clocks!=1 || actual!=expected) return fail("unsupported source declarations in memory SPI component");
+  auto isNull=[](llvm::json::Object *o, llvm::StringRef key) {
+    auto *v=o->get(key); return v && v->getAsNull().has_value();
+  };
+  auto field=[](llvm::json::Object *o, llvm::StringRef resource, llvm::StringRef port) {
+    auto *base=o ? o->getObject("object") : nullptr;
+    return o && o->getString("kind")=="field" && o->getString("field")==port &&
+        base && base->getString("kind")=="name" && base->getString("name")==resource;
+  };
+  for (const char *name : {"trigger","miso"}) {
+    auto *pin=named[name];
+    if (pin->getString("kind")!="pin" || pin->getString("mode")!="in" || !isNull(pin,"pads") || !isNull(pin,"source"))
+      return fail("trigger and miso must be unbound input pins");
+  }
+  for (const char *name : {"cs","sck","mosi"}) {
+    auto *pin=named[name];
+    if (pin->getString("kind")!="pin" || pin->getString("mode")!="out" || !isNull(pin,"pads"))
+      return fail("unsupported output pin binding");
+  }
+  auto *cs=named["cs"]->getObject("source");
+  auto *reg=named["cs_n"], *init=reg->getObject("initial"), *value=reg->getObject("value");
+  if (!cs || cs->getString("kind")!="name" || cs->getString("name")!="cs_n" ||
+      reg->getString("kind")!="register" || !isNull(reg,"clock_enable") || !init ||
+      init->getString("kind")!="integer" || init->getString("value")!="1" || !value ||
+      value->getString("kind")!="unary" || value->getString("op")!="!" ||
+      !field(value->getObject("value"),"bits","busy") ||
+      !field(named["sck"]->getObject("source"),"sck_clock","out") ||
+      !field(named["mosi"]->getObject("source"),"bits","out"))
+    return fail("source outputs must be registered !bits.busy, sck_clock.out, and bits.out");
+  auto *shift=named["bits"];
+  auto *fields=shift->getArray("fields");
+  llvm::json::Object *start=nullptr, *sample=nullptr;
+  if (fields) for (auto &entry : *fields) {
+    auto *f=entry.getAsObject();
+    if (f && f->getString("name")=="start") start=f->getObject("value");
+    if (f && f->getString("name")=="sample") sample=f->getObject("value");
+  }
+  if (!field(start,"transfer_control","action2")) return fail("shifter start must be transfer_control.action2");
+  auto *sampleData=sample ? sample->getObject("left") : nullptr;
+  if (!sampleData || sampleData->getString("kind")!="name" || sampleData->getString("name")!="miso")
+    return fail("shifter sample must use the miso pin");
+  if (named["transfer_control"]->getString("kind")!="protocol") return fail("invalid protocol declaration");
+  std::string generated;
+  llvm::raw_string_ostream stream(generated);
+  if (deriveSpiComponent(module,"sck_clock","bits",txText,stream,false)) return 1;
+  stream.flush();
+  auto component=parseSourceString<ModuleOp>(generated,module.getContext());
+  if (!component || failed(verify(*component))) return fail("derived SPI component failed verification");
+  Operation *spi=findOne(*component,"spatial.spi");
+  int64_t width,half,clock,tx;
+  if (!spi || !integerAttr(spi,"width",width) || !integerAttr(spi,"half_period",half) ||
+      !integerAttr(spi,"clock_hz",clock) || !integerAttr(spi,"tx_value",tx) ||
+      width<9 || width>16 || clock>2*half*66000000LL)
+    return fail("source component exceeds memory fabric width or provisional output-frequency estimate");
+  std::vector<uint16_t> rows;
+  if (mapControl(module,"transfer_control",nullptr,-1,{},&rows)) return 1;
+  std::ofstream image(output);
+  if (!image) return fail("cannot open memory SPI image");
+  image << std::hex << std::setfill('0') << std::setw(4) << ((width<<8)|half) << '\n';
+  image << "8000\n"; // CS selects !shift_busy; remaining selectors use index zero.
+  for (uint16_t row : rows) image << std::hex << std::setfill('0') << std::setw(4) << row << '\n';
+  image << std::hex << std::setfill('0') << std::setw(4) << (tx << (16-width)) << '\n';
+  if (!image) return fail("cannot write memory SPI image");
+  llvm::json::Object report{{"component","memory-spi-source-v1"},{"width",width},{"half_period",half},
+      {"protocol_control_from_source",true},{"full_program_compiled",false},
+      {"limitations","SRAM preload, address binding and trigger staging use the hand-written memory adapter; source streams/functions and cycle-accurate timing are not compiled."}};
+  llvm::outs() << llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));
   return 0;
 }
 
@@ -538,12 +655,18 @@ int main(int argc, char **argv) {
   bool controlOnly = argc == 5 && llvm::StringRef(argv[1]) == "--control-rows";
   bool fullControl = argc == 4 && llvm::StringRef(argv[1]) == "--compile-control";
   bool deriveSpi = argc == 6 && llvm::StringRef(argv[1]) == "--derive-spi-component";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  bool memorySpi = argc == 5 && llvm::StringRef(argv[1]) == "--compile-memory-spi";
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (memorySpi) {
+    auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return compileMemorySpi(*frontend,argv[3],argv[4]);
+  }
   if (deriveSpi) {
     auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");

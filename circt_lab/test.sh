@@ -11,6 +11,47 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/spi.spt" > "$TEST_TMP/frontend.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend.mlir" -o "$TEST_TMP/frontend-checked.mlir"
 "$CIRCT_MAP" --verify "$TEST_TMP/frontend.mlir" > /dev/null
+# The memory-backed slice uses protocol rows from an explicit source state
+# machine, rather than the separate hand-authored SPI control FSM.
+"$SPATIAL_FRONTEND" frontend-mlir "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-source.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-source.mlir" -o /dev/null
+"$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-source.mlir" 2652 "$TEST_TMP/memory-source.mem" > "$TEST_TMP/memory-source.json"
+python3 - "$TEST_TMP/memory-source.mem" "$TEST_TMP/memory-source.json" <<'PY'
+import json, sys
+image = [int(x, 16) for x in open(sys.argv[1])]
+report = json.load(open(sys.argv[2]))
+assert len(image) == 19 and image[0] == 0x0c08 and image[1] == 0x8000 and image[18] == 0xa5c0
+assert report['protocol_control_from_source'] and not report['full_program_compiled']
+PY
+if [ -n "${MEMORY_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/memory-source.mem" "$MEMORY_SPI_FIXTURE"; fi
+if [ -n "${MEMORY_SPI_IMAGE_TB:-}" ]; then "$MEMORY_SPI_IMAGE_TB" "+IMAGE=$TEST_TMP/memory-source.mem"; fi
+sed 's/start: transfer_control.action2/start: transfer_control.action1/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-bad.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/memory-bad.spt" > "$TEST_TMP/memory-bad.mlir"
+if "$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-bad.mlir" 2652 "$TEST_TMP/memory-bad.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'accepted unsupported shifter start binding' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/memory-bad.mem"
+sed 's/sample: miso at/sample: trigger at/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-wrong-input.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/memory-wrong-input.spt" > "$TEST_TMP/memory-wrong-input.mlir"
+if "$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-wrong-input.mlir" 2652 "$TEST_TMP/memory-wrong-input.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'accepted an input pin the prototype does not connect' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/memory-wrong-input.mem"
+sed 's/-> 1 action 2/-> 1 action 1/g' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-changed.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/memory-changed.spt" > "$TEST_TMP/memory-changed.mlir"
+"$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-changed.mlir" 2652 "$TEST_TMP/memory-changed.mem" > /dev/null
+python3 - "$TEST_TMP/memory-source.mem" "$TEST_TMP/memory-changed.mem" <<'PY'
+import sys
+a, b = ([int(x, 16) for x in open(p)] for p in sys.argv[1:])
+assert a[:2] == b[:2] and a[18] == b[18]
+assert a[2:18] != b[2:18], 'source control changes must change the control table'
+PY
+if [ -n "${MEMORY_SPI_IMAGE_TB:-}" ]; then
+  if (ulimit -c 0; "$MEMORY_SPI_IMAGE_TB" "+IMAGE=$TEST_TMP/memory-changed.mem") > "$TEST_TMP/memory-changed.log" 2>&1; then
+    echo 'mutated source control unexpectedly produced the reference transfer' >&2; exit 1
+  fi
+  grep -Fq 'transfer samples=' "$TEST_TMP/memory-changed.log"
+fi
 # Extract only the timer/shifter component from a real SPI source. The hand-
 # authored transaction controller and supplied payload remain separate.
 "$CIRCT_MAP" --derive-spi-component "$TEST_TMP/frontend.mlir" sck_clock bits 165 > "$TEST_TMP/derived-spi.mlir" 2> "$TEST_TMP/derived-warning"

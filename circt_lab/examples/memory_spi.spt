@@ -1,0 +1,23 @@
+// Control and datapath for a one-word, 12-bit serial transfer.
+// The experiment's host supplies/consumes the word through SRAM; that
+// memory transport is not yet described or compiled by this source.
+clock 50 MHz
+pin trigger: in
+pin miso: in
+reg cs_n init 1 = !bits.busy
+pin cs: out = cs_n
+pin sck: out = sck_clock.out
+pin mosi: out = bits.out
+protocol transfer_control on trigger, bits.done {
+    transition 0 high low -> 1 action 2
+    transition 0 high high -> 1 action 2
+    transition 1 low high -> 0 action 3
+    transition 1 high high -> 0 action 3
+}
+timer sck_clock { every: 8 cycles, idle: 0, run: bits.busy until bits.done }
+shifter bits {
+    frame: [data(12, msb_first)],
+    start: transfer_control.action2,
+    shift: sck_clock.fall,
+    sample: miso at sck_clock.rise,
+}

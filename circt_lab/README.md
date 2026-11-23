@@ -57,6 +57,23 @@ control FSM are experiment inputs. This is a component experiment, not a
 complete compilation of `examples/spi.spt`. Unsupported widths, periods,
 frame formats, and clocking relationships are rejected.
 
+`--compile-memory-spi FRONTEND PAYLOAD OUTPUT` targets the integrated
+`memory_spi_fabric` experiment. It accepts the strict, explicitly declared
+control/datapath pattern in `examples/memory_spi.spt`: its control table comes
+from the source `spatial.protocol`, and the timer, shifter, CS, and signal
+routes are checked against the implemented ABI. The first 18 words configure
+the fabric; the nineteenth is a left-aligned example payload. The test places
+that payload in SRAM through the host port. Changing the source protocol rows
+changes the control configuration. The compiler rejects unsupported source
+items and mismatched pin or control bindings before creating an image.
+
+This is a source-derived control/datapath component, **not a complete `.spt`
+transaction compiler**: SRAM preload, bank/address allocation, trigger staging,
+and byte transfers still use a hand-written hardware adapter and test driver.
+Functions, general streams, arbitrary topology, and cycle-accurate source
+timing are not lowered. The source `trigger` is staged until the adapter has
+prefetched the word. The result reports `full_program_compiled: false`.
+
 `dialect.cpp` registers these operations, `spatial.fabric`, `spatial.spi`,
 `spatial.config_write`, and `spatial.payload` as a real loadable MLIR dialect.
 Their verifiers check structural invariants such as operation shape, integer
@@ -144,6 +161,9 @@ make -C ../protocol-emulator tile-control-image-test IMAGE=/tmp/control.mem
 /tmp/spatial-circt-map circt_lab/prototype.mlir /tmp/source-component.mlir \
   circt_lab/control_fsm.mlir /tmp/source-component.mem > /tmp/source-mapped.mlir
 make -C ../protocol-emulator tile-circt-image-test IMAGE=/tmp/source-component.mem
+./target/debug/spatial frontend-mlir circt_lab/examples/memory_spi.spt > /tmp/memory-spi.mlir
+/tmp/spatial-circt-map --compile-memory-spi /tmp/memory-spi.mlir 2652 /tmp/memory-spi.mem
+make -C ../protocol-emulator tile-memory-spi-image-test IMAGE=/tmp/memory-spi.mem
 ./target/debug/spatial frontend-mlir circt_lab/examples/control_full.spt > /tmp/control-full.mlir
 /tmp/spatial-circt-map --compile-control /tmp/control-full.mlir /tmp/control-full.mem
 make -C ../protocol-emulator control-fabric-image-test IMAGE=/tmp/control-full.mem
@@ -175,6 +195,12 @@ reference, including every reachable table row and equivalence class.
 This is not a regression of the full existing chip.
 Set `FULL_CONTROL_IMAGE_TB` to the executable built by
 `control-fabric-image-test` to exercise the complete restricted program.
+For the memory-backed source component, set `MEMORY_SPI_IMAGE_TB` to the
+executable built by `tile-memory-spi-image-test` and `MEMORY_SPI_FIXTURE` to
+the hardware repository's `test/data/spi12.mem`. The regression checks that
+the freshly compiled image matches the fixture, runs it through the SRAM-backed
+fabric and signal routes, and verifies a source-control mutation prevents the
+reference transfer.
 
 ## Corpus coverage
 
