@@ -41,3 +41,42 @@ jobs:
         run: |
           cargo install --locked --path . --root /tmp/spatial
           cd /tmp && /tmp/spatial/bin/spatial new hello && cd hello && /tmp/spatial/bin/spatial run --test
+  circt-fabric:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: '2026-10-26'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install CIRCT runtime and verified release
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libz3-4
+          curl -fsSL https://github.com/llvm/circt/releases/download/firtool-1.164.0/circt-full-shared-linux-x64.tar.gz -o /tmp/circt.tar.gz
+          echo '8bc16060f8a2d6af249b37b3f68705a4acc5a448f5776a28b6d97f13577e074e  /tmp/circt.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/circt
+          tar -xzf /tmp/circt.tar.gz -C /tmp/circt
+          echo 'LD_LIBRARY_PATH=/tmp/circt/firtool-1.164.0/lib' >> "$GITHUB_ENV"
+      - name: Checkout matching experimental RTL
+        uses: actions/checkout@v4
+        with:
+          repository: WilliamZhang20/protocol-emulator
+          ref: d5e89d01f1ad2f049510b1f2cb0f44fb4a0f09bf
+          path: fabric-rtl
+      - name: Build frontend, dialect and RTL tests
+        run: |
+          cargo build --locked --bin spatial
+          CIRCT_PREFIX=/tmp/circt/firtool-1.164.0 OUT=/tmp/spatial-circt-map circt_lab/build.sh
+          make -C fabric-rtl tile-fabric-v2-experiment ROUTING_YOSYS=yosys
+      - name: Check source images against same-fabric RTL
+        env:
+          CIRCT_MAP: /tmp/spatial-circt-map
+          CIRCT_OPT: /tmp/circt/firtool-1.164.0/bin/circt-opt
+          SPATIAL_DIALECT: /tmp/libSpatialDialect.so
+          RTL_ROOT: ${{ github.workspace }}/fabric-rtl
+          V2_UNIFIED_IMAGE_TB: ${{ github.workspace }}/fabric-rtl/build/verilator/fabric_v2_unified/Vunified_tb
+          V2_UNIFIED_SPI_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/v2-unified-spi.mem
+          V2_UNIFIED_UART_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/v2-unified-uart.mem
+        run: circt_lab/test.sh
