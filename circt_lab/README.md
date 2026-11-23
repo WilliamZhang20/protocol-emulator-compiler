@@ -103,6 +103,68 @@ this is not a general Mealy-machine lowering.
 
 ## Flexible candidate analysis and exact RTL emission
 
+### Typed program and resource graphs
+
+`--memory-spi-graph FRONTEND` first validates the same restricted source used
+by `--compile-memory-spi`, then emits a registered `spatial.workload_graph`.
+Its ports have explicit MLIR integer types. The 12-bit example includes the
+source-derived control table and timer period, two i8 reads, explicit
+big-endian low-bit packing to i12, control and timer events, separate rise and
+fall signals, a 12-bit shift, unpacking, two i8 writes, feedback, and I/O.
+The host's source/destination addresses (100/101 and 200/201) and the memory
+adapter milestones come from the RTL test, not from `.spt`; the graph records
+that provenance. This is not frontend lowering for general transactions.
+
+```text
+trigger ─┬─> read[100] ─order─> read[101] ─┐
+         │        └──────── i8 ─────────────┼─> pack i12 ─┬─> shift i12 ─> unpack ─> write[200] ─order─> write[201]
+         └──────────────────────────────────┴─> control ──┤      │
+                                             timer ◄──────┴──────┤ busy
+                                               └──── rise/fall ──┘
+```
+
+The graph also contains MISO, MOSI, SCK and the inverted-busy CS path. Its
+feedback edges describe connections; they are not one-shot dependencies.
+
+`spatial.target_graph` separately describes tiles, supported operation names,
+widths, optional memory depths, single-port occupancy/latency, and directed
+links. `--map-graph TARGET WORKLOAD` performs bounded first-feasible placement,
+checks typed edge widths, tile capabilities, memory addresses and groups,
+routes each dependency through explicit directed links and route tiles, and
+builds a simple dependency/resource schedule. A provisional nominal pad
+frequency check is performed only when both graphs supply the relevant values.
+The graph operations have registered MLIR verifiers and work with `circt-opt`.
+
+The result is **model-only**: it does not emit configuration and does not
+prove the topology matches RTL. The test target is an abstraction of the
+current slice, not a fully verified chip description. Each operation in the
+source example uses a one-cycle abstract duration, including the multi-cycle
+shifter, so its reported makespan is *not* transaction latency. Feedback is
+routed but not scheduled; selector conflicts, concurrent link bandwidth,
+value lifetime/storage allocation, memory arbitration against host traffic,
+physical timing, and deadlines are
+not yet modeled. The scheduler checks port conflicts for requests actually
+present in the workload; an independent two-request fixture tests same-bank
+serialization versus two-bank concurrency. It is a first-feasible mapper,
+not a hill-climbing optimizer or evidence of full program fit.
+
+For example:
+
+```sh
+./target/debug/spatial frontend-mlir circt_lab/examples/memory_spi.spt > /tmp/source.mlir
+/tmp/spatial-circt-map --memory-spi-graph /tmp/source.mlir > /tmp/workload.mlir
+/tmp/spatial-circt-map --map-graph circt_lab/candidates/memory-spi-graph.mlir /tmp/workload.mlir
+```
+
+The graph tests compare the source-derived control rows and packing with the
+RTL-tested image; the standalone RTL-only test also checks the adapter's
+read-100, read-101, write-200, write-201 request sequence. They check alternative bank placement and multihop routes,
+exercise resource latency versus initiation interval, and reject unsupported
+widths, operations, addresses, links, pad estimates and mismatched port types.
+Sixty seeded small placement cases are checked against an independent
+exhaustive feasibility oracle. This cross-checks the graph's inputs against the working experiment; it is not
+a cycle-by-cycle proof of the abstract schedule against RTL.
+
 `spatial-circt-map --analyze ARCH.mlir PROGRAM.mlir` considers the supplied
 selector topology, capacities and workload connections without assuming the
 prototype's selector order. A selector may take a source or an explicit

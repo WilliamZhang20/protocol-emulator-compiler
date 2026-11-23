@@ -16,6 +16,14 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-source.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-source.mlir" -o /dev/null
 "$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-source.mlir" 2652 "$TEST_TMP/memory-source.mem" > "$TEST_TMP/memory-source.json"
+"$CIRCT_MAP" --memory-spi-graph "$TEST_TMP/memory-source.mlir" > "$TEST_TMP/memory-graph.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-graph.mlir" -o /dev/null
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/memory-spi-graph.mlir" -o /dev/null
+if [ -n "${MEMORY_SPI_FIXTURE:-}" ]; then
+  python3 "$HERE/test_graphs.py" --mapper "$CIRCT_MAP" --frontend "$SPATIAL_FRONTEND" --fixture "$MEMORY_SPI_FIXTURE"
+else
+  python3 "$HERE/test_graphs.py" --mapper "$CIRCT_MAP" --frontend "$SPATIAL_FRONTEND"
+fi
 python3 - "$TEST_TMP/memory-source.mem" "$TEST_TMP/memory-source.json" <<'PY'
 import json, sys
 image = [int(x, 16) for x in open(sys.argv[1])]

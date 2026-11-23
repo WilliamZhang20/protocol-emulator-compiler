@@ -7,6 +7,7 @@
 #include "mlir/Tools/Plugins/DialectPlugin.h"
 #include "llvm/Support/JSON.h"
 #include <set>
+#include <map>
 #include <string>
 
 using namespace mlir;
@@ -105,6 +106,179 @@ public:
     auto *op = getOperation();
     if (!nonnegativeI64(op,"slot") || !nonnegativeI64(op,"value") || op->getAttrOfType<IntegerAttr>("value").getInt() > 65535)
       return emitOpError("requires nonnegative i64 slot and 16-bit value");
+    return success();
+  }
+};
+
+// Graphs use explicit MLIR integer types for every port; edges name ports,
+// so a width mismatch is rejected before placement. They are experimental
+// planning operations, not hardware or a bitstream.
+class WorkloadGraphOp : public Op<WorkloadGraphOp, OpTrait::ZeroOperands, OpTrait::ZeroResults, OpTrait::ZeroRegions> {
+public:
+  SPATIAL_OP_COMMON(WorkloadGraphOp, "spatial.workload_graph")
+  LogicalResult verify() {
+    auto nodes=(*this)->getAttrOfType<ArrayAttr>("nodes"), edges=(*this)->getAttrOfType<ArrayAttr>("edges");
+    if (!nodes || nodes.empty() || !edges) return emitOpError("requires nodes and edges arrays");
+    for (StringRef name : {"clock_hz", "half_period"}) {
+      if (auto attr=(*this)->getAttr(name)) {
+        auto value=dyn_cast<IntegerAttr>(attr);
+        if (!value || !value.getType().isInteger(64) || value.getInt()<1 || value.getInt()>1000000000)
+          return emitOpError() << name << " must be a positive bounded i64";
+      }
+    }
+    if (auto rows=(*this)->getAttrOfType<ArrayAttr>("control_rows")) {
+      if (rows.size()!=16) return emitOpError("control_rows must contain 16 entries");
+      for (auto raw:rows) {
+        auto row=dyn_cast<IntegerAttr>(raw);
+        if (!row || !row.getType().isInteger(64) || row.getInt()<0 || row.getInt()>31)
+          return emitOpError("control row must be a five-bit value");
+      }
+    }
+    std::map<std::string, DictionaryAttr> byName;
+    for (auto raw : nodes) {
+      auto n=dyn_cast<DictionaryAttr>(raw);
+      auto id=n ? n.getAs<StringAttr>("id") : StringAttr();
+      auto resource=n ? n.getAs<StringAttr>("resource") : StringAttr();
+      auto opcode=n ? n.getAs<StringAttr>("opcode") : StringAttr();
+      auto ins=n ? n.getAs<ArrayAttr>("inputs") : ArrayAttr();
+      auto outs=n ? n.getAs<ArrayAttr>("outputs") : ArrayAttr();
+      auto duration=n ? n.getAs<IntegerAttr>("duration") : IntegerAttr();
+      if (!n || !id || id.getValue().empty() || !resource || resource.getValue().empty() || !opcode || opcode.getValue().empty() ||
+          !ins || !outs || !duration || !duration.getType().isInteger(64) || duration.getInt()<1 ||
+          duration.getInt()>1000000 || !byName.emplace(id.getValue().str(),n).second)
+        return emitOpError("invalid or duplicate node");
+      for (auto list : {ins,outs}) for (auto t : list) {
+        auto type=dyn_cast<TypeAttr>(t);
+        if (!type || !type.getValue().isSignlessInteger() || cast<IntegerType>(type.getValue()).getWidth()>1024)
+          return emitOpError("node ports must be signless integer types of at most 1024 bits");
+      }
+      if (auto address=n.getAs<IntegerAttr>("address"))
+        if (!address.getType().isInteger(64) || address.getInt()<0) return emitOpError("invalid memory address");
+      auto isWidth=[](Attribute value,unsigned bits) {
+        return cast<TypeAttr>(value).getValue().isSignlessInteger(bits);
+      };
+      auto op=opcode.getValue();
+      if (op=="protocol") {
+        auto states=n.getAs<IntegerAttr>("states"), inputs=n.getAs<IntegerAttr>("control_inputs");
+        if (!states || !inputs || !states.getType().isInteger(64) || !inputs.getType().isInteger(64) ||
+            states.getInt()<1 || states.getInt()>1024 || inputs.getInt()<1 || inputs.getInt()>64)
+          return emitOpError("protocol requires bounded states and control_inputs");
+      }
+      if (op=="timer") {
+        auto period=n.getAs<IntegerAttr>("period");
+        if (!period || !period.getType().isInteger(64) || period.getInt()<1 || period.getInt()>1000000000)
+          return emitOpError("timer requires a positive bounded period");
+      }
+      if (op=="read" && (resource.getValue()!="memory" || !n.getAs<IntegerAttr>("address") ||
+          outs.empty() || !isWidth(outs[0],8))) return emitOpError("read requires a memory address and i8 result");
+      if (op=="write" && (resource.getValue()!="memory" || !n.getAs<IntegerAttr>("address") ||
+          ins.empty() || !isWidth(ins[0],8))) return emitOpError("write requires a memory address and i8 input");
+      if (op=="pack_big_endian_low_bits") {
+        if (ins.size()!=2 || !isWidth(ins[0],8) || !isWidth(ins[1],8) || outs.size()!=2 || !isWidth(outs[1],1))
+          return emitOpError("pack requires two i8 inputs, a word and an i1 event");
+        auto width=cast<IntegerType>(cast<TypeAttr>(outs[0]).getValue()).getWidth();
+        if (width<9 || width>16) return emitOpError("current two-byte pack supports 9..16 bits");
+      }
+      if (op=="unpack_big_endian_low_bits") {
+        if (ins.size()!=1 || outs.size()!=2 || !isWidth(outs[0],8) || !isWidth(outs[1],8))
+          return emitOpError("unpack requires a word and two i8 outputs");
+        auto width=cast<IntegerType>(cast<TypeAttr>(ins[0]).getValue()).getWidth();
+        if (width<9 || width>16) return emitOpError("current two-byte unpack supports 9..16 bits");
+      }
+      if (op=="shift_msb_first") {
+        if (ins.size()!=5 || outs.size()!=4 || ins[0]!=outs[0]) return emitOpError("shift word ports must have the same type");
+        for (size_t i=1;i<ins.size();++i) if (!isWidth(ins[i],1)) return emitOpError("shift control inputs must be i1");
+        for (size_t i=1;i<outs.size();++i) if (!isWidth(outs[i],1)) return emitOpError("shift signal outputs must be i1");
+      }
+      if (n.get("exclusive") && !n.getAs<BoolAttr>("exclusive")) return emitOpError("exclusive must be Boolean");
+      if (n.get("group") && !n.getAs<StringAttr>("group")) return emitOpError("group must be a string");
+    }
+    std::set<std::pair<std::string,int64_t>> connected;
+    for (auto raw : edges) {
+      auto e=dyn_cast<DictionaryAttr>(raw);
+      auto src=e ? e.getAs<StringAttr>("from") : StringAttr();
+      auto dst=e ? e.getAs<StringAttr>("to") : StringAttr();
+      auto mode=e ? e.getAs<StringAttr>("mode") : StringAttr();
+      auto sp=e ? e.getAs<IntegerAttr>("source_port") : IntegerAttr();
+      auto dp=e ? e.getAs<IntegerAttr>("target_port") : IntegerAttr();
+      if (!src || !dst || !mode || (mode.getValue()!="data" && mode.getValue()!="order" && mode.getValue()!="feedback") ||
+          !sp || !dp || !sp.getType().isInteger(64) || !dp.getType().isInteger(64) || sp.getInt()<0 || dp.getInt()<0 ||
+          !byName.count(src.getValue().str()) || !byName.count(dst.getValue().str())) return emitOpError("invalid edge");
+      auto outs=byName.at(src.getValue().str()).getAs<ArrayAttr>("outputs");
+      auto ins=byName.at(dst.getValue().str()).getAs<ArrayAttr>("inputs");
+      if (sp.getInt()>=static_cast<int64_t>(outs.size()) || dp.getInt()>=static_cast<int64_t>(ins.size()) ||
+          outs[sp.getInt()]!=ins[dp.getInt()] || !connected.emplace(dst.getValue().str(),dp.getInt()).second)
+        return emitOpError("edge ports must exist, have identical types and have one driver");
+    }
+    for (auto &entry : byName) {
+      auto ins=entry.second.getAs<ArrayAttr>("inputs");
+      for (size_t i=0;i<ins.size();++i)
+        if (!connected.count({entry.first,static_cast<int64_t>(i)})) return emitOpError("every input port must be connected");
+    }
+    return success();
+  }
+};
+
+class TargetGraphOp : public Op<TargetGraphOp, OpTrait::ZeroOperands, OpTrait::ZeroResults, OpTrait::ZeroRegions> {
+public:
+  SPATIAL_OP_COMMON(TargetGraphOp, "spatial.target_graph")
+  LogicalResult verify() {
+    auto tiles=(*this)->getAttrOfType<ArrayAttr>("tiles"), links=(*this)->getAttrOfType<ArrayAttr>("links");
+    if (!tiles || tiles.empty() || !links) return emitOpError("requires tiles and links arrays");
+    if (auto attr=(*this)->getAttr("pad_max_output_hz_estimate")) {
+      auto value=dyn_cast<IntegerAttr>(attr);
+      if (!value || !value.getType().isInteger(64) || value.getInt()<1 || value.getInt()>1000000000)
+        return emitOpError("pad_max_output_hz_estimate must be a positive bounded i64");
+    }
+    std::set<std::string> ids;
+    for (auto raw:tiles) {
+      auto t=dyn_cast<DictionaryAttr>(raw); auto id=t ? t.getAs<StringAttr>("id") : StringAttr();
+      auto resource=t ? t.getAs<StringAttr>("resource") : StringAttr();
+      auto operations=t ? t.getAs<ArrayAttr>("operations") : ArrayAttr();
+      auto width=t ? t.getAs<IntegerAttr>("width") : IntegerAttr();
+      auto slots=t ? t.getAs<IntegerAttr>("slots") : IntegerAttr();
+      auto latency=t ? t.getAs<IntegerAttr>("latency") : IntegerAttr();
+      auto interval=t ? t.getAs<IntegerAttr>("interval") : IntegerAttr();
+      if (!id || id.getValue().empty() || !resource || resource.getValue().empty() || !operations || operations.empty() || !width || !slots || !latency || !interval ||
+          !width.getType().isInteger(64) || width.getInt()<1 || width.getInt()>1024 ||
+          !slots.getType().isInteger(64) || slots.getInt()!=1 ||
+          !latency.getType().isInteger(64) || latency.getInt()<1 || latency.getInt()>1000000 ||
+          !interval.getType().isInteger(64) || interval.getInt()<1 || interval.getInt()>1000000 ||
+          !ids.insert(id.getValue().str()).second)
+        return emitOpError("invalid or duplicate tile (only one slot per tile is modeled)");
+      std::set<std::string> supported;
+      for (auto rawOp:operations) {
+        auto op=dyn_cast<StringAttr>(rawOp);
+        if (!op || op.getValue().empty() || !supported.insert(op.getValue().str()).second)
+          return emitOpError("tile operations must be unique nonempty strings");
+      }
+      if (supported.count("protocol")) {
+        auto states=t.getAs<IntegerAttr>("states"), inputs=t.getAs<IntegerAttr>("control_inputs");
+        if (!states || !inputs || !states.getType().isInteger(64) || !inputs.getType().isInteger(64) ||
+            states.getInt()<1 || states.getInt()>1024 || inputs.getInt()<1 || inputs.getInt()>64)
+          return emitOpError("protocol tile requires bounded states and control_inputs");
+      }
+      if (supported.count("timer")) {
+        auto min=t.getAs<IntegerAttr>("period_min"), max=t.getAs<IntegerAttr>("period_max");
+        if (!min || !max || !min.getType().isInteger(64) || !max.getType().isInteger(64) ||
+            min.getInt()<1 || max.getInt()<min.getInt() || max.getInt()>1000000000)
+          return emitOpError("timer tile requires valid period_min and period_max");
+      }
+      if (auto depth=t.getAs<IntegerAttr>("depth"))
+        if (!depth.getType().isInteger(64) || depth.getInt()<1 || depth.getInt()>1000000) return emitOpError("invalid tile depth");
+    }
+    std::set<std::pair<std::string,std::string>> linksSeen;
+    for (auto raw:links) {
+      auto l=dyn_cast<DictionaryAttr>(raw); auto from=l ? l.getAs<StringAttr>("from") : StringAttr();
+      auto to=l ? l.getAs<StringAttr>("to") : StringAttr();
+      auto width=l ? l.getAs<IntegerAttr>("width") : IntegerAttr();
+      auto latency=l ? l.getAs<IntegerAttr>("latency") : IntegerAttr();
+      if (!from || !to || !ids.count(from.getValue().str()) || !ids.count(to.getValue().str()) ||
+          !width || !width.getType().isInteger(64) || width.getInt()<1 || width.getInt()>1024 ||
+          !latency || !latency.getType().isInteger(64) || latency.getInt()<0 || latency.getInt()>1000000 ||
+          !linksSeen.emplace(from.getValue().str(),to.getValue().str()).second)
+        return emitOpError("invalid or duplicate directed link");
+    }
     return success();
   }
 };
@@ -280,7 +454,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SpatialDialect)
   explicit SpatialDialect(MLIRContext *ctx)
       : Dialect(getDialectNamespace(), ctx, TypeID::get<SpatialDialect>()) {
-    addOperations<FabricOp, SpiOp, ConfigWriteOp, PayloadOp, ProtocolOp, FrontendProgramOp, FrontendItemOp, FrontendInputOp, FrontendStreamOp>();
+    addOperations<FabricOp, SpiOp, ConfigWriteOp, PayloadOp, WorkloadGraphOp, TargetGraphOp, ProtocolOp, FrontendProgramOp, FrontendItemOp, FrontendInputOp, FrontendStreamOp>();
   }
   static StringRef getDialectNamespace() { return "spatial"; }
 };

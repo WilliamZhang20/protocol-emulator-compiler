@@ -20,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <deque>
+#include <queue>
 #include <set>
 #include <string>
 #include <vector>
@@ -398,7 +399,7 @@ static int deriveSpiComponent(ModuleOp module, llvm::StringRef timerName,
 // memory-backed SPI fabric. SRAM layout, host trigger staging and transport
 // are still supplied externally; this deliberately does not claim complete
 // compilation of arbitrary .spt transaction functions or byte streams.
-static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char *output) {
+static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char *output, bool graphOnly=false) {
   Operation *root = findOne(module, "spatial.frontend_program");
   if (!root) return fail("expected frontend program");
   std::vector<llvm::json::Value> items;
@@ -494,6 +495,55 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
     return fail("source component exceeds memory fabric width or provisional output-frequency estimate");
   std::vector<uint16_t> rows;
   if (mapControl(module,"transfer_control",nullptr,-1,{},&rows)) return 1;
+  if (graphOnly) {
+    // These memory milestones describe the existing RTL adapter and test
+    // binding; source-level byte-stream semantics are not yet available.
+    std::set<int> controlReachable{0};
+    for (bool changed=true;changed;) {
+      changed=false;
+      auto snapshot=controlReachable;
+      for (int state:snapshot) for (int inputs=0;inputs<4;++inputs)
+        changed |= controlReachable.insert(rows[(state<<2)|inputs] & 3).second;
+    }
+    auto &o=llvm::outs();
+    o << "module {\n  \"spatial.workload_graph\"() {\n    provenance = \"source-control-plus-rtl-adapter-v1\",\n"
+      << "    memory_layout_origin = \"rtl-test-driver-not-source\",\n"
+      << "    clock_hz = " << clock << " : i64, half_period = " << half << " : i64, control_rows = [";
+    for (size_t i=0;i<rows.size();++i) o << (i ? ", " : "") << rows[i] << " : i64";
+    o << "],\n    nodes = [\n"
+      << "      {id = \"trigger\", opcode = \"input\", resource = \"input\", exclusive = true, inputs = [], outputs = [i1], duration = 1 : i64},\n"
+      << "      {id = \"miso\", opcode = \"input\", resource = \"input\", exclusive = true, inputs = [], outputs = [i1], duration = 1 : i64},\n"
+      << "      {id = \"read_hi\", opcode = \"read\", resource = \"memory\", group = \"transfer\", address = 100 : i64, inputs = [i1], outputs = [i8, i1], duration = 1 : i64},\n"
+      << "      {id = \"read_lo\", opcode = \"read\", resource = \"memory\", group = \"transfer\", address = 101 : i64, inputs = [i1], outputs = [i8], duration = 1 : i64},\n"
+      << "      {id = \"pack\", opcode = \"pack_big_endian_low_bits\", resource = \"adapter\", inputs = [i8, i8], outputs = [i" << width << ", i1], duration = 1 : i64},\n"
+      << "      {id = \"control\", opcode = \"protocol\", resource = \"control\", states = " << controlReachable.size() << " : i64, control_inputs = 2 : i64, inputs = [i1, i1, i1], outputs = [i1], duration = 1 : i64},\n"
+      << "      {id = \"timer\", opcode = \"timer\", resource = \"timer\", period = " << half << " : i64, inputs = [i1], outputs = [i1, i1, i1], duration = 1 : i64},\n"
+      << "      {id = \"shift\", opcode = \"shift_msb_first\", resource = \"shifter\", inputs = [i" << width << ", i1, i1, i1, i1], outputs = [i" << width << ", i1, i1, i1], duration = 1 : i64},\n"
+      << "      {id = \"unpack\", opcode = \"unpack_big_endian_low_bits\", resource = \"adapter\", inputs = [i" << width << "], outputs = [i8, i8], duration = 1 : i64},\n"
+      << "      {id = \"write_hi\", opcode = \"write\", resource = \"memory\", group = \"transfer\", address = 200 : i64, inputs = [i8], outputs = [i1], duration = 1 : i64},\n"
+      << "      {id = \"write_lo\", opcode = \"write\", resource = \"memory\", group = \"transfer\", address = 201 : i64, inputs = [i8, i1], outputs = [], duration = 1 : i64},\n"
+      << "      {id = \"cs_invert\", opcode = \"invert\", resource = \"invert\", inputs = [i1], outputs = [i1], duration = 1 : i64},\n"
+      << "      {id = \"mosi\", opcode = \"output\", resource = \"output\", exclusive = true, inputs = [i1], outputs = [], duration = 1 : i64},\n"
+      << "      {id = \"sck\", opcode = \"output\", resource = \"output\", exclusive = true, inputs = [i1], outputs = [], duration = 1 : i64},\n"
+      << "      {id = \"cs\", opcode = \"output\", resource = \"output\", exclusive = true, inputs = [i1], outputs = [], duration = 1 : i64}\n    ],\n    edges = [\n";
+    struct E { const char *a; int ap; const char *b; int bp; const char *mode; };
+    const E edges[]={ {"trigger",0,"control",0,"order"},{"trigger",0,"read_hi",0,"order"},{"read_hi",0,"pack",0,"data"},
+      {"read_hi",1,"read_lo",0,"order"},{"read_lo",0,"pack",1,"data"},
+      {"pack",1,"control",1,"data"},{"pack",0,"shift",0,"data"},
+      {"control",0,"shift",1,"data"},{"timer",0,"shift",2,"data"},{"timer",1,"shift",3,"data"},{"miso",0,"shift",4,"data"},
+      {"shift",1,"timer",0,"feedback"},{"shift",3,"control",2,"feedback"},{"shift",0,"unpack",0,"data"},
+      {"unpack",0,"write_hi",0,"data"},{"unpack",1,"write_lo",0,"data"},
+      {"write_hi",0,"write_lo",1,"order"},{"shift",2,"mosi",0,"data"},
+      {"timer",2,"sck",0,"data"},{"shift",1,"cs_invert",0,"data"},{"cs_invert",0,"cs",0,"data"} };
+    for (size_t i=0;i<sizeof(edges)/sizeof(edges[0]);++i) {
+      const auto &e=edges[i];
+      o << "      {from = \"" << e.a << "\", source_port = " << e.ap << " : i64, to = \"" << e.b
+        << "\", target_port = " << e.bp << " : i64, mode = \"" << e.mode << "\"}"
+        << (i+1==sizeof(edges)/sizeof(edges[0]) ? "\n" : ",\n");
+    }
+    o << "    ]\n  } : () -> ()\n}\n";
+    return 0;
+  }
   std::ofstream image(output);
   if (!image) return fail("cannot open memory SPI image");
   image << std::hex << std::setfill('0') << std::setw(4) << ((width<<8)|half) << '\n';
@@ -507,6 +557,8 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
   llvm::outs() << llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));
   return 0;
 }
+
+#include "graph_mapper.inc"
 
 // Route independent selectors, including explicit route.<sink> relays. This
 // bounded exact search considers earlier choices when solving later demands;
@@ -656,12 +708,25 @@ int main(int argc, char **argv) {
   bool fullControl = argc == 4 && llvm::StringRef(argv[1]) == "--compile-control";
   bool deriveSpi = argc == 6 && llvm::StringRef(argv[1]) == "--derive-spi-component";
   bool memorySpi = argc == 5 && llvm::StringRef(argv[1]) == "--compile-memory-spi";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  bool workloadGraph = argc == 3 && llvm::StringRef(argv[1]) == "--memory-spi-graph";
+  bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !mapGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --map-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (mapGraph) {
+    auto target = parseSourceFile<ModuleOp>(argv[2], &context);
+    auto workload = parseSourceFile<ModuleOp>(argv[3], &context);
+    if (!target || !workload || failed(verify(*target)) || failed(verify(*workload))) return fail("invalid graph MLIR");
+    return mapWorkloadGraph(*target,*workload);
+  }
+  if (workloadGraph) {
+    auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return compileMemorySpi(*frontend,"0",nullptr,true);
+  }
   if (memorySpi) {
     auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
