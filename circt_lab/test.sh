@@ -45,6 +45,7 @@ for name,mode in [('spi',0),('uart',1)]:
  image=[int(x,16) for x in (p/f'v2-unified-{name}.mem').read_text().splitlines()]
  report=json.loads((p/f'v2-unified-{name}.json').read_text())
  assert len(image)==27 and image[26]==mode and report['target']=='fabric-v2-unified-experiment' and not report['full_source_program_compiled']
+ assert report['host_configuration']['input1_pad_feedback_word']==29 and report['host_configuration']['input1_pad_feedback_value']==0
 PY
 if [ -n "${V2_UNIFIED_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-spi.mem" "$V2_UNIFIED_SPI_FIXTURE"; fi
 if [ -n "${V2_UNIFIED_UART_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-uart.mem" "$V2_UNIFIED_UART_FIXTURE"; fi

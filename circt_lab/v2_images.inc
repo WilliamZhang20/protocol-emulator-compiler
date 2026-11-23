@@ -61,5 +61,8 @@ static int compileV2Image(ModuleOp frontend, const char *output, bool uart, bool
       {"source_validated",true},{"general_mapping",false},{"full_source_program_compiled",false},
       {"limitations",(streaming || unified) ? "Fixed placement, routes and hand-written SRAM adapters; host supplies memory regions and lengths; no general stream/function lowering, framing-error detection, static route conflict analysis, or pin timing proof." :
        "Fixed placement and route assignment; finite hand-written SRAM adapter; no general stream/function lowering, static route conflict analysis, pin timing proof, or RTL equivalence guarantee."}};
+  if (unified) report["host_configuration"] = llvm::json::Object{
+      {"input1_pad_feedback_word", 29}, {"input1_pad_feedback_value", 0},
+      {"description", "Write word 29 to zero while disarmed; it persists across reconfiguration and is not included in the 27-word fabric image."}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }
