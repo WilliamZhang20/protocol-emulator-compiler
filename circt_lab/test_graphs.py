@@ -75,7 +75,7 @@ def main():
         uart_source = HERE.parent / 'examples/uart.spt'
         uart_front.write_text(run(args.frontend, 'frontend-mlir', uart_source).stdout)
         uart_work = d / 'uart-work.mlir'
-        uart_work.write_text(run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, uart_front).stdout)
+        uart_work.write_text(run(args.mapper, '--uart-graph', uart_front).stdout)
         uart_graph = uart_work.read_text()
         assert 'analysis_only = true' in uart_graph
         assert 'period = 64 : i64, first = 62 : i64' in uart_graph
@@ -91,10 +91,18 @@ def main():
         changed.write_text(uart_source.read_text().replace('data(8)', 'data(7)'))
         changed_front = d / 'uart-changed.mlir'
         changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
-        run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front, ok=False)
+        run(args.mapper, '--uart-graph', changed_front, ok=False)
+        for old, new in [('sample: rx at rx_bit.tick', 'sample: rx at tx_bit.tick'),
+                         ('run: rx.fall until receiver.done', 'run: rx.fall until sender.done'),
+                         ('frame: [0, data(8), 1]', 'frame: [1, data(8), 1]')]:
+            assert old in uart_source.read_text()
+            changed.write_text(uart_source.read_text().replace(old, new))
+            front = run(args.frontend, 'frontend-mlir', changed, ok=True)
+            changed_front.write_text(front.stdout)
+            run(args.mapper, '--uart-graph', changed_front, ok=False)
         changed.write_text(uart_source.read_text().replace('const BIT = 64 cycles', 'const BIT = 80 cycles'))
         changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
-        changed_graph = run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front).stdout
+        changed_graph = run(args.mapper, '--uart-graph', changed_front).stdout
         assert 'period = 80 : i64, first = 78 : i64' in changed_graph
         assert 'period = 80 : i64, first = 39 : i64' in changed_graph
         renamed = uart_source.read_text()
@@ -104,7 +112,7 @@ def main():
             renamed = re.sub(r'\b' + old + r'\b', new, renamed)
         changed.write_text(renamed)
         changed_front.write_text(run(args.frontend, 'frontend-mlir', changed).stdout)
-        assert 'uart_tx_8n1' in run(sys.executable, HERE / 'lower_uart.py', '--mapper', args.mapper, changed_front).stdout
+        assert 'uart_tx_8n1' in run(args.mapper, '--uart-graph', changed_front).stdout
         report = json.loads(run(args.mapper, '--map-graph', candidate, work).stdout)
         report_file = d / 'report.json'
         report_file.write_text(json.dumps(report))

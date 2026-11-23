@@ -304,15 +304,15 @@ snapshot, not a finding that the candidate fabric fits or fails the protocols.
 The corpus now also probes an experimental UART 8N1 structural lowering.
 It builds a typed graph with separate TX and RX, frame operations, the RX
 falling-edge detector, host streams and source-derived first-tick timing.
-This narrow prototype currently runs in `lower_uart.py` over the verified
-frontend JSON and emits registered MLIR; it is not yet the intended CIRCT
-lowering pass. It marks the graph `analysis_only`, and the mapper refuses it:
+This narrow prototype runs in the CIRCT-side tool over verified frontend MLIR
+and emits registered MLIR; it is not yet a general CIRCT conversion pass.
+It marks the graph `analysis_only`, and the mapper refuses it:
 operation behavior, timing, host transport, selectors and RTL implementation
 have not been established. For example:
 
 ```sh
 target/debug/spatial frontend-mlir examples/uart.spt > /tmp/uart.mlir
-python3 circt_lab/lower_uart.py --mapper /tmp/spatial-circt-map /tmp/uart.mlir > /tmp/uart-graph.mlir
+/tmp/spatial-circt-map --uart-graph /tmp/uart.mlir > /tmp/uart-graph.mlir
 /tmp/spatial-circt-map --verify /tmp/uart-graph.mlir
 ```
 

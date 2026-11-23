@@ -559,6 +559,7 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
 }
 
 #include "graph_mapper.inc"
+#include "uart_lowering.inc"
 
 // Route independent selectors, including explicit route.<sink> relays. This
 // bounded exact search considers earlier choices when solving later demands;
@@ -709,13 +710,19 @@ int main(int argc, char **argv) {
   bool deriveSpi = argc == 6 && llvm::StringRef(argv[1]) == "--derive-spi-component";
   bool memorySpi = argc == 5 && llvm::StringRef(argv[1]) == "--compile-memory-spi";
   bool workloadGraph = argc == 3 && llvm::StringRef(argv[1]) == "--memory-spi-graph";
+  bool uartGraph = argc == 3 && llvm::StringRef(argv[1]) == "--uart-graph";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !mapGraph && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --map-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !mapGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --map-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (uartGraph) {
+    auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return lowerUart(*frontend);
+  }
   if (mapGraph) {
     auto target = parseSourceFile<ModuleOp>(argv[2], &context);
     auto workload = parseSourceFile<ModuleOp>(argv[3], &context);
