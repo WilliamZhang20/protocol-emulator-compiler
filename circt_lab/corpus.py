@@ -71,7 +71,7 @@ def main():
         parser.error(f'no .spt files in {args.examples}')
     project = HERE.parent
     rust_sources = list((project / 'src').rglob('*.rs')) + [project / 'Cargo.toml', project / 'Cargo.lock']
-    mapper_sources = [HERE / 'map.cpp', HERE / 'graph_mapper.inc', HERE / 'uart_lowering.inc', HERE / 'dialect.cpp', HERE / 'dialect.h', HERE / 'corpus.py']
+    mapper_sources = [HERE / 'map.cpp', HERE / 'graph_mapper.inc', HERE / 'uart_lowering.inc', HERE / 'v2_images.inc', HERE / 'dialect.cpp', HERE / 'dialect.h', HERE / 'corpus.py']
     head = run(['git', '-C', str(project), 'rev-parse', 'HEAD'])
     dirty = run(['git', '-C', str(project), 'status', '--porcelain'])
     version = run([str(args.circt_opt), '--version'])

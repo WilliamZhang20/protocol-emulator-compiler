@@ -25,6 +25,41 @@ if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inve
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-source.mlir"
 "$CIRCT_MAP" --uart-graph "$TEST_TMP/uart-source.mlir" > "$TEST_TMP/uart-graph.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/uart-graph.mlir" -o /dev/null
+"$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/v2-spi.mem" > "$TEST_TMP/v2-spi.json"
+"$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-uart.mem" > "$TEST_TMP/v2-uart.json"
+python3 - "$TEST_TMP" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1]); spi=[int(x,16) for x in (p/'v2-spi.mem').read_text().splitlines()]
+uart=[int(x,16) for x in (p/'v2-uart.mem').read_text().splitlines()]
+assert len(spi)==len(uart)==26 and spi[:6]==[8,8,1,1,44,1]
+assert uart[:6]==[62,64,31,64,10,10] and uart[22:]==[0x235,0x200,0,1]
+for name in ('v2-spi.json','v2-uart.json'):
+ r=json.loads((p/name).read_text());assert r['source_validated'] and not r['full_source_program_compiled'] and not r['general_mapping']
+PY
+if [ -n "${V2_MEMORY_IMAGE_TB:-}" ]; then
+  "$V2_MEMORY_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-uart.mem"
+fi
+sed 's/data(8)/data(7)/g' "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-unsupported.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-unsupported.spt" > "$TEST_TMP/uart-unsupported.mlir"
+if "$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-unsupported.mlir" "$TEST_TMP/v2-unsupported.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'v2 accepted unsupported UART frame' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/v2-unsupported.mem"
+sed 's/const BIT = 64 cycles/const BIT = 80 cycles/' "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-80.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-80.spt" > "$TEST_TMP/uart-80.mlir"
+"$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-80.mem" > /dev/null
+sed 's/data(12, msb_first)/data(9, msb_first)/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/spi-9.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/spi-9.spt" > "$TEST_TMP/spi-9.mlir"
+"$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/spi-9.mlir" "$TEST_TMP/v2-spi-9.mem" > /dev/null
+python3 - "$TEST_TMP" <<'PY'
+import pathlib, sys
+p=pathlib.Path(sys.argv[1]); uart=[int(x,16) for x in (p/'v2-uart-80.mem').read_text().splitlines()]
+spi=[int(x,16) for x in (p/'v2-spi-9.mem').read_text().splitlines()]
+assert uart[:4]==[78,80,39,80] and spi[4]==41
+PY
+if [ -n "${V2_MEMORY_IMAGE_TB:-}" ]; then
+  "$V2_MEMORY_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-uart-80.mem"
+fi
 if [ -n "${MEMORY_SPI_FIXTURE:-}" ]; then
   python3 "$HERE/test_graphs.py" --mapper "$CIRCT_MAP" --frontend "$SPATIAL_FRONTEND" --fixture "$MEMORY_SPI_FIXTURE"
 else
@@ -44,6 +79,10 @@ sed 's/start: transfer_control.action2/start: transfer_control.action1/' "$HERE/
 if "$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-bad.mlir" 2652 "$TEST_TMP/memory-bad.mem" > /dev/null 2> "$TEST_TMP/error"; then
   echo 'accepted unsupported shifter start binding' >&2; exit 1
 fi
+if "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/memory-bad.mlir" "$TEST_TMP/v2-bad.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'v2 accepted unsupported shifter start binding' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/v2-bad.mem"
 test ! -e "$TEST_TMP/memory-bad.mem"
 sed 's/sample: miso at/sample: trigger at/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-wrong-input.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/memory-wrong-input.spt" > "$TEST_TMP/memory-wrong-input.mlir"
@@ -53,6 +92,10 @@ fi
 test ! -e "$TEST_TMP/memory-wrong-input.mem"
 sed 's/-> 1 action 2/-> 1 action 1/g' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-changed.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/memory-changed.spt" > "$TEST_TMP/memory-changed.mlir"
+if "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/memory-changed.mlir" "$TEST_TMP/v2-changed.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'v2 accepted unsupported SPI control semantics' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/v2-changed.mem"
 "$CIRCT_MAP" --compile-memory-spi "$TEST_TMP/memory-changed.mlir" 2652 "$TEST_TMP/memory-changed.mem" > /dev/null
 python3 - "$TEST_TMP/memory-source.mem" "$TEST_TMP/memory-changed.mem" <<'PY'
 import sys

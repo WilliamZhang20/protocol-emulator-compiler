@@ -1,6 +1,6 @@
 // Restricted UART source lowering. Emits an analysis-only typed graph.
 // It resolves source bindings, verifies the supported behavior and fails closed.
-static int lowerUart(ModuleOp module) {
+static int lowerUart(ModuleOp module, llvm::raw_ostream &output=llvm::outs()) {
   Operation *root=findOne(module,"spatial.frontend_program");
   if (!root) return fail("expected frontend program");
   using Obj=llvm::json::Object;
@@ -117,7 +117,7 @@ static int lowerUart(ModuleOp module) {
   if (!txname || !rxname || std::set<std::string>{constant,txpin,rxpin,txtimer,rxtimer,sender,receiver,txname->str(),rxname->str()}.size()!=9)
     return fail("UART requires nine distinct source declarations");
   int64_t clock=0; if (root->getAttrOfType<StringAttr>("clock_hz").getValue().getAsInteger(10,clock) || clock<1 || clock>1000000000) return fail("invalid UART clock");
-  auto &o=llvm::outs();
+  auto &o=output;
   o << "module {\n  \"spatial.workload_graph\"() { provenance = \"uart-8n1-source-component-v1\", analysis_only = true, clock_hz = " << clock << " : i64,\n    nodes = [\n";
   auto node=[&](const char *id,const char *resource,const char *opcode,const char *in,const char *out, std::string extra="") {
     o << "      {id = \"" << id << "\", resource = \"" << resource << "\", opcode = \"" << opcode << "\", inputs = [" << in << "], outputs = [" << out << "], duration = 1 : i64, exclusive = true" << extra << "},\n";

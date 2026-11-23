@@ -14,6 +14,7 @@
 #include "circt/Dialect/FSM/FSMDialect.h"
 #include "circt/Dialect/FSM/FSMOps.h"
 #include <cstdint>
+#include <array>
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -399,7 +400,7 @@ static int deriveSpiComponent(ModuleOp module, llvm::StringRef timerName,
 // memory-backed SPI fabric. SRAM layout, host trigger staging and transport
 // are still supplied externally; this deliberately does not claim complete
 // compilation of arbitrary .spt transaction functions or byte streams.
-static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char *output, bool graphOnly=false) {
+static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char *output, bool graphOnly=false, llvm::raw_ostream &graphOut=llvm::outs()) {
   Operation *root = findOne(module, "spatial.frontend_program");
   if (!root) return fail("expected frontend program");
   std::vector<llvm::json::Value> items;
@@ -505,7 +506,7 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
       for (int state:snapshot) for (int inputs=0;inputs<4;++inputs)
         changed |= controlReachable.insert(rows[(state<<2)|inputs] & 3).second;
     }
-    auto &o=llvm::outs();
+    auto &o=graphOut;
     o << "module {\n  \"spatial.workload_graph\"() {\n    provenance = \"source-control-plus-rtl-adapter-v1\",\n"
       << "    memory_layout_origin = \"rtl-test-driver-not-source\",\n"
       << "    clock_hz = " << clock << " : i64, half_period = " << half << " : i64, control_rows = [";
@@ -560,6 +561,7 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
 
 #include "graph_mapper.inc"
 #include "uart_lowering.inc"
+#include "v2_images.inc"
 
 // Route independent selectors, including explicit route.<sink> relays. This
 // bounded exact search considers earlier choices when solving later demands;
@@ -711,14 +713,21 @@ int main(int argc, char **argv) {
   bool memorySpi = argc == 5 && llvm::StringRef(argv[1]) == "--compile-memory-spi";
   bool workloadGraph = argc == 3 && llvm::StringRef(argv[1]) == "--memory-spi-graph";
   bool uartGraph = argc == 3 && llvm::StringRef(argv[1]) == "--uart-graph";
+  bool v2Spi = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-spi";
+  bool v2Uart = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-uart";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
   bool assessGraph = argc == 4 && llvm::StringRef(argv[1]) == "--assess-graph";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !mapGraph && !assessGraph && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !mapGraph && !assessGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (v2Spi || v2Uart) {
+    auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return compileV2Image(*frontend,argv[3],v2Uart);
+  }
   if (uartGraph) {
     auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
