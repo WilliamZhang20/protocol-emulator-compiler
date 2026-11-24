@@ -42,6 +42,20 @@ selected slices; the balanced two-track hypothesis does not route the selected
 JTAG slice in this model. Three tracks route these slices, but that is not a
 minimum width for complete protocols or a reason to remove a current track.
 
+The evidence separates the gaps as follows:
+
+| Observation | What it establishes | What remains open |
+| --- | --- | --- |
+| A source expression, context or function is omitted from a slice | The present extraction/lowering did not represent it. | Whether existing tiles can implement it, including temporal reuse. |
+| A fixed-placement bit slice fails the bounded router | That particular placement and modeled track configuration cannot route under the searched rules. | Other placements, logic decomposition, or time sharing; a fundamental hardware gap is not established. |
+| A candidate image passes RTL and gate tests | The tested pin-level behaviors work on that candidate. | Untested source functions and complete protocol compliance. |
+| A candidate passes physical CI | That implementation met the workflow's physical gates for that run. | The reported electrical-limit violations and other candidates' physical feasibility. |
+
+In particular, the USB and Ethernet direct slices do not establish that the
+current grid can run their line coding, packet control, or complete frame
+streams. The reused CRC and coder component tests are supporting evidence,
+not substitutes for full protocol lowering and pin-level tests.
+
 The center-timer candidate reduces maximum hops in the SPI/UART slices from
 four to three and in the selected I2C/JTAG slices from three to two. The direct
 neighbor-link hypothesis reduces some occupied track segments further, but
