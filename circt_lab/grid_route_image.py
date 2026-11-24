@@ -21,6 +21,8 @@ def encode(contract, result, original, words):
         words[i] = 0
     routes = defaultdict(list)
     for path in result['routes']:
+        if path['sink'].get('context', 0):
+            raise ValueError('this image encoder supports only the baseline context')
         for hop in path['hops']:
             addr = network['switch_words']['first'] + hop['from'] * network['switch_words']['words_per_cell'] + hop['direction']
             shift = path['track'] * network['switch_words']['selector_bits']

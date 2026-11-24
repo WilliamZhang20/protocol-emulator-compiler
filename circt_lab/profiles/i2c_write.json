@@ -1,0 +1,1051 @@
+[
+  {
+    "kind": "clock",
+    "value": {
+      "kind": "quantity",
+      "unit": "MHz",
+      "value": "50"
+    }
+  },
+  {
+    "kind": "constant",
+    "name": "HALF",
+    "value": {
+      "kind": "quantity",
+      "unit": "cycles",
+      "value": "250"
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "open_drain",
+    "name": "scl",
+    "pads": null,
+    "source": {
+      "kind": "name",
+      "name": "scl_drive"
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "open_drain",
+    "name": "sda",
+    "pads": null,
+    "source": {
+      "field": "out",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "sda_bits"
+      }
+    }
+  },
+  {
+    "kind": "events",
+    "names": [
+      "byte_go",
+      "cond_go"
+    ]
+  },
+  {
+    "clock_enable": null,
+    "initial": {
+      "kind": "integer",
+      "value": "1"
+    },
+    "kind": "register",
+    "name": "scl_drive",
+    "value": {
+      "condition": {
+        "field": "busy",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "pattern"
+        }
+      },
+      "kind": "if",
+      "no": {
+        "kind": "binary",
+        "left": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "byte_clock"
+          }
+        },
+        "op": "||",
+        "right": {
+          "kind": "unary",
+          "op": "!",
+          "value": {
+            "kind": "name",
+            "name": "rest_low"
+          }
+        }
+      },
+      "yes": {
+        "field": "out",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "pattern"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "rest_low",
+    "value": {
+      "condition": {
+        "field": "busy",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "pattern"
+        }
+      },
+      "kind": "if",
+      "no": {
+        "kind": "name",
+        "name": "rest_low"
+      },
+      "yes": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "pattern"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "sda_start",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "name",
+        "name": "byte_go"
+      },
+      "op": "||",
+      "right": {
+        "kind": "name",
+        "name": "cond_go"
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "sda_step",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "field": "fall",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "byte_clock"
+        }
+      },
+      "op": "||",
+      "right": {
+        "field": "tick",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "cond_clock"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "in_byte",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "field": "busy",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "sda_bits"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "busy",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "pattern"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "stretched",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "field": "out",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "pattern"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "kind": "name",
+          "name": "scl"
+        }
+      }
+    }
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "name",
+          "name": "HALF"
+        }
+      },
+      {
+        "name": "idle",
+        "value": {
+          "kind": "integer",
+          "value": "0"
+        }
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "kind": "name",
+            "name": "in_byte"
+          },
+          "op": "until",
+          "right": {
+            "field": "done",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "sda_bits"
+            }
+          }
+        }
+      },
+      {
+        "name": "hold",
+        "value": {
+          "kind": "unary",
+          "op": "!",
+          "value": {
+            "kind": "name",
+            "name": "scl"
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "byte_clock",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "250",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "name",
+          "name": "HALF"
+        }
+      },
+      {
+        "name": "idle",
+        "value": {
+          "kind": "integer",
+          "value": "1"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "field": "busy",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "pattern"
+            }
+          },
+          "op": "until",
+          "right": {
+            "field": "done",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "pattern"
+            }
+          }
+        }
+      },
+      {
+        "name": "hold",
+        "value": {
+          "kind": "name",
+          "name": "stretched"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "cond_clock",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "250",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "idle",
+        "value": {
+          "kind": "integer",
+          "value": "1"
+        }
+      },
+      {
+        "name": "start",
+        "value": {
+          "kind": "name",
+          "name": "sda_start"
+        }
+      },
+      {
+        "name": "shift",
+        "value": {
+          "kind": "name",
+          "name": "sda_step"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "sda_bits",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "start",
+        "value": {
+          "kind": "name",
+          "name": "cond_go"
+        }
+      },
+      {
+        "name": "shift",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "cond_clock"
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "pattern",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "body": [
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "args": [
+                          {
+                            "name": null,
+                            "value": {
+                              "kind": "name",
+                              "name": "sda"
+                            }
+                          }
+                        ],
+                        "callee": {
+                          "kind": "name",
+                          "name": "len"
+                        },
+                        "kind": "call"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "sda_bits"
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "sda"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "sda_bits"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "args": [
+                          {
+                            "name": null,
+                            "value": {
+                              "kind": "name",
+                              "name": "scl"
+                            }
+                          }
+                        ],
+                        "callee": {
+                          "kind": "name",
+                          "name": "len"
+                        },
+                        "kind": "call"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "pattern"
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "scl"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "pattern"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "event": "cond_go",
+        "op": "fire"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "pattern"
+          }
+        }
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "sda_bits"
+          }
+        }
+      }
+    ],
+    "exported": false,
+    "kind": "function",
+    "name": "condition",
+    "params": [
+      [
+        "sda",
+        {
+          "name": "bits",
+          "range": null,
+          "via": null
+        }
+      ],
+      [
+        "scl",
+        {
+          "name": "bits",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": null
+  },
+  {
+    "body": [
+      {
+        "expression": {
+          "args": [
+            {
+              "name": "sda",
+              "value": {
+                "kind": "list",
+                "values": [
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "scl",
+              "value": {
+                "kind": "list",
+                "values": [
+                  {
+                    "kind": "integer",
+                    "value": "1"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  }
+                ]
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "condition"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      }
+    ],
+    "exported": false,
+    "kind": "function",
+    "name": "start",
+    "params": [],
+    "returns": null
+  },
+  {
+    "body": [
+      {
+        "expression": {
+          "args": [
+            {
+              "name": "sda",
+              "value": {
+                "kind": "list",
+                "values": [
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "1"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "scl",
+              "value": {
+                "kind": "list",
+                "values": [
+                  {
+                    "kind": "integer",
+                    "value": "0"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "1"
+                  },
+                  {
+                    "kind": "integer",
+                    "value": "1"
+                  }
+                ]
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "condition"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      }
+    ],
+    "exported": false,
+    "kind": "function",
+    "name": "stop",
+    "params": [],
+    "returns": null
+  },
+  {
+    "body": [
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "integer",
+                        "value": "8"
+                      }
+                    },
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "name",
+                        "name": "msb_first"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                },
+                {
+                  "kind": "name",
+                  "name": "ninth"
+                }
+              ]
+            }
+          },
+          {
+            "name": "sample",
+            "value": {
+              "kind": "binary",
+              "left": {
+                "kind": "name",
+                "name": "sda"
+              },
+              "op": "at",
+              "right": {
+                "field": "rise",
+                "kind": "field",
+                "object": {
+                  "kind": "name",
+                  "name": "scl"
+                }
+              }
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "sda_bits"
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "value"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "sda_bits"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "event": "byte_go",
+        "op": "fire"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "sda_bits"
+          }
+        }
+      }
+    ],
+    "exported": false,
+    "kind": "function",
+    "name": "byte",
+    "params": [
+      [
+        "value",
+        {
+          "name": "u8",
+          "range": null,
+          "via": null
+        }
+      ],
+      [
+        "ninth",
+        {
+          "name": "bit",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": null
+  },
+  {
+    "body": [
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "value"
+              }
+            },
+            {
+              "name": "ninth",
+              "value": {
+                "kind": "integer",
+                "value": "1"
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "byte"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "condition": {
+          "kind": "binary",
+          "left": {
+            "kind": "binary",
+            "left": {
+              "field": "post_bits",
+              "kind": "field",
+              "object": {
+                "kind": "name",
+                "name": "sda_bits"
+              }
+            },
+            "op": "&",
+            "right": {
+              "kind": "integer",
+              "value": "1"
+            }
+          },
+          "op": "==",
+          "right": {
+            "kind": "integer",
+            "value": "1"
+          }
+        },
+        "op": "if",
+        "otherwise": [],
+        "then": [
+          {
+            "expression": {
+              "args": [],
+              "callee": {
+                "kind": "name",
+                "name": "stop"
+              },
+              "kind": "call"
+            },
+            "op": "evaluate"
+          },
+          {
+            "message": "nack",
+            "op": "fail"
+          }
+        ]
+      }
+    ],
+    "exported": false,
+    "kind": "function",
+    "name": "write",
+    "params": [
+      [
+        "value",
+        {
+          "name": "u8",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": null
+  },
+  {
+    "body": [
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "kind": "name",
+            "name": "start"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "name",
+                  "name": "address"
+                },
+                "op": "<<",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "write"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "body": [
+          {
+            "expression": {
+              "args": [
+                {
+                  "name": null,
+                  "value": {
+                    "kind": "name",
+                    "name": "b"
+                  }
+                }
+              ],
+              "callee": {
+                "kind": "name",
+                "name": "write"
+              },
+              "kind": "call"
+            },
+            "op": "evaluate"
+          }
+        ],
+        "iterable": {
+          "kind": "name",
+          "name": "payload"
+        },
+        "op": "for",
+        "variable": "b"
+      },
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "kind": "name",
+            "name": "stop"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      }
+    ],
+    "exported": true,
+    "kind": "function",
+    "name": "write_only",
+    "params": [
+      [
+        "address",
+        {
+          "name": "u7",
+          "range": null,
+          "via": null
+        }
+      ],
+      [
+        "payload",
+        {
+          "name": "bytes",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": null
+  }
+]

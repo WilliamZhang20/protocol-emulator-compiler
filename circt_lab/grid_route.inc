@@ -23,11 +23,11 @@ static int routeGridProblem(ModuleOp module) {
     auto d=cast<DictionaryAttr>(raw); std::string name=d.getAs<StringAttr>("resource").getValue().str();
     int cell=d.getAs<IntegerAttr>("cell").getInt(); loc[name]=cell; layout[name]=cell;
   }
-  struct Endpoint {std::string resource; int port;};
+  struct Endpoint {std::string resource; int port,context;};
   struct Hop {int from,to,dir,select;};
   struct Path {int track,sinkSelect; std::vector<Hop> hops;};
   struct Edge {std::string name; Endpoint source,sink; std::vector<Path> options;};
-  auto endpoint=[](DictionaryAttr d) -> Endpoint {return {d.getAs<StringAttr>("resource").getValue().str(),static_cast<int>(d.getAs<IntegerAttr>("port").getInt())};};
+  auto endpoint=[](DictionaryAttr d) -> Endpoint {auto c=d.getAs<IntegerAttr>("context");return {d.getAs<StringAttr>("resource").getValue().str(),static_cast<int>(d.getAs<IntegerAttr>("port").getInt()),c ? static_cast<int>(c.getInt()) : 0};};
   std::vector<Edge> edges;
   for (auto raw:op->getAttrOfType<ArrayAttr>("nets")) {
     auto n=cast<DictionaryAttr>(raw); std::string name=n.getAs<StringAttr>("name").getValue().str();
@@ -99,7 +99,7 @@ static int routeGridProblem(ModuleOp module) {
     for(auto &h:path.hops){hops.push_back(llvm::json::Object{{"from",h.from},{"to",h.to},{"direction",h.dir},{"selector",h.select}});if(allRegistered || registered.count({h.from,h.to}))++cycles;}
     maxCycles=std::max(maxCycles,cycles);
     output.push_back(llvm::json::Object{{"net",edge.name},{"source",llvm::json::Object{{"resource",edge.source.resource},{"port",edge.source.port}}},
-      {"sink",llvm::json::Object{{"resource",edge.sink.resource},{"port",edge.sink.port}}},
+      {"sink",llvm::json::Object{{"resource",edge.sink.resource},{"port",edge.sink.port},{"context",edge.sink.context}}},
       {"track",path.track},{"hops",std::move(hops)},{"sink_select",path.sinkSelect},{"route_cycles",cycles}});
   }
   llvm::json::Object report{{"schema","spatial.grid-route-experiment.v1"},

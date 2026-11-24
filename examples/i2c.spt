@@ -64,6 +64,14 @@ fn read(last: bit) {
     reply sda_bits.received
 }
 
+// A write-only transaction is the first temporal-grid lowering target.
+export fn write_only(address: u7, payload: bytes) {
+    start()
+    write(address << 1)
+    for b in payload { write(b) }
+    stop()
+}
+
 // Write `payload`, then read `count` bytes back in the same transaction.
 export fn write_read(address: u7, payload: bytes, count: u8 in 1..=16) -> bytes {
     start()

@@ -33,7 +33,8 @@ def mlir_problem(contract, workload, tracks=None, layout=None, registered=False,
     north = select['north_first']
     sink_starts = [north + count * i for i in range(4)]
     def endpoint(e):
-        return '{resource = ' + json.dumps(e['resource']) + ', port = ' + str(e['port']) + ' : i64}'
+        context = ', context = ' + str(e['context']) + ' : i64' if 'context' in e else ''
+        return '{resource = ' + json.dumps(e['resource']) + ', port = ' + str(e['port']) + ' : i64' + context + '}'
     nets = ['{name = ' + json.dumps(n['name']) + ', source = ' + endpoint(n['source']) + ', sinks = [' +
             ', '.join(endpoint(s) for s in n['sinks']) + ']}' for n in workload['nets']]
     locations = ['{resource = ' + json.dumps(k) + ', cell = ' + str(v) + ' : i64}' for k,v in positions.items()]
@@ -109,7 +110,10 @@ def routes(contract, workload, tracks=None, layout=None, registered=False, limit
             valid_crc = sink['resource'] == 'crc' and 77 <= sink['port'] <= 80
             if not (valid_regular or valid_crc):
                 raise ValueError('sink port is not exposed by the current tile')
-            key = (sink['resource'], sink['port'])
+            context = sink.get('context', 0)
+            if context not in (0, 1):
+                raise ValueError('context must be 0 or 1')
+            key = (context, sink['resource'], sink['port'])
             if key in seen_sinks:
                 raise ValueError(f'multiple drivers for {key}')
             seen_sinks.add(key)

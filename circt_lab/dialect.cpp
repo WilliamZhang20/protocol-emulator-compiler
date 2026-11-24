@@ -10,6 +10,7 @@
 #include <map>
 #include <cstdlib>
 #include <string>
+#include <tuple>
 
 using namespace mlir;
 
@@ -267,7 +268,7 @@ public:
           !seenLinks.emplace(a.getInt(),b.getInt()).second) return emitOpError("invalid or duplicate registered neighbor link");
     }
     for (auto t:tracks) { auto v=dyn_cast<StringAttr>(t); if (!v || (v.getValue()!="horizontal_then_vertical" && v.getValue()!="vertical_then_horizontal")) return emitOpError("unknown track turn class"); }
-    std::map<std::string,int64_t> positions; std::set<std::string> names; std::set<std::pair<std::string,int64_t>> sinks, sources;
+    std::map<std::string,int64_t> positions; std::set<std::string> names; std::set<std::tuple<int64_t,std::string,int64_t>> sinks; std::set<std::pair<std::string,int64_t>> sources;
     for (auto raw:layout) {
       auto d=dyn_cast<DictionaryAttr>(raw); auto n=d ? d.getAs<StringAttr>("resource") : StringAttr(); auto c=d ? d.getAs<IntegerAttr>("cell") : IntegerAttr();
       if (!n || n.getValue().empty() || !c || !c.getType().isInteger(64) || c.getInt()<0 || c.getInt()>=rows.getInt()*cols.getInt() || !positions.emplace(n.getValue().str(),c.getInt()).second)
@@ -276,7 +277,9 @@ public:
     auto endpoint=[&](DictionaryAttr d, bool source)->bool {
       auto n=d ? d.getAs<StringAttr>("resource") : StringAttr(); auto p=d ? d.getAs<IntegerAttr>("port") : IntegerAttr();
       if (!n || !p || !p.getType().isInteger(64) || p.getInt()<0 || p.getInt()>(source ? 3 : 80) || !positions.count(n.getValue().str())) return false;
-      return source ? sources.emplace(n.getValue().str(),p.getInt()).second : sinks.emplace(n.getValue().str(),p.getInt()).second;
+      auto context=d.getAs<IntegerAttr>("context");
+      if (context && (!context.getType().isInteger(64) || context.getInt()<0 || context.getInt()>1 || source)) return false;
+      return source ? sources.emplace(n.getValue().str(),p.getInt()).second : sinks.emplace(context ? context.getInt() : 0,n.getValue().str(),p.getInt()).second;
     };
     if (nets.size()>256) return emitOpError("too many nets");
     for (auto raw:nets) {
