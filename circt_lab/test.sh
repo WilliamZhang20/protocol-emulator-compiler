@@ -4,6 +4,7 @@ set -eu
 : "${CIRCT_OPT:?Set CIRCT_OPT to circt-opt executable or launcher}"
 : "${SPATIAL_DIALECT:?Set SPATIAL_DIALECT to the built dialect plugin}"
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+python3 "$HERE/investigations/test_stream_credit_bound.py"
 SPATIAL_FRONTEND=${SPATIAL_FRONTEND:-"$HERE/../target/debug/spatial"}
 TEST_TMP=$(mktemp -d)
 trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM

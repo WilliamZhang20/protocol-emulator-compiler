@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: WilliamZhang20/protocol-emulator
-          ref: 168f958eb7f26d700874bfc7afb1c492e18654ab
+          ref: 91758084507d172b2525b17d3fde55602d99bd1f
           path: fabric-rtl
       - name: Build frontend, dialect and RTL tests
         run: |
@@ -79,7 +79,7 @@ jobs:
           V2_UNIFIED_IMAGE_TB: ${{ github.workspace }}/fabric-rtl/build/verilator/fabric_v2_unified/Vunified_tb
           V2_UNIFIED_SPI_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/v2-unified-spi.mem
           V2_UNIFIED_UART_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/v2-unified-uart.mem
-          GRID_IMAGE_TB: ${{ github.workspace }}/fabric-rtl/build/verilator/grid_unified/Vgrid_unified_tb
+          GRID_IMAGE_TB: ${{ github.workspace }}/fabric-rtl/build/verilator/grid_stream_fabric/Vgrid_stream_fabric_tb
           GRID_SPI_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/grid-spi.mem
           GRID_UART_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/grid-uart.mem
           GRID_CRC_PROFILE_FIXTURE: ${{ github.workspace }}/fabric-rtl/test/data/grid-crc-profiles.json

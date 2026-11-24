@@ -401,8 +401,8 @@ JSON report records assigned tracks and the required host words. SPI and UART
 run on the same actual grid RTL and two SRAM macro models; the test covers
 concurrent UART TX/RX and reconfiguration.
 
-This is still a restricted compiler experiment. The tile placement and protocol
-adapter semantics are fixed, the word-wide SRAM path is dedicated, and full
+This is still a restricted compiler experiment. Tile placement and frame
+scheduling are fixed, the word-wide SRAM path is dedicated, and full
 source control/stream lowering and physical timing are not proven. A failure
 of this turn-restricted router does not prove the topology cannot support a
 workload through some other placement or routing algorithm. Set
@@ -424,3 +424,9 @@ and TMS bytes in SRAM and reads TDO back. The hardware pin test uses this image.
 The report marks the full source function, dynamic `step`, TAP sequencing and
 exact cycle equivalence as uncompiled or unverified; it is not a general JTAG
 mapper.
+
+`investigations/stream_credit_bound.py` computes the conservative FIFO bound
+from explicit refill latency, byte period, startup burst and fair-service
+assumptions. It reports an overloaded bank separately and makes no claim of
+physical timing or general deadlock freedom. The hardware experiment tests
+depth two with three contending bank clients and a delayed ordered return.

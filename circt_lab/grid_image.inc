@@ -111,7 +111,7 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
   }
   llvm::json::Object report{{"target",uart ? "grid-3x3-uart-experiment" : "grid-3x3-spi-experiment"},{"source_validated",true},
     {"general_mapping",false},{"full_source_program_compiled",false},{"routing",std::move(routes)},
-    {"host_configuration",llvm::json::Object{{"tx_length_word",66},{"rx_capacity_word",67},{"pad_feedback_word",68},{"pad_feedback_value",0}}},
-    {"limitations","Fixed tile placement and hand-written SRAM adapters; two turn-restricted route classes, no general stream/function lowering or physical timing proof."}};
+    {"host_configuration",llvm::json::Object{{"tx_length_word",66},{"rx_capacity_word",67},{"pad_feedback_word",68},{"pad_feedback_value",0},{"independent_bank_routes_word",88},{"tx_base_word",89},{"rx_base_word",90}}},
+    {"limitations","Fixed tile placement and hand-written frame scheduling; two turn-restricted route classes, no general stream/function lowering or physical timing proof."}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }
