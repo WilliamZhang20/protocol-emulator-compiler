@@ -46,8 +46,11 @@ for route in routes:
             assert nxt == cell + (-3, 3, -1, 1)[direction] and 0 <= nxt < 9
             assert direction < 2 or cell // 3 == nxt // 3
             selection = (words[5 + cell * 4 + direction] >> (lane * 3)) & 7
+            turning = previous is not None and (direction < 2) != (previous < 2)
+            if turning:
+                assert (lane < 2 and direction < 2) or (lane >= 2 and direction >= 2)
             expected_selection = (1 + port if previous is None else
-                                  (6 if previous == 3 else 7) if direction < 2 and previous >= 2 else 5)
+                                  (6 if previous in (1, 3) else 7) if turning else 5)
             assert selection == hop['selector'] == expected_selection
             # A track has one driver, though a signal may fan out.
             key = cell, direction, lane
@@ -60,5 +63,5 @@ for route in routes:
         selected = 2 + port if previous is None else (10, 6, 18, 14)[previous] + lane
         assert words[addr] == selected
         if sink in (10, 11):
-            assert selected in (0, 1, 14, 15, 16, 17), 'LUT must be feed-forward'
+            assert selected in (0, 1) or 6 <= selected <= 21, 'LUT must be feed-forward'
 print(f'PASS: {kind} grid image routes {len(routes)} signals without track collisions')

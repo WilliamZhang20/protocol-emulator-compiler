@@ -53,6 +53,11 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
     initial.image[53]=first[1];initial.image[54]=period[1];initial.image[55]=10;
     initial.image[4]=1;initial.image[63]=0x235;initial.image[64]=0x200;initial.image[65]=1;
   }
+  auto direction=[](int cell,int destination,int lane) {
+    if (lane>=2 && cell/3!=destination/3) return cell/3<destination/3 ? 1 : 0;
+    if (cell%3!=destination%3) return cell%3<destination%3 ? 3 : 2;
+    return cell/3<destination/3 ? 1 : 0;
+  };
   std::function<bool(size_t,State&)> route=[&](size_t index,State &state) {
     if(index==nets.size()) return true;
     const Net &net=nets[index];
@@ -61,12 +66,9 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
       for(const auto &dst:net.destinations) {
         int cell=net.source, prev=-1;
         while(cell!=dst.cell) {
-          int dir;
-          if(cell%3 < dst.cell%3) dir=3;
-          else if(cell%3 > dst.cell%3) dir=2;
-          else if(cell/3 < dst.cell/3) dir=1;
-          else dir=0;
-          int selection=prev<0 ? 1+net.port : (dir<2 && prev>=2 ? (prev==3 ? 6 : 7) : 5);
+          int dir=direction(cell,dst.cell,lane);
+          bool turn=prev>=0 && ((dir<2)!=(prev<2));
+          int selection=prev<0 ? 1+net.port : turn ? ((prev==3 || prev==1) ? 6 : 7) : 5;
           int &owner=trial.owner[cell][dir][lane];
           if(owner && owner!=int(index)+1) {ok=false;break;}
           unsigned addr=5+cell*4+dir, shift=lane*3;
@@ -96,7 +98,7 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
       llvm::json::Array hops;
       int cell=nets[i].source;
       while(cell!=dst.cell) {
-        int dir=cell%3<dst.cell%3 ? 3 : cell%3>dst.cell%3 ? 2 : cell/3<dst.cell/3 ? 1 : 0;
+        int dir=direction(cell,dst.cell,initial.lane[i]);
         int next=cell+(dir==0 ? -3 : dir==1 ? 3 : dir==2 ? -1 : 1);
         int selection=(initial.image[5+cell*4+dir]>>(3*initial.lane[i]))&7;
         hops.push_back(llvm::json::Object{{"from",cell},{"to",next},{"direction",dir},{"selector",selection}});
@@ -110,6 +112,6 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
   llvm::json::Object report{{"target",uart ? "grid-3x3-uart-experiment" : "grid-3x3-spi-experiment"},{"source_validated",true},
     {"general_mapping",false},{"full_source_program_compiled",false},{"routing",std::move(routes)},
     {"host_configuration",llvm::json::Object{{"tx_length_word",66},{"rx_capacity_word",67},{"pad_feedback_word",68},{"pad_feedback_value",0}}},
-    {"limitations","Fixed tile placement and hand-written SRAM adapters; dimension-order finite-track route allocation, no general stream/function lowering or physical timing proof."}};
+    {"limitations","Fixed tile placement and hand-written SRAM adapters; two turn-restricted route classes, no general stream/function lowering or physical timing proof."}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }

@@ -396,7 +396,7 @@ mapping or replace the target-specific verifier.
 validate the restricted existing SPI and UART components and emit 66-word
 images for the hardware repository's `experiments/grid_fabric` grid. The
 mapper allocates four finite tracks per directed link and backtracks on signal
-conflicts, with fixed tile placement and horizontal-then-vertical paths. Its
+conflicts, with fixed tile placement and two loop-free dimension-order turn classes. Its
 JSON report records assigned tracks and the required host words. SPI and UART
 run on the same actual grid RTL and two SRAM macro models; the test covers
 concurrent UART TX/RX and reconfiguration.
@@ -404,7 +404,23 @@ concurrent UART TX/RX and reconfiguration.
 This is still a restricted compiler experiment. The tile placement and protocol
 adapter semantics are fixed, the word-wide SRAM path is dedicated, and full
 source control/stream lowering and physical timing are not proven. A failure
-of this dimension-order router does not prove the topology cannot support a
+of this turn-restricted router does not prove the topology cannot support a
 workload through some other placement or routing algorithm. Set
 `GRID_IMAGE_TB`, `GRID_SPI_FIXTURE` and `GRID_UART_FIXTURE` when running
 `circt_lab/test.sh` to regenerate and execute both images against the grid RTL.
+
+`grid_crc_profile.py --frontend PATH --mapper PATH PROGRAM...` extracts CRC
+width, polynomial, check residue and initialization from verified source
+frontend IR into the grid CRC tile's partial register profile. Its output
+explicitly reports that connections and the protocol are not lowered. The
+hardware pin regression uses profiles extracted from `usb.spt` and
+`ethernet_tx.spt`, with the earlier USB and Ethernet test payloads. This checks
+CRC capability only; it is not a packet compiler or a timing proof.
+
+`grid_jtag_component.py` checks the existing JTAG source's pin bindings, timer,
+shifter connections and `scan8` body, then adapts the matching grid SPI base
+image to a fixed dual-lane eight-bit component. The host supplies adjacent TDI
+and TMS bytes in SRAM and reads TDO back. The hardware pin test uses this image.
+The report marks the full source function, dynamic `step`, TAP sequencing and
+exact cycle equivalence as uncompiled or unverified; it is not a general JTAG
+mapper.

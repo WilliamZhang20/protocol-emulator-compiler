@@ -32,6 +32,10 @@ if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inve
 "$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-unified-uart.mem" > "$TEST_TMP/v2-unified-uart.json"
 "$CIRCT_MAP" --compile-grid-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/grid-spi.mem" > "$TEST_TMP/grid-spi.json"
 "$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/grid-uart.mem" > "$TEST_TMP/grid-uart.json"
+python3 "$HERE/grid_crc_profile.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" \
+  "$HERE/../examples/usb.spt" "$HERE/../examples/ethernet_tx.spt" > "$TEST_TMP/grid-crc-profiles.json"
+python3 "$HERE/grid_jtag_component.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" \
+  --base "$TEST_TMP/grid-spi.mem" --output "$TEST_TMP/grid-jtag.mem" "$HERE/../examples/jtag.spt" > "$TEST_TMP/grid-jtag.json"
 python3 - "$TEST_TMP" <<'PY'
 import json, pathlib, sys
 p=pathlib.Path(sys.argv[1]); spi=[int(x,16) for x in (p/'v2-spi.mem').read_text().splitlines()]
@@ -68,6 +72,22 @@ if python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi-broken.mem" "$TEST
 fi
 if [ -n "${GRID_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-spi.mem" "$GRID_SPI_FIXTURE"; fi
 if [ -n "${GRID_UART_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-uart.mem" "$GRID_UART_FIXTURE"; fi
+if [ -n "${GRID_CRC_PROFILE_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-crc-profiles.json" "$GRID_CRC_PROFILE_FIXTURE"; fi
+if [ -n "${GRID_JTAG_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-jtag.mem" "$GRID_JTAG_FIXTURE"; fi
+sed 's/shifter mode { start: go, shift: clock.fall }/shifter mode { start: go, shift: clock.rise }/' "$HERE/../examples/jtag.spt" > "$TEST_TMP/jtag-bad.spt"
+if python3 "$HERE/grid_jtag_component.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" \
+  --base "$TEST_TMP/grid-spi.mem" --output "$TEST_TMP/grid-jtag-bad.mem" "$TEST_TMP/jtag-bad.spt" > /dev/null 2>&1; then
+  echo 'JTAG component accepted incompatible mode-shifter timing' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/grid-jtag-bad.mem"
+sed 's/poly: 0x8005/poly: 0x1021/' "$HERE/../examples/usb.spt" > "$TEST_TMP/usb-crc-mutation.spt"
+python3 "$HERE/grid_crc_profile.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" "$TEST_TMP/usb-crc-mutation.spt" > "$TEST_TMP/grid-crc-mutation.json"
+python3 - "$TEST_TMP/grid-crc-mutation.json" <<'PY'
+import json, sys
+p=json.load(open(sys.argv[1]))['profiles'][0]
+assert p['polynomial']==0x1021 and p['grid_words']['69']==0x1021
+assert not p['connections_lowered'] and not p['protocol_compiled']
+PY
 if [ -n "${GRID_IMAGE_TB:-}" ]; then
   "$GRID_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/grid-spi.mem" "+UART_IMAGE=$TEST_TMP/grid-uart.mem"
 fi
