@@ -30,6 +30,8 @@ if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inve
 "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-uart-stream.mem" > "$TEST_TMP/v2-uart-stream.json"
 "$CIRCT_MAP" --compile-v2-unified-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/v2-unified-spi.mem" > "$TEST_TMP/v2-unified-spi.json"
 "$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-unified-uart.mem" > "$TEST_TMP/v2-unified-uart.json"
+"$CIRCT_MAP" --compile-grid-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/grid-spi.mem" > "$TEST_TMP/grid-spi.json"
+"$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/grid-uart.mem" > "$TEST_TMP/grid-uart.json"
 python3 - "$TEST_TMP" <<'PY'
 import json, pathlib, sys
 p=pathlib.Path(sys.argv[1]); spi=[int(x,16) for x in (p/'v2-spi.mem').read_text().splitlines()]
@@ -46,7 +48,29 @@ for name,mode in [('spi',0),('uart',1)]:
  report=json.loads((p/f'v2-unified-{name}.json').read_text())
  assert len(image)==27 and image[26]==mode and report['target']=='fabric-v2-unified-experiment' and not report['full_source_program_compiled']
  assert report['host_configuration']['input1_pad_feedback_word']==29 and report['host_configuration']['input1_pad_feedback_value']==0
+for name,mode in [('spi',0),('uart',1)]:
+ image=[int(x,16) for x in (p/f'grid-{name}.mem').read_text().splitlines()]
+ report=json.loads((p/f'grid-{name}.json').read_text())
+ assert len(image)==66 and image[65]==mode and report['target']==f'grid-3x3-{name}-experiment'
+ assert report['source_validated'] and not report['general_mapping'] and not report['full_source_program_compiled']
+ assert all(0<=r['track']<4 for r in report['routing'])
 PY
+python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi.json"
+python3 "$HERE/test_grid_image.py" uart "$TEST_TMP/grid-uart.mem" "$TEST_TMP/grid-uart.json"
+python3 - "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi-broken.mem" <<'PY'
+import pathlib, sys
+words=pathlib.Path(sys.argv[1]).read_text().splitlines()
+words[20]=f'{int(words[20],16) & ~7:04x}'  # disconnect MOSI's first grid link
+pathlib.Path(sys.argv[2]).write_text('\n'.join(words)+'\n')
+PY
+if python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi-broken.mem" "$TEST_TMP/grid-spi.json" > /dev/null 2>&1; then
+  echo 'grid route checker accepted a disconnected link' >&2; exit 1
+fi
+if [ -n "${GRID_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-spi.mem" "$GRID_SPI_FIXTURE"; fi
+if [ -n "${GRID_UART_FIXTURE:-}" ]; then cmp "$TEST_TMP/grid-uart.mem" "$GRID_UART_FIXTURE"; fi
+if [ -n "${GRID_IMAGE_TB:-}" ]; then
+  "$GRID_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/grid-spi.mem" "+UART_IMAGE=$TEST_TMP/grid-uart.mem"
+fi
 if [ -n "${V2_UNIFIED_SPI_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-spi.mem" "$V2_UNIFIED_SPI_FIXTURE"; fi
 if [ -n "${V2_UNIFIED_UART_FIXTURE:-}" ]; then cmp "$TEST_TMP/v2-unified-uart.mem" "$V2_UNIFIED_UART_FIXTURE"; fi
 if [ -n "${V2_UNIFIED_IMAGE_TB:-}" ]; then
@@ -67,21 +91,35 @@ test ! -e "$TEST_TMP/v2-unsupported.mem"
 if "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-unsupported.mlir" "$TEST_TMP/v2-stream-unsupported.mem" > /dev/null 2> "$TEST_TMP/error"; then
   echo 'v2 stream accepted unsupported UART frame' >&2; exit 1
 fi
+if "$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-unsupported.mlir" "$TEST_TMP/grid-unsupported.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'grid accepted unsupported UART frame' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/grid-unsupported.mem"
 test ! -e "$TEST_TMP/v2-stream-unsupported.mem"
 sed 's/const BIT = 64 cycles/const BIT = 80 cycles/' "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-80.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-80.spt" > "$TEST_TMP/uart-80.mlir"
 "$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-80.mem" > /dev/null
 "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-stream-80.mem" > /dev/null
 "$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-unified-uart-80.mem" > /dev/null
+"$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/grid-uart-80.mem" > "$TEST_TMP/grid-uart-80.json"
 sed 's/data(12, msb_first)/data(9, msb_first)/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/spi-9.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/spi-9.spt" > "$TEST_TMP/spi-9.mlir"
 "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/spi-9.mlir" "$TEST_TMP/v2-spi-9.mem" > /dev/null
+"$CIRCT_MAP" --compile-grid-spi "$TEST_TMP/spi-9.mlir" "$TEST_TMP/grid-spi-9.mem" > "$TEST_TMP/grid-spi-9.json"
 python3 - "$TEST_TMP" <<'PY'
 import pathlib, sys
 p=pathlib.Path(sys.argv[1]); uart=[int(x,16) for x in (p/'v2-uart-80.mem').read_text().splitlines()]
 spi=[int(x,16) for x in (p/'v2-spi-9.mem').read_text().splitlines()]
 assert uart[:4]==[78,80,39,80] and spi[4]==41
+grid_uart=[int(x,16) for x in (p/'grid-uart-80.mem').read_text().splitlines()]
+grid_spi=[int(x,16) for x in (p/'grid-spi-9.mem').read_text().splitlines()]
+assert grid_uart[:2]==[78,80] and grid_uart[53:55]==[39,80] and grid_spi[2]==41
 PY
+python3 "$HERE/test_grid_image.py" uart "$TEST_TMP/grid-uart-80.mem" "$TEST_TMP/grid-uart-80.json"
+python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi-9.mem" "$TEST_TMP/grid-spi-9.json"
+if [ -n "${GRID_IMAGE_TB:-}" ]; then
+  "$GRID_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/grid-spi.mem" "+UART_IMAGE=$TEST_TMP/grid-uart-80.mem"
+fi
 if [ -n "${V2_MEMORY_IMAGE_TB:-}" ]; then
   "$V2_MEMORY_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/v2-spi.mem" "+UART_IMAGE=$TEST_TMP/v2-uart-80.mem"
 fi
@@ -113,6 +151,10 @@ fi
 if "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/memory-bad.mlir" "$TEST_TMP/v2-bad.mem" > /dev/null 2> "$TEST_TMP/error"; then
   echo 'v2 accepted unsupported shifter start binding' >&2; exit 1
 fi
+if "$CIRCT_MAP" --compile-grid-spi "$TEST_TMP/memory-bad.mlir" "$TEST_TMP/grid-bad.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'grid accepted unsupported shifter start binding' >&2; exit 1
+fi
+test ! -e "$TEST_TMP/grid-bad.mem"
 test ! -e "$TEST_TMP/v2-bad.mem"
 test ! -e "$TEST_TMP/memory-bad.mem"
 sed 's/sample: miso at/sample: trigger at/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/memory-wrong-input.spt"

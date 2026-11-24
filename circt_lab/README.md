@@ -389,3 +389,22 @@ calibration. The upstream [CIRCT FSM dialect](https://circt.llvm.org/docs/Dialec
 and [MLIR dialect conversion framework](https://mlir.llvm.org/docs/DialectConversion/)
 provide relevant infrastructure; they do not by themselves prove a protocol
 mapping or replace the target-specific verifier.
+
+## Structured grid experiment
+
+`--compile-grid-spi FRONTEND OUTPUT` and `--compile-grid-uart FRONTEND OUTPUT`
+validate the restricted existing SPI and UART components and emit 66-word
+images for the hardware repository's `experiments/grid_fabric` grid. The
+mapper allocates four finite tracks per directed link and backtracks on signal
+conflicts, with fixed tile placement and horizontal-then-vertical paths. Its
+JSON report records assigned tracks and the required host words. SPI and UART
+run on the same actual grid RTL and two SRAM macro models; the test covers
+concurrent UART TX/RX and reconfiguration.
+
+This is still a restricted compiler experiment. The tile placement and protocol
+adapter semantics are fixed, the word-wide SRAM path is dedicated, and full
+source control/stream lowering and physical timing are not proven. A failure
+of this dimension-order router does not prove the topology cannot support a
+workload through some other placement or routing algorithm. Set
+`GRID_IMAGE_TB`, `GRID_SPI_FIXTURE` and `GRID_UART_FIXTURE` when running
+`circt_lab/test.sh` to regenerate and execute both images against the grid RTL.
