@@ -8,6 +8,21 @@ python3 "$HERE/investigations/test_stream_credit_bound.py"
 SPATIAL_FRONTEND=${SPATIAL_FRONTEND:-"$HERE/../target/debug/spatial"}
 TEST_TMP=$(mktemp -d)
 trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
+RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"}
+export RTL_ROOT
+python3 "$HERE/grid_contract.py" target --contract "$RTL_ROOT/architecture/grid_3x3.json" > "$TEST_TMP/grid-target.mlir"
+"$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/grid-target.mlir" -o /dev/null
+"$CIRCT_MAP" --map-graph "$TEST_TMP/grid-target.mlir" "$HERE/examples/grid_contract_loopback.mlir" > "$TEST_TMP/grid-loopback.json"
+python3 "$HERE/show_graph.py" "$TEST_TMP/grid-loopback.json" > "$TEST_TMP/grid-loopback.txt"
+python3 - "$TEST_TMP/grid-loopback.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+assert r['routes'][0]['tiles'] == ['input_io_0', 'cell0', 'cell1', 'output_io_0']
+assert not r['image_emitted'] and not r['rtl_fidelity_verified']
+memories = [x for x in r['resources'] if x['kind'] == 'memory']
+assert len(memories) == 2 and all(x['capacity_words'] == 1024 and not x['address_allocation_verified'] for x in memories)
+PY
+echo 'PASS: shared grid contract produces a verified CIRCT target and visible routed resource report'
 "$CIRCT_OPT" "$HERE/control_fsm.mlir" -o /dev/null
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/spi.spt" > "$TEST_TMP/frontend.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/frontend.mlir" -o "$TEST_TMP/frontend-checked.mlir"
@@ -21,7 +36,6 @@ trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/memory-graph.mlir" -o /dev/null
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/memory-spi-graph.mlir" -o /dev/null
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$HERE/candidates/uart-capability-hypothesis.mlir" -o /dev/null
-RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"}
 if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inventory.py" "$RTL_ROOT"; fi
 "$SPATIAL_FRONTEND" frontend-mlir "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-source.mlir"
 "$CIRCT_MAP" --uart-graph "$TEST_TMP/uart-source.mlir" > "$TEST_TMP/uart-graph.mlir"
@@ -33,6 +47,47 @@ if [ -f "$RTL_ROOT/src/memory_spi_fabric.v" ]; then python3 "$HERE/test_rtl_inve
 "$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/v2-unified-uart.mem" > "$TEST_TMP/v2-unified-uart.json"
 "$CIRCT_MAP" --compile-grid-spi "$TEST_TMP/memory-source.mlir" "$TEST_TMP/grid-spi.mem" > "$TEST_TMP/grid-spi.json"
 "$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-source.mlir" "$TEST_TMP/grid-uart.mem" > "$TEST_TMP/grid-uart.json"
+python3 "$HERE/test_grid_route.py" --mapper "$CIRCT_MAP" --circt-opt "$CIRCT_OPT" --dialect "$SPATIAL_DIALECT" "$TEST_TMP/grid-spi.json" "$TEST_TMP/grid-uart.json"
+for proto in spi uart; do
+  python3 "$HERE/grid_workload.py" "$TEST_TMP/grid-$proto.json" > "$TEST_TMP/grid-$proto-nets.json"
+  python3 "$HERE/grid_route.py" "$TEST_TMP/grid-$proto-nets.json" --emit-mlir > "$TEST_TMP/grid-$proto-route.mlir"
+  "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/grid-$proto-route.mlir" -o /dev/null
+  "$CIRCT_MAP" --route-grid "$TEST_TMP/grid-$proto-route.mlir" > "$TEST_TMP/grid-$proto-route.json"
+  python3 "$HERE/grid_route_image.py" "$TEST_TMP/grid-$proto-route.json" "$TEST_TMP/grid-$proto.json" \
+    "$TEST_TMP/grid-$proto.mem" "$TEST_TMP/grid-$proto-experiment.mem" "$TEST_TMP/grid-$proto-experiment.json"
+  python3 "$HERE/test_grid_image.py" "$proto" "$TEST_TMP/grid-$proto-experiment.mem" "$TEST_TMP/grid-$proto-experiment.json"
+done
+if [ -n "${GRID_IMAGE_TB:-}" ]; then
+  "$GRID_IMAGE_TB" "+SPI_IMAGE=$TEST_TMP/grid-spi-experiment.mem" "+UART_IMAGE=$TEST_TMP/grid-uart-experiment.mem"
+fi
+for proto in i2c jtag usb ethernet_tx; do
+  python3 "$HERE/grid_corpus.py" "$proto" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" > "$TEST_TMP/grid-$proto-nets.json"
+  python3 "$HERE/grid_route.py" "$TEST_TMP/grid-$proto-nets.json" --emit-mlir > "$TEST_TMP/grid-$proto-route.mlir"
+  "$CIRCT_MAP" --route-grid "$TEST_TMP/grid-$proto-route.mlir" > "$TEST_TMP/grid-$proto-route.json"
+done
+python3 - "$TEST_TMP" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+for name in ('i2c', 'jtag', 'usb', 'ethernet_tx'):
+    workload = json.loads((p / f'grid-{name}-nets.json').read_text())
+    route = json.loads((p / f'grid-{name}-route.json').read_text())
+    assert workload['source_validated'] and not workload['full_source_program_compiled']
+    assert route['status'] == 'routed' and route['engine'] == 'circt-spatial-grid-route-v1'
+PY
+sed 's/shift: half_bit.fall/shift: half_bit.rise/' "$HERE/../examples/ethernet_tx.spt" > "$TEST_TMP/ethernet-bad.spt"
+if python3 "$HERE/grid_corpus.py" ethernet_tx --source "$TEST_TMP/ethernet-bad.spt" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" > /dev/null 2>&1; then
+  echo 'grid corpus accepted a changed source connection' >&2; exit 1
+fi
+python3 "$HERE/investigate_workloads.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" "$HERE"/../examples/*.spt > "$TEST_TMP/source-corpus.json"
+python3 "$HERE/grid_auto_corpus.py" --evidence "$TEST_TMP/source-corpus.json" --mapper "$CIRCT_MAP" --output "$TEST_TMP/grid-auto-corpus.json"
+python3 - "$TEST_TMP/grid-auto-corpus.json" <<'PY'
+import json, sys
+programs = json.load(open(sys.argv[1]))['programs']
+assert len(programs) >= 35
+assert sum(p['selected_connections'] > 0 for p in programs) >= 32
+assert all(not x['candidates']['current_w4']['status'].startswith('unknown') for x in programs)
+assert any(p['candidates']['current_w2']['status'] == 'unroutable_in_model' for p in programs)
+PY
 python3 "$HERE/grid_crc_profile.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" \
   "$HERE/../examples/usb.spt" "$HERE/../examples/ethernet_tx.spt" > "$TEST_TMP/grid-crc-profiles.json"
 python3 "$HERE/grid_jtag_component.py" --frontend "$SPATIAL_FRONTEND" --mapper "$CIRCT_MAP" \
@@ -62,6 +117,16 @@ for name,mode in [('spi',0),('uart',1)]:
 PY
 python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi.json"
 python3 "$HERE/test_grid_image.py" uart "$TEST_TMP/grid-uart.mem" "$TEST_TMP/grid-uart.json"
+mkdir -p "$TEST_TMP/mutated-rtl/architecture"
+python3 - "$RTL_ROOT/architecture/grid_3x3.json" "$TEST_TMP/mutated-rtl/architecture/grid_3x3.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c['bit_network']['selector_values']['local_first'] = 2
+json.dump(c, open(sys.argv[2], 'w'))
+PY
+if RTL_ROOT="$TEST_TMP/mutated-rtl" python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi.json" > /dev/null 2>&1; then
+  echo 'grid image checker ignored mutated switch contract' >&2; exit 1
+fi
 python3 - "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi-broken.mem" <<'PY'
 import pathlib, sys
 words=pathlib.Path(sys.argv[1]).read_text().splitlines()

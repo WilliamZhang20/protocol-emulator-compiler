@@ -179,9 +179,19 @@ static int mapWorkloadGraph(ModuleOp targetModule, ModuleOp workModule, bool ass
   llvm::json::Array assignments,schedule,routes,resources;
   for (size_t i=0;i<tiles.size();++i) {
     llvm::json::Array assigned;
+    std::set<int> addresses;
     for (size_t n=0;n<nodes.size();++n) if (placed[n]==static_cast<int>(i)) assigned.push_back(nodes[n].id);
-    resources.push_back(llvm::json::Object{{"tile",tiles[i].id},{"kind",tiles[i].kind},
-        {"width",tiles[i].width},{"assigned_nodes",std::move(assigned)}});
+    llvm::json::Object resource{{"tile",tiles[i].id},{"kind",tiles[i].kind},
+        {"width",tiles[i].width},{"assigned_nodes",std::move(assigned)}};
+    if (tiles[i].depth>=0) {
+      for (size_t n=0;n<nodes.size();++n)
+        if (placed[n]==static_cast<int>(i) && nodes[n].address>=0) addresses.insert(nodes[n].address);
+      llvm::json::Array touched; for (int address:addresses) touched.push_back(address);
+      resource["capacity_words"]=tiles[i].depth;
+      resource["touched_addresses"]=std::move(touched);
+      resource["address_allocation_verified"]=false;
+    }
+    resources.push_back(std::move(resource));
   }
   for (size_t n=0;n<nodes.size();++n) {
     assignments.push_back(llvm::json::Object{{"node",nodes[n].id},{"tile",tiles[placed[n]].id}});
@@ -202,6 +212,7 @@ static int mapWorkloadGraph(ModuleOp targetModule, ModuleOp workModule, bool ass
       {"rtl_fidelity_verified",false},{"physical_timing_verified",false},{"full_source_program_compiled",false},
       {"nominal_pad_frequency_checked",padChecked},
       {"limitations","First feasible bounded placement; resource schedule uses declared abstract durations, not RTL-cycle-accurate timing. Feedback routes are checked but not scheduled; no route-selector conflicts, link traffic capacity, value-lifetime/storage allocation, host transaction model, physical timing, or general .spt stream lowering."}};
+  if (auto name=target->getAttrOfType<StringAttr>("name")) report["target"]=name.getValue();
   if (assess) {
     report["model"]="typed-resource-assessment-v1";
     report["status"]="abstract_placement_found";

@@ -8,6 +8,7 @@
 #include "llvm/Support/JSON.h"
 #include <set>
 #include <map>
+#include <cstdlib>
 #include <string>
 
 using namespace mlir;
@@ -235,6 +236,59 @@ public:
   }
 };
 
+class GridRouteProblemOp : public Op<GridRouteProblemOp, OpTrait::ZeroOperands, OpTrait::ZeroResults, OpTrait::ZeroRegions> {
+public:
+  SPATIAL_OP_COMMON(GridRouteProblemOp, "spatial.grid_route_problem")
+  LogicalResult verify() {
+    auto rows=(*this)->getAttrOfType<IntegerAttr>("rows"), cols=(*this)->getAttrOfType<IntegerAttr>("columns");
+    auto tracks=(*this)->getAttrOfType<ArrayAttr>("tracks"), nets=(*this)->getAttrOfType<ArrayAttr>("nets");
+    auto layout=(*this)->getAttrOfType<ArrayAttr>("layout");
+    auto sw=(*this)->getAttrOfType<ArrayAttr>("switch_selectors"), in=(*this)->getAttrOfType<ArrayAttr>("input_selectors");
+    auto allReg=(*this)->getAttrOfType<BoolAttr>("all_registered");
+    auto regLinks=(*this)->getAttrOfType<ArrayAttr>("registered_links");
+    auto name=(*this)->getAttrOfType<StringAttr>("name");
+    auto limit=(*this)->getAttrOfType<IntegerAttr>("search_limit");
+    if (!name || name.getValue().empty() || !rows || !cols || !rows.getType().isInteger(64) || !cols.getType().isInteger(64) ||
+        rows.getInt()<1 || rows.getInt()>16 || cols.getInt()<1 || cols.getInt()>16 || !tracks || tracks.empty() || tracks.size()>16 || !nets || !layout)
+      return emitOpError("requires bounded grid, named problem, tracks, layout and nets");
+    if (!limit || !limit.getType().isInteger(64) || limit.getInt()<1 || limit.getInt()>1000000) return emitOpError("invalid search limit");
+    if (!sw || sw.size()!=5 || !in || in.size()!=5) return emitOpError("requires five switch and input selector values");
+    for (auto raw:sw) { auto n=dyn_cast<IntegerAttr>(raw); if (!n || !n.getType().isInteger(64) || n.getInt()<0 || n.getInt()>7) return emitOpError("invalid switch selector"); }
+    for (auto raw:in) { auto n=dyn_cast<IntegerAttr>(raw); if (!n || !n.getType().isInteger(64) || n.getInt()<0 || n.getInt()>255) return emitOpError("invalid input selector"); }
+    if (cast<IntegerAttr>(sw[0]).getInt()!=0 || cast<IntegerAttr>(sw[1]).getInt()+3>7)
+      return emitOpError("switch must encode zero and four local sources");
+    if (!allReg || !regLinks || (allReg.getValue() && !regLinks.empty())) return emitOpError("invalid registered-link mode");
+    std::set<std::pair<int64_t,int64_t>> seenLinks;
+    for (auto raw:regLinks) {
+      auto d=dyn_cast<DictionaryAttr>(raw); auto a=d ? d.getAs<IntegerAttr>("from") : IntegerAttr(), b=d ? d.getAs<IntegerAttr>("to") : IntegerAttr();
+      if (!a || !b || !a.getType().isInteger(64) || !b.getType().isInteger(64) || a.getInt()<0 || b.getInt()<0 ||
+          a.getInt()>=rows.getInt()*cols.getInt() || b.getInt()>=rows.getInt()*cols.getInt() ||
+          std::abs(a.getInt()/cols.getInt()-b.getInt()/cols.getInt())+std::abs(a.getInt()%cols.getInt()-b.getInt()%cols.getInt())!=1 ||
+          !seenLinks.emplace(a.getInt(),b.getInt()).second) return emitOpError("invalid or duplicate registered neighbor link");
+    }
+    for (auto t:tracks) { auto v=dyn_cast<StringAttr>(t); if (!v || (v.getValue()!="horizontal_then_vertical" && v.getValue()!="vertical_then_horizontal")) return emitOpError("unknown track turn class"); }
+    std::map<std::string,int64_t> positions; std::set<std::string> names; std::set<std::pair<std::string,int64_t>> sinks, sources;
+    for (auto raw:layout) {
+      auto d=dyn_cast<DictionaryAttr>(raw); auto n=d ? d.getAs<StringAttr>("resource") : StringAttr(); auto c=d ? d.getAs<IntegerAttr>("cell") : IntegerAttr();
+      if (!n || n.getValue().empty() || !c || !c.getType().isInteger(64) || c.getInt()<0 || c.getInt()>=rows.getInt()*cols.getInt() || !positions.emplace(n.getValue().str(),c.getInt()).second)
+        return emitOpError("invalid or duplicate layout resource");
+    }
+    auto endpoint=[&](DictionaryAttr d, bool source)->bool {
+      auto n=d ? d.getAs<StringAttr>("resource") : StringAttr(); auto p=d ? d.getAs<IntegerAttr>("port") : IntegerAttr();
+      if (!n || !p || !p.getType().isInteger(64) || p.getInt()<0 || p.getInt()>(source ? 3 : 80) || !positions.count(n.getValue().str())) return false;
+      return source ? sources.emplace(n.getValue().str(),p.getInt()).second : sinks.emplace(n.getValue().str(),p.getInt()).second;
+    };
+    if (nets.size()>256) return emitOpError("too many nets");
+    for (auto raw:nets) {
+      auto d=dyn_cast<DictionaryAttr>(raw); auto n=d ? d.getAs<StringAttr>("name") : StringAttr();
+      auto source=d ? d.getAs<DictionaryAttr>("source") : DictionaryAttr(); auto dest=d ? d.getAs<ArrayAttr>("sinks") : ArrayAttr();
+      if (!n || n.getValue().empty() || !names.insert(n.getValue().str()).second || !endpoint(source,true) || !dest || dest.empty() || dest.size()>64)
+        return emitOpError("invalid net or duplicate source");
+      for (auto rawSink:dest) if (!endpoint(dyn_cast<DictionaryAttr>(rawSink),false)) return emitOpError("invalid or multiply driven sink");
+    }
+    return success();
+  }
+};
 class TargetGraphOp : public Op<TargetGraphOp, OpTrait::ZeroOperands, OpTrait::ZeroResults, OpTrait::ZeroRegions> {
 public:
   SPATIAL_OP_COMMON(TargetGraphOp, "spatial.target_graph")
@@ -476,7 +530,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SpatialDialect)
   explicit SpatialDialect(MLIRContext *ctx)
       : Dialect(getDialectNamespace(), ctx, TypeID::get<SpatialDialect>()) {
-    addOperations<FabricOp, SpiOp, ConfigWriteOp, PayloadOp, WorkloadGraphOp, TargetGraphOp, ProtocolOp, FrontendProgramOp, FrontendItemOp, FrontendInputOp, FrontendStreamOp>();
+    addOperations<FabricOp, SpiOp, ConfigWriteOp, PayloadOp, WorkloadGraphOp, GridRouteProblemOp, TargetGraphOp, ProtocolOp, FrontendProgramOp, FrontendItemOp, FrontendInputOp, FrontendStreamOp>();
   }
   static StringRef getDialectNamespace() { return "spatial"; }
 };

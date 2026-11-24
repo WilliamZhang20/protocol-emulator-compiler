@@ -1,0 +1,1344 @@
+{
+  "schema": "spatial.grid-candidate-sweep.v1",
+  "contract": "/home/wzhang20/Documents/protocol-emulator/architecture/grid_3x3.json",
+  "area_library_sha256": "7677a8918689f452e80405ad16a83e744709342574f2aedcc507c2758986b396",
+  "contract_sha256": "748cf1912033048f15fe4b45e2a0b5e586457eb36ca73e4e5045102b091201ea",
+  "source_sha256": {
+    "spi": "dd2ab64e80c6a55b98e8f518d87252f732f9c2b4b77528918d564ed81565bf12",
+    "uart": "8645f8e2ad4cde8d1fb711d406ed7c2d5e393fa4bc61ae48c8f3c4f5f1a070ef",
+    "i2c": "13c35e04a734e4fba7a2e472aa34cc8abf8f5bacd120e674583129e964fd18f7",
+    "jtag": "e90feaa030d930995aad0ac2e747bdd34182c48c12d808547cbbda31d9609c9a",
+    "usb": "5625b76b295e179426d42ad04143820788a267f1d92ada080ef9cb527af03dc0",
+    "ethernet_tx": "8a3bc4773e34f83594003f274b5dd4432184065a14ffa29e26edc58d70bd9b7c"
+  },
+  "protocol_workloads": {
+    "spi": {
+      "name": "grid-3x3-spi-experiment",
+      "source_validated": true,
+      "full_source_program_compiled": false
+    },
+    "uart": {
+      "name": "grid-3x3-uart-experiment",
+      "source_validated": true,
+      "full_source_program_compiled": false
+    },
+    "i2c": {
+      "name": "i2c-direct-bit-slice",
+      "source_validated": true,
+      "full_source_program_compiled": false,
+      "selected_connections": 5,
+      "all_source_connections": 18,
+      "source_resource_counts": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "limitations": [
+        "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+        "Full protocol support cannot be inferred from this slice."
+      ]
+    },
+    "jtag": {
+      "name": "jtag-direct-bit-slice",
+      "source_validated": true,
+      "full_source_program_compiled": false,
+      "selected_connections": 11,
+      "all_source_connections": 11,
+      "source_resource_counts": {
+        "timer": 1,
+        "shifter": 2
+      },
+      "limitations": [
+        "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+        "Full protocol support cannot be inferred from this slice."
+      ]
+    },
+    "usb": {
+      "name": "usb-direct-bit-slice",
+      "source_validated": true,
+      "full_source_program_compiled": false,
+      "selected_connections": 2,
+      "all_source_connections": 23,
+      "source_resource_counts": {
+        "timer": 1,
+        "shifter": 1,
+        "counter": 2,
+        "crc": 1
+      },
+      "limitations": [
+        "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+        "Full protocol support cannot be inferred from this slice."
+      ]
+    },
+    "ethernet_tx": {
+      "name": "ethernet_tx-direct-bit-slice",
+      "source_validated": true,
+      "full_source_program_compiled": false,
+      "selected_connections": 5,
+      "all_source_connections": 34,
+      "source_resource_counts": {
+        "timer": 4,
+        "shifter": 1,
+        "counter": 2,
+        "crc": 1
+      },
+      "limitations": [
+        "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+        "Full protocol support cannot be inferred from this slice."
+      ]
+    }
+  },
+  "candidates": [
+    {
+      "name": "current_w4",
+      "tracks": 4,
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 4,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 1364.1264,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": true,
+      "physical_layout_verified": true,
+      "physical_evidence": {
+        "source_run": "https://github.com/WilliamZhang20/protocol-emulator/actions/runs/45437508380",
+        "hardware_commit": "91758084507d172b2525b17d3fde55602d99bd1f",
+        "flow": "Tiny Tapeout IHP SG13CMOS5L, post-route",
+        "metrics": {
+          "design__die__area": 1225260,
+          "design__core__area": 1208170,
+          "design__instance__area__stdcell": 233185,
+          "design__instance__area__macros": 98838.5,
+          "design__instance__utilization": 0.274814,
+          "design__instance__utilization__stdcell": 0.210203,
+          "timing__setup__ws": 3.874684682774301,
+          "timing__hold__ws": 0.20329055680905905,
+          "design__max_slew_violation__count": 1,
+          "design__max_cap_violation__count": 1,
+          "design__max_fanout_violation__count": 130,
+          "klayout__drc_error__count": 0,
+          "route__drc_errors": 0
+        }
+      },
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 20,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 25,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 11,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 22,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 8,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 92,
+        "max_hops": 4,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "current_w2_balanced",
+      "tracks": 2,
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 2,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 682.0632,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 20,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 25,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 11,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "unroutable_in_model",
+          "search_nodes": 17,
+          "max_hops": null,
+          "max_route_cycles": null,
+          "used_directed_track_segments": null,
+          "route_count": 0,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 8,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 5,
+        "selected_slices_total": 6,
+        "sum_used_segments": 70,
+        "max_hops": 4,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "current_w3_balanced",
+      "tracks": 3,
+      "isolated_switch_proxy": null,
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 20,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 25,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 11,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 22,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 8,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 92,
+        "max_hops": 4,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "current_w6_balanced",
+      "tracks": 6,
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 6,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 2046.1896,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 20,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 4,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 25,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 11,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 22,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 8,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 92,
+        "max_hops": 4,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "centre_timer_w4",
+      "tracks": 4,
+      "layout": {
+        "timer0": 4,
+        "lut": 2
+      },
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 4,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 1364.1264,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": true,
+      "physical_evidence": {
+        "source_run": "https://github.com/WilliamZhang20/protocol-emulator/actions/runs/45470796607",
+        "hardware_commit": "82a420d3fc741c8a4d2193df064358c865a5ae3b",
+        "flow": "Tiny Tapeout IHP SG13CMOS5L, post-route",
+        "metrics": {
+          "design__die__area": 1225260.0,
+          "design__core__area": 1208170.0,
+          "design__instance__area__stdcell": 236505.0,
+          "design__instance__area__macros": 98838.5,
+          "design__instance__utilization": 0.277563,
+          "design__instance__utilization__stdcell": 0.213196,
+          "timing__setup__ws": 2.4869653706995924,
+          "timing__hold__ws": 0.1014709456291573,
+          "design__max_slew_violation__count": 4.0,
+          "design__max_cap_violation__count": 0.0,
+          "design__max_fanout_violation__count": 128.0,
+          "klayout__drc_error__count": 0.0,
+          "route__drc_errors": 0.0
+        }
+      },
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 14,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 19,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 9,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 13,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 4,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 65,
+        "max_hops": 3,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "centre_timer_w3",
+      "tracks": 3,
+      "layout": {
+        "timer0": 4,
+        "lut": 2
+      },
+      "isolated_switch_proxy": null,
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 14,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 19,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 9,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 13,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 4,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 65,
+        "max_hops": 3,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "centre_timer_w4_direct",
+      "tracks": 4,
+      "layout": {
+        "timer0": 4,
+        "lut": 2
+      },
+      "direct": [
+        {
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sink": {
+            "resource": "shifter0",
+            "port": 4
+          }
+        },
+        {
+          "source": {
+            "resource": "timer0",
+            "port": 1
+          },
+          "sink": {
+            "resource": "shifter0",
+            "port": 5
+          }
+        }
+      ],
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 4,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 1364.1264,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 12,
+          "route_count": 10,
+          "engine": "python-direct-link-prototype"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 19,
+          "route_count": 11,
+          "engine": "python-direct-link-prototype"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 9,
+          "route_count": 5,
+          "engine": "python-direct-link-prototype"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 2,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 11,
+          "route_count": 11,
+          "engine": "python-direct-link-prototype"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 4,
+          "route_count": 2,
+          "engine": "python-direct-link-prototype"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 0,
+          "used_directed_track_segments": 6,
+          "route_count": 5,
+          "engine": "python-direct-link-prototype"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 61,
+        "max_hops": 3,
+        "max_added_cycles": 0,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "centre_timer_w4_selective_registers",
+      "tracks": 4,
+      "layout": {
+        "timer0": 4,
+        "lut": 2
+      },
+      "registered": [
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          7,
+          4
+        ],
+        [
+          1,
+          4
+        ]
+      ],
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 4,
+        "registered_outputs": false,
+        "standard_cell_area_um2_per_four_port_switch": 1364.1264,
+        "register_bits_per_switch": 0
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "max_route_cycles": 2,
+          "used_directed_track_segments": 14,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 2,
+          "used_directed_track_segments": 19,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 2,
+          "max_route_cycles": 2,
+          "used_directed_track_segments": 9,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 2,
+          "max_route_cycles": 2,
+          "used_directed_track_segments": 13,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 1,
+          "used_directed_track_segments": 4,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 1,
+          "used_directed_track_segments": 6,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 65,
+        "max_hops": 3,
+        "max_added_cycles": 2,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    },
+    {
+      "name": "current_w4_registered",
+      "tracks": 4,
+      "registered": true,
+      "isolated_switch_proxy": {
+        "tracks_per_direction": 4,
+        "registered_outputs": true,
+        "standard_cell_area_um2_per_four_port_switch": 2104.4016,
+        "register_bits_per_switch": 16
+      },
+      "rtl_matches_current": false,
+      "physical_layout_verified": false,
+      "workloads": {
+        "spi": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 4,
+          "max_route_cycles": 4,
+          "used_directed_track_segments": 20,
+          "route_count": 10,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "uart": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 4,
+          "max_route_cycles": 4,
+          "used_directed_track_segments": 25,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "i2c": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 3,
+          "used_directed_track_segments": 11,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "jtag": {
+          "status": "routed",
+          "search_nodes": 12,
+          "max_hops": 3,
+          "max_route_cycles": 3,
+          "used_directed_track_segments": 22,
+          "route_count": 11,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "usb": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "max_route_cycles": 3,
+          "used_directed_track_segments": 6,
+          "route_count": 2,
+          "engine": "circt-spatial-grid-route-v1"
+        },
+        "ethernet_tx": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "max_route_cycles": 3,
+          "used_directed_track_segments": 8,
+          "route_count": 5,
+          "engine": "circt-spatial-grid-route-v1"
+        }
+      },
+      "model_objectives": {
+        "selected_slices_routed": 6,
+        "selected_slices_total": 6,
+        "sum_used_segments": 92,
+        "max_hops": 4,
+        "max_added_cycles": 4,
+        "note": "Compare segment totals only when all selected slices route; not protocol coverage, timing closure, or a physical fitness score."
+      }
+    }
+  ],
+  "limitations": [
+    "These are restricted component or direct-connection slices; no full protocol fit is established.",
+    "Only explicit fixed placements and the router's single-track Manhattan paths are searched; failure is not proof of hardware infeasibility.",
+    "Switch area is an isolated synthesis proxy; direct muxes and selective registers, configuration, memories, physical wiring, timing and pad effects are excluded.",
+    "Registered-path cycles are arithmetic hop counts without skew compensation or a functional test."
+  ],
+  "source_corpus": {
+    "programs": 35,
+    "names": [
+      "byte_filter.spt",
+      "byte_framing.spt",
+      "byte_tag_errors.spt",
+      "byte_tag_gap.spt",
+      "byte_xor.spt",
+      "contexts.spt",
+      "contexts_initial_one.spt",
+      "contexts_logic.spt",
+      "crc_link_trace.spt",
+      "ethernet_tx.spt",
+      "ethernet_tx_coded.spt",
+      "i2c.spt",
+      "io_saturation.spt",
+      "jtag.spt",
+      "loopback.spt",
+      "memory_bandwidth.spt",
+      "memory_bandwidth_bit2.spt",
+      "memory_bandwidth_fast.spt",
+      "memory_dual_channel.spt",
+      "memory_dual_channel_bit2.spt",
+      "memory_dual_channel_serial.spt",
+      "memory_unequal_parallel.spt",
+      "packet_errors.spt",
+      "packets.spt",
+      "protocol_control.spt",
+      "protocol_control_controller.spt",
+      "protocol_control_extended_actor.spt",
+      "protocol_control_extended_actor_fast.spt",
+      "protocol_control_two_input.spt",
+      "ps2.spt",
+      "spi.spt",
+      "stored_bytes.spt",
+      "swd.spt",
+      "uart.spt",
+      "usb.spt"
+    ],
+    "invalid_or_unresolved_connections": 0,
+    "scope": "Rust frontend and CIRCT source evidence only; full programs are not mapped.",
+    "inventory": [
+      {
+        "program": "byte_filter.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "byte_framing.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "byte_tag_errors.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 8,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "byte_tag_gap.spt",
+        "declared_resources": {
+          "timer": 3,
+          "shifter": 2
+        },
+        "register_expressions": 1,
+        "connections": 14,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "byte_xor.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "contexts.spt",
+        "declared_resources": {
+          "shifter": 1,
+          "timer": 1
+        },
+        "register_expressions": 0,
+        "connections": 13,
+        "context_connections": 6,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "contexts_initial_one.spt",
+        "declared_resources": {
+          "shifter": 1,
+          "timer": 1
+        },
+        "register_expressions": 0,
+        "connections": 13,
+        "context_connections": 6,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "contexts_logic.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 2,
+        "connections": 11,
+        "context_connections": 2,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "crc_link_trace.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1,
+          "crc": 1
+        },
+        "register_expressions": 0,
+        "connections": 7,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "ethernet_tx.spt",
+        "declared_resources": {
+          "timer": 4,
+          "shifter": 1,
+          "counter": 2,
+          "crc": 1
+        },
+        "register_expressions": 8,
+        "connections": 34,
+        "context_connections": 4,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "ethernet_tx_coded.spt",
+        "declared_resources": {
+          "timer": 4,
+          "shifter": 1,
+          "crc": 1
+        },
+        "register_expressions": 3,
+        "connections": 21,
+        "context_connections": 4,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "i2c.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 6,
+        "connections": 18,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "io_saturation.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 8,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "jtag.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 11,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "loopback.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_bandwidth.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_bandwidth_bit2.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_bandwidth_fast.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_dual_channel.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 9,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_dual_channel_bit2.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 9,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_dual_channel_serial.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 9,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "memory_unequal_parallel.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 9,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "packet_errors.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 1,
+        "connections": 9,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "packets.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 2,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "protocol_control.spt",
+        "declared_resources": {
+          "timer": 1
+        },
+        "register_expressions": 0,
+        "connections": 2,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "protocol_control_controller.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 7,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "protocol_control_extended_actor.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 7,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "protocol_control_extended_actor_fast.spt",
+        "declared_resources": {
+          "timer": 1
+        },
+        "register_expressions": 0,
+        "connections": 2,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "protocol_control_two_input.spt",
+        "declared_resources": {
+          "timer": 2
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "ps2.spt",
+        "declared_resources": {
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "spi.spt",
+        "declared_resources": {
+          "counter": 1,
+          "timer": 3,
+          "shifter": 1
+        },
+        "register_expressions": 3,
+        "connections": 18,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "stored_bytes.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 4,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "swd.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1
+        },
+        "register_expressions": 0,
+        "connections": 8,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "uart.spt",
+        "declared_resources": {
+          "timer": 2,
+          "shifter": 2
+        },
+        "register_expressions": 0,
+        "connections": 10,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      },
+      {
+        "program": "usb.spt",
+        "declared_resources": {
+          "timer": 1,
+          "shifter": 1,
+          "counter": 2,
+          "crc": 1
+        },
+        "register_expressions": 8,
+        "connections": 23,
+        "context_connections": 0,
+        "full_grid_compiled": false,
+        "note": "Source inventory only; temporal reuse, lowering, and hardware feasibility are unresolved."
+      }
+    ]
+  }
+}

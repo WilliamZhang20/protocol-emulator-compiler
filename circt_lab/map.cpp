@@ -24,6 +24,7 @@
 #include <queue>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace mlir;
@@ -563,6 +564,7 @@ static int compileMemorySpi(ModuleOp module, llvm::StringRef txText, const char 
 #include "uart_lowering.inc"
 #include "v2_images.inc"
 #include "grid_image.inc"
+#include "grid_route.inc"
 
 // Route independent selectors, including explicit route.<sink> relays. This
 // bounded exact search considers earlier choices when solving later demands;
@@ -721,14 +723,20 @@ int main(int argc, char **argv) {
   bool v2UnifiedUart = argc == 4 && llvm::StringRef(argv[1]) == "--compile-v2-unified-uart";
   bool gridSpi = argc == 4 && llvm::StringRef(argv[1]) == "--compile-grid-spi";
   bool gridUart = argc == 4 && llvm::StringRef(argv[1]) == "--compile-grid-uart";
+  bool routeGrid = argc == 3 && llvm::StringRef(argv[1]) == "--route-grid";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
   bool assessGraph = argc == 4 && llvm::StringRef(argv[1]) == "--assess-graph";
-  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !v2UnifiedSpi && !v2UnifiedUart && !gridSpi && !gridUart && !mapGraph && !assessGraph && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --compile-v2-uart-stream FRONTEND OUTPUT | --compile-grid-spi FRONTEND OUTPUT | --compile-grid-uart FRONTEND OUTPUT | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  if (!verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !v2UnifiedSpi && !v2UnifiedUart && !gridSpi && !gridUart && !routeGrid && !mapGraph && !assessGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --compile-v2-uart-stream FRONTEND OUTPUT | --compile-grid-spi FRONTEND OUTPUT | --compile-grid-uart FRONTEND OUTPUT | --route-grid PROBLEM | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
   MLIRContext context(registry);
+  if (routeGrid) {
+    auto problem=parseSourceFile<ModuleOp>(argv[2],&context);
+    if (!problem || failed(verify(*problem))) return fail("invalid grid routing MLIR");
+    return routeGridProblem(*problem);
+  }
   if (gridSpi || gridUart) {
     auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");

@@ -19,10 +19,15 @@ def main():
         counts = Counter(r['kind'] for r in resources)
         used = Counter(r['kind'] for r in resources if r['assigned_nodes'])
         print('Model resource map (assignments; not hardware utilization)')
+        if report.get('target'):
+            print('  Target: ' + report['target'])
         print('  ' + '  '.join(f'{k}: {used[k]}/{counts[k]} tiles' for k in sorted(counts)))
         for r in resources:
             names = ', '.join(r['assigned_nodes']) if r['assigned_nodes'] else '(unused)'
             print(f"  [{r['tile']}] {r['kind']} i{r['width']}: {names}")
+            if 'capacity_words' in r:
+                addresses = ', '.join(map(str, r['touched_addresses'])) or 'none'
+                print(f"    capacity {r['capacity_words']} words; modeled addresses: {addresses} (not buffer allocation)")
         print('\nModel routes')
         for route in report['routes']:
             print(f"  {route['from']} -> {route['to']} i{route['width']} "

@@ -1,0 +1,3962 @@
+{
+  "schema": "spatial.grid-auto-corpus.v1",
+  "programs": [
+    {
+      "program": "byte_filter.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 59,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "byte_framing.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 59,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "byte_tag_errors.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 6,
+      "source_connections": 8,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            },
+            {
+              "resource": "shifter0",
+              "port": 3
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "non_direct_expression": 1,
+        "unmapped_destination": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 23,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 2,
+          "used_directed_track_segments": 6
+        }
+      }
+    },
+    {
+      "program": "byte_tag_gap.spt",
+      "source_resources": {
+        "timer": 3,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 14,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unassigned_resource_timer": 1,
+        "unmapped_destination": 4
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 59,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "byte_xor.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 59,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "contexts.spt",
+      "source_resources": {
+        "shifter": 1,
+        "timer": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 13,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 9
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "non_direct_expression": 2,
+        "unmapped_destination": 1,
+        "context_edge": 6
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "contexts_initial_one.spt",
+      "source_resources": {
+        "shifter": 1,
+        "timer": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 13,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 9
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "non_direct_expression": 2,
+        "unmapped_destination": 1,
+        "context_edge": 6
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "contexts_logic.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 3,
+      "source_connections": 11,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 3,
+        "unmapped_destination": 3,
+        "context_edge": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 3
+        }
+      }
+    },
+    {
+      "program": "crc_link_trace.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1,
+        "crc": 1
+      },
+      "selected_connections": 3,
+      "source_connections": 7,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "half_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 3
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_destination": 3,
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 2,
+          "used_directed_track_segments": 3
+        }
+      }
+    },
+    {
+      "program": "ethernet_tx.spt",
+      "source_resources": {
+        "timer": 4,
+        "shifter": 1,
+        "counter": 2,
+        "crc": 1
+      },
+      "selected_connections": 5,
+      "source_connections": 34,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "half_bit.fall",
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 3
+            },
+            {
+              "resource": "crc",
+              "port": 77
+            },
+            {
+              "resource": "crc",
+              "port": 78
+            }
+          ]
+        },
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "crc",
+              "port": 80
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unassigned_resource_counter": 2,
+        "unassigned_resource_timer": 2,
+        "unmapped_source": 4,
+        "non_direct_expression": 1,
+        "unmapped_destination": 20,
+        "context_edge": 4
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 8
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 8
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 8
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 8
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 6
+        }
+      }
+    },
+    {
+      "program": "ethernet_tx_coded.spt",
+      "source_resources": {
+        "timer": 4,
+        "shifter": 1,
+        "crc": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 21,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "half_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 3
+            }
+          ]
+        },
+        {
+          "name": "bits.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "tail.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unassigned_resource_timer": 2,
+        "unmapped_source": 2,
+        "non_direct_expression": 1,
+        "unmapped_destination": 10,
+        "context_edge": 4
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 5
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 3
+        }
+      }
+    },
+    {
+      "program": "i2c.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 4,
+      "source_connections": 18,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sda_bits.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "pattern.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "pattern.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "cond_clock.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_destination": 8,
+        "unmapped_source": 5,
+        "non_direct_expression": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 9
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 7
+        }
+      }
+    },
+    {
+      "program": "io_saturation.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 8,
+      "source_connections": 8,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender_a.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender_b.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "sender_a.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender_a.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sender_b.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender_b.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "bit_a.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "bit_b.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 19,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 13
+        }
+      }
+    },
+    {
+      "program": "jtag.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 2
+      },
+      "selected_connections": 9,
+      "source_connections": 11,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "clock.out",
+          "source": {
+            "resource": "timer0",
+            "port": 3
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "mode.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "data.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 9
+            }
+          ]
+        },
+        {
+          "name": "data.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "data.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "clock.fall",
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        },
+        {
+          "name": "tdo",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        },
+        {
+          "name": "clock.rise",
+          "source": {
+            "resource": "timer0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 17,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 10,
+          "max_hops": 3,
+          "used_directed_track_segments": 20
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 10,
+          "max_hops": 3,
+          "used_directed_track_segments": 20
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 10,
+          "max_hops": 3,
+          "used_directed_track_segments": 20
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 10,
+          "max_hops": 2,
+          "used_directed_track_segments": 11
+        }
+      }
+    },
+    {
+      "program": "loopback.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "send_clock.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "in_wire.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "read_clock.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "in_wire",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 55,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "memory_bandwidth.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "memory_bandwidth_bit2.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "memory_bandwidth_fast.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "memory_dual_channel.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 8,
+      "source_connections": 9,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender0.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender1.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "sender0.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender0.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sender1.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender1.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "bit0.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "bit1.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 19,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 13
+        }
+      }
+    },
+    {
+      "program": "memory_dual_channel_bit2.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 8,
+      "source_connections": 9,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender0.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender1.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "sender0.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender0.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sender1.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender1.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "bit0.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "bit1.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 19,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 13
+        }
+      }
+    },
+    {
+      "program": "memory_dual_channel_serial.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 8,
+      "source_connections": 9,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender0.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender1.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "sender0.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender0.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sender1.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender1.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "bit0.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "bit1.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 19,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 13
+        }
+      }
+    },
+    {
+      "program": "memory_unequal_parallel.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 8,
+      "source_connections": 9,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender0.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender1.out",
+          "source": {
+            "resource": "shifter1",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "sender0.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender0.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sender1.busy",
+          "source": {
+            "resource": "shifter1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender1.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "bit0.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "bit1.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 19,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 19
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 13
+        }
+      }
+    },
+    {
+      "program": "packet_errors.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 6,
+      "source_connections": 9,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            },
+            {
+              "resource": "shifter0",
+              "port": 3
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "sample.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "non_direct_expression": 1,
+        "unmapped_destination": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 23,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 10
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 2,
+          "used_directed_track_segments": 6
+        }
+      }
+    },
+    {
+      "program": "packets.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 5,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "bits.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "bit.fall",
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        },
+        {
+          "name": "bit.rise",
+          "source": {
+            "resource": "timer0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_destination": 4,
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 12
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 12
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 12
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 3,
+          "used_directed_track_segments": 12
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 6,
+          "max_hops": 2,
+          "used_directed_track_segments": 6
+        }
+      }
+    },
+    {
+      "program": "protocol_control.spt",
+      "source_resources": {
+        "timer": 1
+      },
+      "selected_connections": 0,
+      "source_connections": 2,
+      "full_source_program_compiled": false,
+      "nets": [],
+      "omitted": {
+        "unmapped_destination": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w3": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w4": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w6": {
+          "status": "no_supported_direct_edges"
+        },
+        "centre_w4": {
+          "status": "no_supported_direct_edges"
+        }
+      }
+    },
+    {
+      "program": "protocol_control_controller.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 7,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_destination": 2,
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        }
+      }
+    },
+    {
+      "program": "protocol_control_extended_actor.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 7,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_destination": 2,
+        "unmapped_source": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        }
+      }
+    },
+    {
+      "program": "protocol_control_extended_actor_fast.spt",
+      "source_resources": {
+        "timer": 1
+      },
+      "selected_connections": 0,
+      "source_connections": 2,
+      "full_source_program_compiled": false,
+      "nets": [],
+      "omitted": {
+        "unmapped_destination": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w3": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w4": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w6": {
+          "status": "no_supported_direct_edges"
+        },
+        "centre_w4": {
+          "status": "no_supported_direct_edges"
+        }
+      }
+    },
+    {
+      "program": "protocol_control_two_input.spt",
+      "source_resources": {
+        "timer": 2
+      },
+      "selected_connections": 0,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [],
+      "omitted": {
+        "unmapped_destination": 4
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w3": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w4": {
+          "status": "no_supported_direct_edges"
+        },
+        "current_w6": {
+          "status": "no_supported_direct_edges"
+        },
+        "centre_w4": {
+          "status": "no_supported_direct_edges"
+        }
+      }
+    },
+    {
+      "program": "ps2.spt",
+      "source_resources": {
+        "shifter": 1
+      },
+      "selected_connections": 3,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "psclk.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            },
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        },
+        {
+          "name": "psdata",
+          "source": {
+            "resource": "input_io",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "non_direct_expression": 1
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 2
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 2
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 2
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 2
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 4,
+          "max_hops": 1,
+          "used_directed_track_segments": 2
+        }
+      }
+    },
+    {
+      "program": "spi.spt",
+      "source_resources": {
+        "counter": 1,
+        "timer": 3,
+        "shifter": 1
+      },
+      "selected_connections": 8,
+      "source_connections": 18,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sck_clock.out",
+          "source": {
+            "resource": "timer0",
+            "port": 3
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 9
+            }
+          ]
+        },
+        {
+          "name": "bits.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "bits.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "cs_off.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "sck_clock.fall",
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "miso",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 6
+            }
+          ]
+        },
+        {
+          "name": "sck_clock.rise",
+          "source": {
+            "resource": "timer0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unassigned_resource_counter": 1,
+        "unassigned_resource_timer": 1,
+        "unmapped_source": 3,
+        "unmapped_destination": 7
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 13,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 16
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 16
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 3,
+          "used_directed_track_segments": 16
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 9,
+          "max_hops": 2,
+          "used_directed_track_segments": 8
+        }
+      }
+    },
+    {
+      "program": "stored_bytes.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 4,
+      "source_connections": 4,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 11,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 3,
+          "used_directed_track_segments": 11
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 5,
+          "max_hops": 2,
+          "used_directed_track_segments": 5
+        }
+      }
+    },
+    {
+      "program": "swd.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1
+      },
+      "selected_connections": 6,
+      "source_connections": 8,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "clock.out",
+          "source": {
+            "resource": "timer0",
+            "port": 3
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 8
+            }
+          ]
+        },
+        {
+          "name": "bits.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "bits.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "clock.fall",
+          "source": {
+            "resource": "timer0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "clock.rise",
+          "source": {
+            "resource": "timer0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 5
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unmapped_source": 2
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 13,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 15
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 15
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 3,
+          "used_directed_track_segments": 15
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 7,
+          "max_hops": 2,
+          "used_directed_track_segments": 7
+        }
+      }
+    },
+    {
+      "program": "uart.spt",
+      "source_resources": {
+        "timer": 2,
+        "shifter": 2
+      },
+      "selected_connections": 10,
+      "source_connections": 10,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "sender.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "output_io",
+              "port": 7
+            }
+          ]
+        },
+        {
+          "name": "sender.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "sender.done",
+          "source": {
+            "resource": "shifter0",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 1
+            }
+          ]
+        },
+        {
+          "name": "tx_bit.tick",
+          "source": {
+            "resource": "timer0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter0",
+              "port": 4
+            }
+          ]
+        },
+        {
+          "name": "rx.fall",
+          "source": {
+            "resource": "input_io",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 12
+            },
+            {
+              "resource": "shifter1",
+              "port": 15
+            }
+          ]
+        },
+        {
+          "name": "receiver.done",
+          "source": {
+            "resource": "shifter1",
+            "port": 1
+          },
+          "sinks": [
+            {
+              "resource": "timer1",
+              "port": 13
+            }
+          ]
+        },
+        {
+          "name": "rx_bit.tick",
+          "source": {
+            "resource": "timer1",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 16
+            },
+            {
+              "resource": "shifter1",
+              "port": 17
+            }
+          ]
+        },
+        {
+          "name": "rx",
+          "source": {
+            "resource": "input_io",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "shifter1",
+              "port": 18
+            }
+          ]
+        }
+      ],
+      "omitted": {},
+      "candidates": {
+        "current_w2": {
+          "status": "unroutable_in_model",
+          "search_nodes": 59,
+          "max_hops": null,
+          "used_directed_track_segments": null
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 23
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 11,
+          "max_hops": 3,
+          "used_directed_track_segments": 17
+        }
+      }
+    },
+    {
+      "program": "usb.spt",
+      "source_resources": {
+        "timer": 1,
+        "shifter": 1,
+        "counter": 2,
+        "crc": 1
+      },
+      "selected_connections": 2,
+      "source_connections": 23,
+      "full_source_program_compiled": false,
+      "nets": [
+        {
+          "name": "bits.busy",
+          "source": {
+            "resource": "shifter0",
+            "port": 0
+          },
+          "sinks": [
+            {
+              "resource": "timer0",
+              "port": 0
+            }
+          ]
+        },
+        {
+          "name": "bits.out",
+          "source": {
+            "resource": "shifter0",
+            "port": 2
+          },
+          "sinks": [
+            {
+              "resource": "crc",
+              "port": 80
+            }
+          ]
+        }
+      ],
+      "omitted": {
+        "unassigned_resource_counter": 2,
+        "unmapped_source": 7,
+        "unmapped_destination": 14
+      },
+      "candidates": {
+        "current_w2": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "used_directed_track_segments": 6
+        },
+        "current_w3": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "used_directed_track_segments": 6
+        },
+        "current_w4": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "used_directed_track_segments": 6
+        },
+        "current_w6": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "used_directed_track_segments": 6
+        },
+        "centre_w4": {
+          "status": "routed",
+          "search_nodes": 3,
+          "max_hops": 3,
+          "used_directed_track_segments": 4
+        }
+      }
+    }
+  ],
+  "contract_sha256": "748cf1912033048f15fe4b45e2a0b5e586457eb36ca73e4e5045102b091201ea",
+  "evidence_sha256": "ad9df074ac5b79f22aa25ec945fea75edbabae5ac2554e88c182f34c7a1f7b7f",
+  "limitations": [
+    "Only direct bit references with fixed first-declared resource binding are modeled.",
+    "Omitted operations, contexts, scheduling, memories, physical pin restrictions, widths and timing are not validated.",
+    "No result establishes full program fit or a fundamental hardware deficit."
+  ]
+}

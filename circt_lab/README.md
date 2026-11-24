@@ -103,6 +103,34 @@ this is not a general Mealy-machine lowering.
 
 ## Flexible candidate analysis and exact RTL emission
 
+### Current-grid architecture contract
+
+The hardware repository owns `architecture/grid_3x3.json`. It records the
+current fabric, including ports, coordinates, switch encodings, configuration
+words, memory, and the fixed scheduler. The grid image checker reads its switch
+and sink descriptions rather than duplicating their encoding. The hardware
+`make grid-contract-check` independently checks elaborated neighbors and tile
+instances, and proves the switch's selector logic against the contract.
+
+```sh
+python3 circt_lab/grid_contract.py summary
+python3 circt_lab/grid_contract.py target > /tmp/grid-target.mlir
+circt-opt --load-dialect-plugin="$SPATIAL_DIALECT" /tmp/grid-target.mlir -o /dev/null
+/tmp/spatial-circt-map --map-graph /tmp/grid-target.mlir \
+  circt_lab/examples/grid_contract_loopback.mlir > /tmp/grid-report.json
+python3 circt_lab/show_graph.py /tmp/grid-report.json
+```
+
+Set `RTL_ROOT` for the image checker or `--contract` for the target exporter
+when the hardware checkout is not the default sibling. The generated target is
+an **overapproximation** of bit connectivity: it does not encode individual
+tracks, turn restrictions, selector conflicts, word streams, or the actual
+temporal scheduler. The exact SPI/UART image checker validates concrete routes
+against the contract; graph-mapper success alone is not a legal image or a
+protocol-fit proof. Memory resources report capacity and touched addresses;
+these are not allocated buffers or verified lifetimes. Schedule durations are
+abstract, not measured chip timing.
+
 ### Typed program and resource graphs
 
 `--memory-spi-graph FRONTEND` first validates the same restricted source used

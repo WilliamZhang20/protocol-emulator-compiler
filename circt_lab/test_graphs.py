@@ -161,6 +161,11 @@ def main():
         assert not report['rtl_fidelity_verified'] and not report['image_emitted']
         assert report['nominal_pad_frequency_checked']
         assert report['memory_layout_origin'] == 'rtl-test-driver-not-source'
+        memories = {r['tile']: r for r in report['resources'] if r['kind'] == 'memory'}
+        assert memories['bank1']['capacity_words'] == 1024
+        assert memories['bank1']['touched_addresses'] == [100, 101, 200, 201]
+        assert memories['bank0']['touched_addresses'] == []
+        assert not memories['bank1']['address_allocation_verified']
         schedule = {x['node']: x for x in report['schedule']}
         assert schedule['read_hi']['finish'] <= schedule['read_lo']['start']
         assert schedule['write_hi']['finish'] <= schedule['write_lo']['start']
