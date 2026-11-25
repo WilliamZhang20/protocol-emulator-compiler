@@ -709,6 +709,7 @@ static int analyze(ModuleOp arch, ModuleOp program) {
 
 #include "i2c_temporal.inc"
 #include "jtag_trace.inc"
+#include "ethernet_session.inc"
 #include "coded_stream.inc"
 
 int main(int argc, char **argv) {

@@ -62,6 +62,13 @@ def target(contract):
         elif kind == 'lut':
             add_tile(id, 'lut', ['lut2'])
             add_link(id, cell); add_link(cell, id)
+        elif kind == 'lut4_register':
+            add_tile(id, 'lut', ['lut4_registered'])
+            add_link(id, cell); add_link(cell, id)
+        elif kind == 'sequencer_port':
+            # Routed event inputs only; the sequencer itself is not a bit tile.
+            add_tile(id, 'control', ['event_input'])
+            add_link(cell, id)
         elif kind == 'crc':
             add_tile(id, 'crc', ['crc'], resource['width_bits_max'])
             add_link(id, cell); add_link(cell, id)

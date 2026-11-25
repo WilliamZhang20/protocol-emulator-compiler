@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Source-checked USB DATA0 function or Ethernet stored-frame fragment.
+# Source-checked USB DATA0 function, Ethernet stored-frame fragment or full
+# Ethernet link session (ethernet_session).
 set -euo pipefail
-if [[ $# != 5 ]]; then echo "usage: $0 SOURCE usb\|ethernet PAYLOAD_HEX OUTPUT_PREFIX CIRCT_MAP" >&2; exit 2; fi
+if [[ $# != 5 ]]; then echo "usage: $0 SOURCE usb\|ethernet\|ethernet_session PAYLOAD_HEX OUTPUT_PREFIX CIRCT_MAP" >&2; exit 2; fi
 repo=$(cd "$(dirname "$0")/.." && pwd)
 source_file=$(realpath "$1"); mode=$2; payload=$3; output=$(realpath -m "$4"); mapper=$(realpath "$5")
 case "$mode" in
   usb) profile=usb_tx.json; nets=usb_coded_nets.json ;;
   ethernet) profile=ethernet_frame.json; nets=coded_stream_nets.json ;;
-  *) echo 'mode must be usb or ethernet' >&2; exit 2 ;;
+  ethernet_session) profile=ethernet_session.json; nets=ethernet_session_nets.json ;;
+  *) echo 'mode must be usb, ethernet or ethernet_session' >&2; exit 2 ;;
 esac
 mkdir -p "$(dirname "$output")"
 "${SPATIAL_FRONTEND:-$repo/target/debug/spatial}" frontend-mlir "$source_file" > "$output.frontend.mlir"

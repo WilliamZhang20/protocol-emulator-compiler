@@ -1,0 +1,16 @@
+{"name":"ethernet_link_session_wiring","nets":[
+  {"name":"cadence_tick","source":{"resource":"timer0","port":0},"sinks":[{"resource":"shifter0","port":4},{"resource":"shifter0","port":5}]},
+  {"name":"half_bit_tick","source":{"resource":"timer1","port":0},"sinks":[{"resource":"crc","port":78}]},
+  {"name":"fire_link_pulse","source":{"resource":"sram0","port":0},"sinks":[{"resource":"timer2","port":19}]},
+  {"name":"start_ticks","source":{"resource":"sram0","port":1},"sinks":[{"resource":"shifter0","port":3},{"resource":"timer1","port":13}]},
+  {"name":"begin_frame","source":{"resource":"sram0","port":2},"sinks":[{"resource":"timer1","port":12}]},
+  {"name":"pulse_fall","source":{"resource":"timer2","port":2},"sinks":[{"resource":"timer2","port":20},{"resource":"sequencer_events","port":41}]},
+  {"name":"pulse_level","source":{"resource":"timer2","port":3},"sinks":[{"resource":"lut4_0","port":28}]},
+  {"name":"tail_tick","source":{"resource":"timer3","port":0},"sinks":[{"resource":"timer3","port":23},{"resource":"sequencer_events","port":42},{"resource":"lut4_3","port":39},{"resource":"lut4_2","port":35}]},
+  {"name":"bits_busy","source":{"resource":"coded_shifter","port":3},"sinks":[{"resource":"lut4_0","port":25},{"resource":"lut4_1","port":29},{"resource":"lut4_3","port":37},{"resource":"lut4_2","port":34}]},
+  {"name":"bits_out","source":{"resource":"coded_shifter","port":2},"sinks":[{"resource":"lut4_0","port":26},{"resource":"lut4_1","port":30}]},
+  {"name":"idle_high","source":{"resource":"lut4_3","port":0},"sinks":[{"resource":"lut4_3","port":38},{"resource":"lut4_2","port":33},{"resource":"lut4_0","port":27}]},
+  {"name":"tail_window","source":{"resource":"lut4_2","port":0},"sinks":[{"resource":"timer3","port":22}]},
+  {"name":"positive","source":{"resource":"lut4_0","port":0},"sinks":[{"resource":"output_io","port":7}]},
+  {"name":"negative","source":{"resource":"lut4_1","port":0},"sinks":[{"resource":"output_io","port":8}]}
+]}

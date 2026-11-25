@@ -1,0 +1,568 @@
+[
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "td_p",
+    "pads": null,
+    "source": {
+      "field": "out",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "pulse"
+      }
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "td_n",
+    "pads": null,
+    "source": {
+      "kind": "integer",
+      "value": "0"
+    }
+  },
+  {
+    "kind": "clock",
+    "value": {
+      "kind": "quantity",
+      "unit": "MHz",
+      "value": "40"
+    }
+  },
+  {
+    "flags": [
+      [
+        "sending",
+        {
+          "kind": "integer",
+          "value": "0"
+        }
+      ],
+      [
+        "no_end",
+        {
+          "kind": "integer",
+          "value": "0"
+        }
+      ]
+    ],
+    "kind": "flags"
+  },
+  {
+    "kind": "events",
+    "names": [
+      "begin_frame",
+      "link_pulse"
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycles",
+          "value": "2"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "integer",
+          "value": "1"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "half_bit",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "2",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "shift",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "half_bit"
+          }
+        }
+      },
+      {
+        "name": "start",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "half_bit"
+          }
+        }
+      },
+      {
+        "name": "burst",
+        "value": null
+      },
+      {
+        "name": "end",
+        "value": {
+          "kind": "name",
+          "name": "no_end"
+        }
+      },
+      {
+        "name": "end_on_packet",
+        "value": null
+      },
+      {
+        "name": "manchester",
+        "value": null
+      },
+      {
+        "name": "crc_tail_bits",
+        "value": {
+          "kind": "integer",
+          "value": "32"
+        }
+      },
+      {
+        "name": "crc_skip_bits",
+        "value": {
+          "kind": "integer",
+          "value": "64"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "bits",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "width",
+        "value": {
+          "kind": "integer",
+          "value": "32"
+        }
+      },
+      {
+        "name": "poly",
+        "value": {
+          "kind": "integer",
+          "value": "79764919"
+        }
+      },
+      {
+        "name": "check",
+        "value": {
+          "kind": "integer",
+          "value": "3338984827"
+        }
+      },
+      {
+        "name": "link",
+        "value": {
+          "kind": "name",
+          "name": "bits"
+        }
+      },
+      {
+        "name": "restart",
+        "value": {
+          "kind": "name",
+          "name": "begin_frame"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "fcs",
+    "payload_width": null,
+    "resource_kind": "crc",
+    "state_width": {
+      "bits": "32",
+      "status": "known"
+    },
+    "timings": []
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "idle_high",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "binary",
+        "left": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        },
+        "op": "||",
+        "right": {
+          "kind": "name",
+          "name": "idle_high"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "tail"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "positive",
+    "value": {
+      "condition": {
+        "field": "busy",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "bits"
+        }
+      },
+      "kind": "if",
+      "no": {
+        "kind": "binary",
+        "left": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        },
+        "op": "||",
+        "right": {
+          "kind": "name",
+          "name": "idle_high"
+        }
+      },
+      "yes": {
+        "field": "out",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "bits"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "negative",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "field": "busy",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "bits"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      }
+    }
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycles",
+          "value": "13"
+        }
+      },
+      {
+        "name": "first",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycles",
+          "value": "10"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "field": "done",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "bits"
+            }
+          },
+          "op": "until",
+          "right": {
+            "field": "tick",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "tail"
+            }
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "tail",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "13",
+          "status": "known"
+        }
+      ],
+      [
+        "first",
+        {
+          "denominator": "1",
+          "numerator": "10",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "name",
+          "name": "NLP_TICK"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "integer",
+          "value": "1"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "cadence",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "NLP_TICK",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycles",
+          "value": "4"
+        }
+      },
+      {
+        "name": "first",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycle",
+          "value": "1"
+        }
+      },
+      {
+        "name": "idle",
+        "value": {
+          "kind": "integer",
+          "value": "0"
+        }
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "kind": "name",
+            "name": "link_pulse"
+          },
+          "op": "until",
+          "right": {
+            "field": "fall",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "pulse"
+            }
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "pulse",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "4",
+          "status": "known"
+        }
+      ],
+      [
+        "first",
+        {
+          "denominator": "1",
+          "numerator": "1",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "kind": "context_selector",
+    "signal": {
+      "kind": "name",
+      "name": "sending"
+    }
+  },
+  {
+    "body": [
+      {
+        "kind": "pin",
+        "mode": "out",
+        "name": "td_p",
+        "pads": null,
+        "source": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "pulse"
+          }
+        }
+      },
+      {
+        "kind": "pin",
+        "mode": "out",
+        "name": "td_n",
+        "pads": null,
+        "source": {
+          "kind": "integer",
+          "value": "0"
+        }
+      }
+    ],
+    "index": {
+      "kind": "integer",
+      "value": "0"
+    },
+    "kind": "context"
+  },
+  {
+    "body": [
+      {
+        "kind": "pin",
+        "mode": "out",
+        "name": "td_p",
+        "pads": null,
+        "source": {
+          "kind": "name",
+          "name": "positive"
+        }
+      },
+      {
+        "kind": "pin",
+        "mode": "out",
+        "name": "td_n",
+        "pads": null,
+        "source": {
+          "kind": "name",
+          "name": "negative"
+        }
+      }
+    ],
+    "index": {
+      "kind": "integer",
+      "value": "1"
+    },
+    "kind": "context"
+  }
+]

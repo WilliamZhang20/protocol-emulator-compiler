@@ -480,3 +480,16 @@ not compile the source's link-pulse session or implement an analog PHY. These
 are exact semantic profiles and do not imply general source-program support.
 Run `test_jtag_trace.sh CIRCT_MAP` and `test_coded_stream.sh CIRCT_MAP` to
 regenerate the chip fixtures and exercise source mutations and rejection.
+
+`compile_coded_stream.sh SOURCE ethernet_session '' PREFIX CIRCT_MAP` compiles
+the whole exported `transmit()` of `examples/ethernet_tx_coded.spt` onto the
+5x3 grid. Declarations must match `profiles/ethernet_session.json` exactly
+(`NLP_TICK` and the frame bytes are parameters); the session body is compiled
+per statement: `repeat N { wait next cadence.tick }` uses shifter 0 as an
+N-tick counter, `fire link_pulse` starts timer 2, `wait pulse.fall`/`wait
+tail.tick` wait on the sequencer's routed event inputs and `bits.send` starts
+the half-bit timer that releases the armed frame. The pin contexts become the
+output functions of registered LUT4 cells; that is exact only because the
+body compiler rejects pulses while `sending` is set, unequal repeat counts and
+a frame without its tail wait. `generate_ethernet_session.py` rewrites
+`NLP_TICK` for the fast gate-level fixture.

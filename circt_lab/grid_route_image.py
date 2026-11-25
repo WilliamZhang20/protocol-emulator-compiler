@@ -24,6 +24,8 @@ def encode(contract, result, original, words):
         if path['sink'].get('context', 0):
             raise ValueError('this image encoder supports only the baseline context')
         for hop in path['hops']:
+            if hop['from'] >= network['switch_words'].get('extension_first_cell', len(contract['grid']['cells'])):
+                raise ValueError('this SPI/UART encoder targets the original nine cells')
             addr = network['switch_words']['first'] + hop['from'] * network['switch_words']['words_per_cell'] + hop['direction']
             shift = path['track'] * network['switch_words']['selector_bits']
             words[addr] = (words[addr] & ~(7 << shift)) | (hop['selector'] << shift)

@@ -6,18 +6,39 @@ from pathlib import Path
 from grid_contract import DEFAULT
 
 
+def switch_address(net, cell, direction):
+    words=net['switch_words']
+    first_ext=words.get('extension_first_cell')
+    if first_ext is not None and cell>=first_ext:
+        return words['extension_first']+(cell-first_ext)*words['words_per_cell']+direction
+    return words['first']+cell*words['words_per_cell']+direction
+
+
+def sink_address(net, sink):
+    if 'sink_words' in net:
+        return net['sink_words'][sink]
+    return net['sink_word_first']+sink if sink<net['sink_word_split'] else net['sink_word_second']+sink-net['sink_word_split']
+
+
 def encode(contract, routes, program, base):
     net=contract['bit_network']
     if routes['status']!='routed' or routes['track_count']!=net['tracks_per_direction'] or routes['registered_hops'] or routes['direct_links']:
         raise ValueError('requires current unregistered grid')
     if any(routes['layout'][k]!=v['cell'] for k,v in contract['resources'].items()):
         raise ValueError('route placement does not match RTL')
-    words=list(base)+[0]*max(0,124-len(base))
+    # Images that use the extension rows (cells 9-14, words 128-184) are
+    # longer; images for the original nine cells keep their 124 words.
+    first_ext=net['switch_words'].get('extension_first_cell',len(contract['grid']['cells']))
+    extended=(any(int(k)>=128 for k in program['base_words']) or
+              any(h['from']>=first_ext or h['to']>=first_ext for r in routes['routes'] for h in r['hops']) or
+              any(r['sink']['port']>=contract['bit_network'].get('context_overridable_sinks',19) and r['sink']['resource']!='crc' for r in routes['routes']))
+    size=contract['configuration']['extension_words'][1]+1 if extended else 124
+    words=list(base[:124])+[0]*max(0,size-min(len(base),124))
     for i in range(5,41):words[i]=0
-    for i in list(range(41,53))+list(range(56,63))+list(range(77,81)):words[i]=0
+    for i in list(range(41,53))+list(range(56,63))+list(range(77,81))+list(range(128,size)):words[i]=0
     for key,value in program['base_words'].items():
         address=int(key)
-        if not 0<=address<124 or not 0<=value<=65535:raise ValueError('invalid configuration word')
+        if not 0<=address<size or not 0<=value<=65535:raise ValueError('invalid configuration word')
         words[address]=value
     selections={}
     for route in routes['routes']:
@@ -27,7 +48,7 @@ def encode(contract, routes, program, base):
         if key in selections:raise ValueError('duplicate sink')
         selections[key]=route['sink_select']
         for hop in route['hops']:
-            addr=net['switch_words']['first']+hop['from']*net['switch_words']['words_per_cell']+hop['direction']
+            addr=switch_address(net,hop['from'],hop['direction'])
             shift=route['track']*net['switch_words']['selector_bits']
             old=(words[addr]>>shift)&7
             if old and old!=hop['selector']:raise ValueError('switch conflict')
@@ -35,8 +56,7 @@ def encode(contract, routes, program, base):
     for (context,sink),select in selections.items():
         if context:continue
         if 77<=sink<=80:addr=sink
-        elif 0<=sink<len(net['sink_cells']):
-            addr=net['sink_word_first']+sink if sink<net['sink_word_split'] else net['sink_word_second']+sink-net['sink_word_split']
+        elif 0<=sink<len(net['sink_cells']):addr=sink_address(net,sink)
         else:raise ValueError('unknown sink')
         words[addr]=select
     temporal=program.get('temporal')
@@ -46,8 +66,8 @@ def encode(contract, routes, program, base):
         overrides=[]
         for (context,sink),select in selections.items():
             if not context:continue
-            if not 0<=sink<len(net['sink_cells']):raise ValueError('alternate CRC selector unsupported')
-            addr=net['sink_word_first']+sink if sink<net['sink_word_split'] else net['sink_word_second']+sink-net['sink_word_split']
+            if not 0<=sink<net.get('context_overridable_sinks',len(net['sink_cells'])):raise ValueError('sink has no alternate-context override')
+            addr=sink_address(net,sink)
             if select!=words[addr]:overrides.append(0x400|(select<<5)|sink)
         if len(overrides)>contract['temporal']['alternate_context_slots']:raise ValueError('too many context overrides')
         for i,word in enumerate(overrides):words[112+i]=word

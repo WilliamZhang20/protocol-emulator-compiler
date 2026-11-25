@@ -44,6 +44,42 @@ python3 "$repo/circt_lab/generate_ethernet_mtu.py" "$repo/examples/ethernet_tx_c
 if "$compile" "$tmp/oversize.spt" ethernet '' "$tmp/reject" "$mapper" >"$tmp/error" 2>&1; then
  echo 'oversized Ethernet frame unexpectedly accepted' >&2; exit 1
 fi
+# Full 10BASE-T link session: the exported transmit() compiles onto the
+# 5x3 grid; NLP_TICK is a source parameter (fast fixture for gate level).
+"$compile" "$repo/examples/ethernet_tx_coded.spt" ethernet_session '' "$tmp/session" "$mapper"
+cmp "$tmp/session.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-session.mem"
+cmp "$tmp/session.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-session.json"
+python3 "$repo/circt_lab/generate_ethernet_session.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/fast.spt" --nlp-tick 4000
+"$compile" "$tmp/fast.spt" ethernet_session '' "$tmp/fast" "$mapper"
+cmp "$tmp/fast.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-session-fast.mem"
+cmp "$tmp/fast.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-session-fast.json"
+python3 - "$repo/examples/ethernet_tx_coded.spt" "$tmp" <<'PY'
+from pathlib import Path
+import sys
+src=Path(sys.argv[1]).read_text();out=Path(sys.argv[2])
+body='    fire begin_frame\n    set_flags(sending)\n    bits.send(WIRE_FRAME)\n'
+assert src.count(body)==1 and src.count('repeat 10')==3
+# Rejected: a pulse while sending, unequal counts, a missing tail wait, and an
+# extra declaration outside the profile.
+(out/'s_pulse_sending.spt').write_text(src.replace(body,'    fire begin_frame\n    set_flags(sending)\n    fire link_pulse\n    wait pulse.fall\n    bits.send(WIRE_FRAME)\n'))
+(out/'s_counts.spt').write_text(src.replace('repeat 10','repeat 9',1))
+(out/'s_no_tail.spt').write_text(src.replace('    wait tail.tick\n','',1))
+(out/'s_extra.spt').write_text(src.replace('flag sending','timer spare { every: 5 cycles, pulse, run: 1 }\nflag sending',1))
+# Accepted: a shorter session (one pulse before the frame) compiles to fewer rows.
+short=src.replace('    repeat 10 { wait next cadence.tick }\n    fire link_pulse\n    wait pulse.fall\n','',1)
+assert short!=src;(out/'s_short.spt').write_text(short)
+PY
+for bad in s_pulse_sending s_counts s_no_tail s_extra; do
+ if "$compile" "$tmp/$bad.spt" ethernet_session '' "$tmp/reject" "$mapper" >"$tmp/error" 2>&1; then
+   echo "unsupported Ethernet session $bad accepted" >&2; exit 1
+ fi
+done
+"$compile" "$tmp/s_short.spt" ethernet_session '' "$tmp/short" "$mapper"
+python3 - "$tmp/session.program.json" "$tmp/short.program.json" <<'PY'
+import json,sys
+full,short=(json.load(open(p)) for p in sys.argv[1:])
+assert full['sequencer_rows_used']==15 and short['sequencer_rows_used']==11, (full['sequencer_rows_used'],short['sequencer_rows_used'])
+PY
 "$compile" "$tmp/different_frame.spt" ethernet '' "$tmp/different" "$mapper"
 python3 - "$tmp/ethernet.program.json" "$tmp/different.program.json" <<'PY'
 import json,sys

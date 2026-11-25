@@ -2,7 +2,7 @@
 // source's stored-frame fragment onto the common streaming coder and CRC.
 static int lowerCodedStream(ModuleOp module, const char *profilePath,
                             llvm::StringRef mode, llvm::StringRef payloadText) {
-  if (mode!="usb" && mode!="ethernet") return fail("coded mode must be usb or ethernet");
+  if (mode!="usb" && mode!="ethernet" && mode!="ethernet_session") return fail("coded mode must be usb, ethernet or ethernet_session");
   Operation *root=findOne(module,"spatial.frontend_program");
   if (!root) return fail("expected one frontend program");
   auto file=llvm::MemoryBuffer::getFile(profilePath);
@@ -15,6 +15,10 @@ static int lowerCodedStream(ModuleOp module, const char *profilePath,
     auto parsed=llvm::json::parse(op.getAttrOfType<StringAttr>("item_json").getValue());
     if (!parsed) return fail("invalid source item");
     items.push_back(stripSourceSpans(*parsed));
+  }
+  if (mode=="ethernet_session") {
+    if (!payloadText.empty()) return fail("Ethernet packet comes from source WIRE_FRAME");
+    return lowerEthernetSession(items,*profile);
   }
   for (const auto &expected:*profile->getAsArray()) {
     auto *e=expected.getAsObject(); if (!e) return fail("invalid profile item");

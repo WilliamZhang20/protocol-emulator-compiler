@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from grid_contract import DEFAULT
+from grid_coded_image import switch_address
 
 
 def encode(contract, routes, program):
@@ -22,24 +23,29 @@ def encode(contract, routes, program):
         if address >= len(words) or not 0 <= value <= 0xffff:
             raise ValueError('invalid base configuration')
         words[address] = value
-    for i in range(net['switch_words']['first'], net['switch_words']['first'] + len(contract['grid']['cells']) * net['switch_words']['words_per_cell']):
+    # Clear the original nine cells' switch words; extension cells (words
+    # 128+) are outside this image and stay at their reset value of zero.
+    base_cells = net['switch_words'].get('extension_first_cell', len(contract['grid']['cells']))
+    for i in range(net['switch_words']['first'], net['switch_words']['first'] + base_cells * net['switch_words']['words_per_cell']):
         words[i] = 0
     sink_select = {}
     for path in routes['routes']:
         context = path['sink'].get('context', 0)
         sink = path['sink']['port']
-        if sink >= len(net['sink_cells']):
-            raise ValueError('CRC context inputs are not supported by this encoder')
+        if sink >= net.get('context_overridable_sinks', len(net['sink_cells'])):
+            raise ValueError('only the original 19 tile inputs are supported by this encoder')
         key = context, sink
         if key in sink_select:
             raise ValueError('duplicate sink')
         sink_select[key] = path['sink_select']
         for hop in path['hops']:
-            addr = net['switch_words']['first'] + hop['from'] * net['switch_words']['words_per_cell'] + hop['direction']
+            if hop['from'] >= base_cells:
+                raise ValueError('extension cells are not supported by this encoder')
+            addr = switch_address(net, hop['from'], hop['direction'])
             shift = path['track'] * net['switch_words']['selector_bits']
             words[addr] = (words[addr] & ~(7 << shift)) | (hop['selector'] << shift)
     overrides = []
-    for sink in range(len(net['sink_cells'])):
+    for sink in range(net.get('context_overridable_sinks', len(net['sink_cells']))):
         addr = net['sink_word_first'] + sink if sink < net['sink_word_split'] else net['sink_word_second'] + sink - net['sink_word_split']
         base = sink_select.get((0, sink), words[addr])
         alternate = sink_select.get((1, sink), base)
