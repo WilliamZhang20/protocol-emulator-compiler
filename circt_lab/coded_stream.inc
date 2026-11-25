@@ -66,13 +66,22 @@ static int lowerCodedStream(ModuleOp module, const char *profilePath,
   llvm::json::Object result{{"base_words",std::move(words)},{"payload_base",100},{"payload_bytes",std::move(payload)},
     {"source_profile",mode=="usb"?"usb-low-speed-data0":"ethernet-stored-frame"},
     {"full_source_function_compiled",mode=="usb"},
-    {"limitations",mode=="usb"?"Fixed DATA0 transmit profile; no receive or host enumeration.":"Frame fragment only; link pulses, idle behavior and analog PHY are not implemented."}};
+    {"limitations",mode=="usb"?"Fixed DATA0 transmit profile; no receive or host enumeration.":"Frame fragment only; link pulses and analog PHY are not implemented."}};
+  auto row=[](int h,int no,int yes,int ev,int act){return (h<<15)|(no<<11)|(yes<<7)|(ev<<4)|act;};
+  llvm::json::Array rows;
+  int idle=0;
   if (mode=="usb") {
-    auto row=[](int h,int no,int yes,int ev,int act){return (h<<15)|(no<<11)|(yes<<7)|(ev<<4)|act;};
-    llvm::json::Array rows{row(0,0,1,6,4),row(0,1,2,1,12),row(0,2,3,1,12),row(0,3,4,1,14)};
+    rows=llvm::json::Array{row(0,0,1,6,4),row(0,1,2,1,12),row(0,2,3,1,12),row(0,3,4,1,14)};
     for(int i=4;i<16;i++)rows.push_back(row(1,0,0,0,10));
-    result["temporal"]=llvm::json::Object{{"entry",0},{"idle_actions",10},{"rows",std::move(rows)}};
+    idle=10;
+  } else {
+    // Stay quiet until the first byte is actually launched, then expose the
+    // differential stream and return both outputs low at the final edge.
+    rows=llvm::json::Array{row(0,0,1,2,8),row(0,1,2,6,0)};
+    for(int i=2;i<16;i++)rows.push_back(row(1,0,0,0,8));
+    idle=8;
   }
+  result["temporal"]=llvm::json::Object{{"entry",0},{"idle_actions",idle},{"rows",std::move(rows)}};
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(result)));
   return 0;
 }

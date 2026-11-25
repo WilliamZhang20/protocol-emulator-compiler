@@ -116,7 +116,13 @@ static int lowerJtagTest(ModuleOp module, const char *profilePath, llvm::StringR
     unsigned d=0,m=0; for (unsigned bit=0;bit<8;bit++) {d|=tdi[offset+bit]<<bit;m|=tms[offset+bit]<<bit;}
     payload.push_back(d);payload.push_back(m);
   }
-  llvm::json::Object result{{"source_test",requested},{"payload_bytes",std::move(payload)},
+  auto row=[](int h,int no,int yes,int ev,int act){return (h<<15)|(no<<11)|(yes<<7)|(ev<<4)|act;};
+  // Request a paired shifter frame; wait for its SRAM write; repeat until
+  // the generic transmit stream is empty, then halt without an error.
+  llvm::json::Array rows{row(0,1,1,0,12),row(0,1,2,6,8),row(0,0,3,7,8)};
+  for(int i=3;i<16;i++)rows.push_back(row(1,0,0,0,8));
+  llvm::json::Object temporal{{"entry",0},{"idle_actions",8},{"rows",std::move(rows)}};
+  llvm::json::Object result{{"temporal",std::move(temporal)},{"source_test",requested},{"payload_bytes",std::move(payload)},
     {"checks",std::move(checks)},{"peer_checks",std::move(peerChecks)},{"source_cycles",static_cast<int64_t>(sourceCycles)},
     {"padding_idle_cycles",static_cast<int64_t>(tms.size()-sourceCycles)},
     {"rx_capacity",static_cast<int64_t>(tms.size()/8)},

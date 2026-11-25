@@ -6,7 +6,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 base="$repo/../protocol-emulator/test/data/grid-spi.mem"
 compile="$repo/circt_lab/compile_jtag_test.sh"; name='reset and read a 32-bit IDCODE'
 "$compile" "$repo/examples/jtag.spt" "$name" "$tmp/ref" "$mapper" "$base"
-cmp "$tmp/ref.mem" "$repo/../protocol-emulator/test/data/grid-jtag.mem"
+cmp "$tmp/ref.mem" "$repo/../protocol-emulator/test/data/grid-jtag-temporal.mem"
 cmp "$tmp/ref.program.json" "$repo/../protocol-emulator/test/data/grid-jtag-idcode.json"
 "$compile" "$repo/examples/jtag.spt" 'select IR and write and read the user DR' "$tmp/user" "$mapper" "$base"
 cmp "$tmp/user.program.json" "$repo/../protocol-emulator/test/data/grid-jtag-user.json"
