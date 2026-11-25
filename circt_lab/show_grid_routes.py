@@ -20,7 +20,7 @@ def render(contract, report, program=None):
             if base<(i+1)*size and end>i*size:used.add(f'sram{i}')
     cells=[]
     for cell in contract['grid']['cells']:
-        names=[name for name in cell['resources'] if layout[name]==cell['id']]
+        names=[name for name in resources if layout[name]==cell['id']]
         cells.append('['+'+'.join(name+('*' if name in used else '') for name in names)+']')
     width=max(len(x) for x in cells)
     lines=['* = source or destination of a routed bit net; SRAM* also indicates payload storage.']
