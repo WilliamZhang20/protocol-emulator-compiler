@@ -7,6 +7,7 @@ compile="$repo/circt_lab/compile_coded_stream.sh"
 "$compile" "$repo/examples/usb.spt" usb 80c301ffff807e3f "$tmp/usb" "$mapper"
 "$compile" "$repo/examples/ethernet_tx_coded.spt" ethernet '' "$tmp/ethernet" "$mapper"
 for mode in usb ethernet; do
+ grep -Fq "coded_shifter*" "$tmp/$mode.map.txt"
  cmp "$tmp/$mode.mem" "$repo/../protocol-emulator/test/data/grid-$mode-coded.mem"
  cmp "$tmp/$mode.program.json" "$repo/../protocol-emulator/test/data/grid-$mode-coded.json"
 done

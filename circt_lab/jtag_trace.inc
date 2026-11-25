@@ -45,12 +45,13 @@ static int lowerJtagTest(ModuleOp module, const char *profilePath, llvm::StringR
     if (op=="attach") {
       auto *peer=stmt->getObject("peer"); auto *callee=peer ? peer->getObject("callee") : nullptr;
       auto *args=peer ? peer->getArray("args") : nullptr;
-      if (attached || !callee || callee->getString("name")!="jtag_tap" || !args || args->size()!=4)
+      if (attached || stmt->getString("alias")!="tap" || !callee || callee->getString("kind")!="name" ||
+          callee->getString("name")!="jtag_tap" || !args || args->size()!=4)
         return fail("requires exactly one JTAG peer");
       const char *names[]={"tck","tms","tdi","tdo"};
       for (unsigned i=0;i<4;i++) {
         auto *a=(*args)[i].getAsObject(); auto *v=a ? a->getObject("value") : nullptr;
-        if (!a || a->getString("name")!=names[i] || !v || v->getString("name")!=names[i])
+        if (!a || a->getString("name")!=names[i] || !v || v->getString("kind")!="name" || v->getString("name")!=names[i])
           return fail("unsupported JTAG peer binding");
       }
       attached=true; continue;
