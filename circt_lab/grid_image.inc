@@ -113,5 +113,16 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
     {"general_mapping",false},{"full_source_program_compiled",false},{"routing",std::move(routes)},
     {"host_configuration",llvm::json::Object{{"tx_length_word",66},{"rx_capacity_word",67},{"pad_feedback_word",68},{"pad_feedback_value",0},{"independent_bank_routes_word",88},{"tx_base_word",89},{"rx_base_word",90}}},
     {"limitations","Fixed tile placement and hand-written frame scheduling; two turn-restricted route classes, no general stream/function lowering or physical timing proof."}};
+  if (uart) {
+    // How a host runs the exported streams (generic runner, hardware repo
+    // test_compiled.py): `send` writes bytes to SRAM and starts the frame
+    // scheduler; `recv` is the autonomous RX region, counted on idle opcode 5.
+    report["interface"]=llvm::json::Object{
+      {"pins",llvm::json::Object{{"tx","uio6"},{"rx","uio0"}}},
+      {"setup_words",llvm::json::Object{{"66",1},{"67",256},{"68",0},{"89",100},{"90",512}}},
+      {"streams",llvm::json::Object{
+        {"send",llvm::json::Object{{"direction","to_chip"},{"base",100},{"length_word",66}}},
+        {"recv",llvm::json::Object{{"direction","from_chip"},{"base",512},{"capacity",256}}}}}};
+  }
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(report)));return 0;
 }

@@ -1,0 +1,275 @@
+{
+ "name": "i2c_write_read_wiring",
+ "nets": [
+  {
+   "name": "seq_sda",
+   "source": {
+    "resource": "sram0",
+    "port": 0
+   },
+   "sinks": [
+    {
+     "resource": "output_io",
+     "port": 7,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "seq_scl",
+   "source": {
+    "resource": "sram0",
+    "port": 1
+   },
+   "sinks": [
+    {
+     "resource": "output_io",
+     "port": 8,
+     "context": 0
+    },
+    {
+     "resource": "lut",
+     "port": 10,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "seq_control",
+   "source": {
+    "resource": "sram0",
+    "port": 2
+   },
+   "sinks": [
+    {
+     "resource": "timer0",
+     "port": 1,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "frame_fire",
+   "source": {
+    "resource": "sram0",
+    "port": 3
+   },
+   "sinks": [
+    {
+     "resource": "timer0",
+     "port": 0,
+     "context": 1
+    },
+    {
+     "resource": "shifter0",
+     "port": 3,
+     "context": 0
+    },
+    {
+     "resource": "shifter0",
+     "port": 3,
+     "context": 1
+    },
+    {
+     "resource": "shifter1",
+     "port": 15,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "shift_done",
+   "source": {
+    "resource": "shifter0",
+    "port": 1
+   },
+   "sinks": [
+    {
+     "resource": "timer0",
+     "port": 1,
+     "context": 1
+    },
+    {
+     "resource": "shifter1",
+     "port": 16,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "shift_out",
+   "source": {
+    "resource": "shifter0",
+    "port": 2
+   },
+   "sinks": [
+    {
+     "resource": "output_io",
+     "port": 7,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "timer_level",
+   "source": {
+    "resource": "timer0",
+    "port": 3
+   },
+   "sinks": [
+    {
+     "resource": "output_io",
+     "port": 8,
+     "context": 1
+    },
+    {
+     "resource": "lut",
+     "port": 10,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "hold",
+   "source": {
+    "resource": "lut",
+    "port": 0
+   },
+   "sinks": [
+    {
+     "resource": "timer0",
+     "port": 2,
+     "context": 0
+    },
+    {
+     "resource": "timer0",
+     "port": 2,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "timer_fall",
+   "source": {
+    "resource": "timer0",
+    "port": 2
+   },
+   "sinks": [
+    {
+     "resource": "shifter0",
+     "port": 4,
+     "context": 0
+    },
+    {
+     "resource": "shifter0",
+     "port": 4,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "scl_rise",
+   "source": {
+    "resource": "input_io",
+    "port": 2
+   },
+   "sinks": [
+    {
+     "resource": "shifter0",
+     "port": 5,
+     "context": 0
+    },
+    {
+     "resource": "shifter0",
+     "port": 5,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "sda_sample",
+   "source": {
+    "resource": "input_io",
+    "port": 1
+   },
+   "sinks": [
+    {
+     "resource": "shifter0",
+     "port": 6,
+     "context": 0
+    },
+    {
+     "resource": "shifter0",
+     "port": 6,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "scl_level",
+   "source": {
+    "resource": "input_io",
+    "port": 0
+   },
+   "sinks": [
+    {
+     "resource": "lut",
+     "port": 11,
+     "context": 0
+    },
+    {
+     "resource": "lut",
+     "port": 11,
+     "context": 1
+    }
+   ]
+  },
+  {
+   "name": "tag_busy",
+   "source": {
+    "resource": "shifter1",
+    "port": 0
+   },
+   "sinks": [
+    {
+     "resource": "lut4_2",
+     "port": 33,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "tag_bit",
+   "source": {
+    "resource": "shifter1",
+    "port": 2
+   },
+   "sinks": [
+    {
+     "resource": "lut4_2",
+     "port": 34,
+     "context": 0
+    }
+   ]
+  },
+  {
+   "name": "restart_tag",
+   "source": {
+    "resource": "lut4_2",
+    "port": 0
+   },
+   "sinks": [
+    {
+     "resource": "lut4_2",
+     "port": 35,
+     "context": 0
+    },
+    {
+     "resource": "sequencer_events",
+     "port": 41,
+     "context": 0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,464 @@
+[
+ {
+  "kind": "clock",
+  "value": {
+   "kind": "quantity",
+   "unit": "MHz",
+   "value": "50"
+  }
+ },
+ {
+  "kind": "constant",
+  "name": "HALF",
+  "value": {
+   "kind": "quantity",
+   "unit": "cycles",
+   "value": "HALF"
+  }
+ },
+ {
+  "kind": "pin",
+  "mode": "out",
+  "name": "cs",
+  "pads": null,
+  "source": {
+   "kind": "name",
+   "name": "cs_n"
+  }
+ },
+ {
+  "kind": "pin",
+  "mode": "out",
+  "name": "sck",
+  "pads": null,
+  "source": {
+   "field": "out",
+   "kind": "field",
+   "object": {
+    "kind": "name",
+    "name": "sck_clock"
+   }
+  }
+ },
+ {
+  "kind": "pin",
+  "mode": "out",
+  "name": "mosi",
+  "pads": null,
+  "source": {
+   "field": "out",
+   "kind": "field",
+   "object": {
+    "kind": "name",
+    "name": "bits"
+   }
+  }
+ },
+ {
+  "kind": "pin",
+  "mode": "in",
+  "name": "miso",
+  "pads": null,
+  "source": null
+ },
+ {
+  "kind": "events",
+  "names": [
+   "begin",
+   "finish"
+  ]
+ },
+ {
+  "clock_enable": null,
+  "initial": null,
+  "kind": "register",
+  "name": "selected",
+  "value": {
+   "kind": "binary",
+   "left": {
+    "kind": "name",
+    "name": "begin"
+   },
+   "op": "||",
+   "right": {
+    "kind": "binary",
+    "left": {
+     "kind": "name",
+     "name": "selected"
+    },
+    "op": "&&",
+    "right": {
+     "kind": "unary",
+     "op": "!",
+     "value": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "cs_off"
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "clock_enable": null,
+  "initial": {
+   "kind": "integer",
+   "value": "1"
+  },
+  "kind": "register",
+  "name": "cs_n",
+  "value": {
+   "kind": "unary",
+   "op": "!",
+   "value": {
+    "kind": "name",
+    "name": "selected"
+   }
+  }
+ },
+ {
+  "fields": [
+   {
+    "name": "count",
+    "value": {
+     "field": "word",
+     "kind": "field",
+     "object": {
+      "kind": "name",
+      "name": "bits"
+     }
+    }
+   },
+   {
+    "name": "clear",
+    "value": {
+     "kind": "name",
+     "name": "begin"
+    }
+   }
+  ],
+  "kind": "resource",
+  "name": "sent",
+  "payload_width": null,
+  "resource_kind": "counter",
+  "state_width": null,
+  "timings": []
+ },
+ {
+  "clock_enable": null,
+  "initial": null,
+  "kind": "register",
+  "name": "open",
+  "value": {
+   "kind": "binary",
+   "left": {
+    "kind": "name",
+    "name": "begin"
+   },
+   "op": "||",
+   "right": {
+    "kind": "binary",
+    "left": {
+     "kind": "name",
+     "name": "open"
+    },
+    "op": "&&",
+    "right": {
+     "kind": "unary",
+     "op": "!",
+     "value": {
+      "kind": "binary",
+      "left": {
+       "field": "at_least",
+       "kind": "field",
+       "object": {
+        "kind": "name",
+        "name": "sent"
+       }
+      },
+      "op": "&&",
+      "right": {
+       "field": "busy",
+       "kind": "field",
+       "object": {
+        "kind": "name",
+        "name": "bits"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "fields": [
+   {
+    "name": "every",
+    "value": {
+     "kind": "name",
+     "name": "HALF"
+    }
+   },
+   {
+    "name": "idle",
+    "value": {
+     "kind": "integer",
+     "value": "0"
+    }
+   },
+   {
+    "name": "run",
+    "value": {
+     "kind": "binary",
+     "left": {
+      "field": "busy",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "bits"
+      }
+     },
+     "op": "until",
+     "right": {
+      "field": "done",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "bits"
+      }
+     }
+    }
+   }
+  ],
+  "kind": "resource",
+  "name": "sck_clock",
+  "payload_width": null,
+  "resource_kind": "timer",
+  "state_width": null,
+  "timings": [
+   [
+    "every",
+    {
+     "denominator": "1",
+     "numerator": "HALF",
+     "status": "known"
+    }
+   ]
+  ]
+ },
+ {
+  "fields": [
+   {
+    "name": "every",
+    "value": {
+     "kind": "name",
+     "name": "HALF"
+    }
+   },
+   {
+    "name": "pulse",
+    "value": null
+   },
+   {
+    "name": "run",
+    "value": {
+     "kind": "binary",
+     "left": {
+      "kind": "name",
+      "name": "finish"
+     },
+     "op": "until",
+     "right": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "cs_off"
+      }
+     }
+    }
+   }
+  ],
+  "kind": "resource",
+  "name": "cs_off",
+  "payload_width": null,
+  "resource_kind": "timer",
+  "state_width": null,
+  "timings": [
+   [
+    "every",
+    {
+     "denominator": "1",
+     "numerator": "HALF",
+     "status": "known"
+    }
+   ]
+  ]
+ },
+ {
+  "fields": [
+   {
+    "name": "every",
+    "value": {
+     "kind": "quantity",
+     "unit": "cycles",
+     "value": "4"
+    }
+   },
+   {
+    "name": "pulse",
+    "value": null
+   },
+   {
+    "name": "run",
+    "value": {
+     "kind": "binary",
+     "left": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "cs_off"
+      }
+     },
+     "op": "until",
+     "right": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "gap"
+      }
+     }
+    }
+   }
+  ],
+  "kind": "resource",
+  "name": "gap",
+  "payload_width": null,
+  "resource_kind": "timer",
+  "state_width": null,
+  "timings": [
+   [
+    "every",
+    {
+     "denominator": "1",
+     "numerator": "4",
+     "status": "known"
+    }
+   ]
+  ]
+ },
+ {
+  "fields": [
+   {
+    "name": "frame",
+    "value": {
+     "kind": "list",
+     "values": [
+      {
+       "args": [
+        {
+         "name": null,
+         "value": {
+          "kind": "integer",
+          "value": "8"
+         }
+        },
+        {
+         "name": null,
+         "value": {
+          "kind": "name",
+          "name": "msb_first"
+         }
+        }
+       ],
+       "callee": {
+        "kind": "name",
+        "name": "data"
+       },
+       "kind": "call"
+      }
+     ]
+    }
+   },
+   {
+    "name": "start",
+    "value": {
+     "kind": "name",
+     "name": "open"
+    }
+   },
+   {
+    "name": "shift",
+    "value": {
+     "field": "fall",
+     "kind": "field",
+     "object": {
+      "kind": "name",
+      "name": "sck_clock"
+     }
+    }
+   },
+   {
+    "name": "sample",
+    "value": {
+     "kind": "binary",
+     "left": {
+      "kind": "name",
+      "name": "miso"
+     },
+     "op": "at",
+     "right": {
+      "field": "rise",
+      "kind": "field",
+      "object": {
+       "kind": "name",
+       "name": "sck_clock"
+      }
+     }
+    }
+   }
+  ],
+  "kind": "resource",
+  "name": "bits",
+  "payload_width": {
+   "bits": "8",
+   "status": "known"
+  },
+  "resource_kind": "shifter",
+  "state_width": null,
+  "timings": []
+ },
+ {
+  "condition": {
+   "kind": "binary",
+   "left": {
+    "field": "changed",
+    "kind": "field",
+    "object": {
+     "kind": "name",
+     "name": "sck"
+    }
+   },
+   "op": "implies",
+   "right": {
+    "kind": "binary",
+    "left": {
+     "kind": "name",
+     "name": "cs"
+    },
+    "op": "==",
+    "right": {
+     "kind": "integer",
+     "value": "0"
+    }
+   }
+  },
+  "kind": "invariant",
+  "name": "SCK only moves while CS is low"
+ }
+]

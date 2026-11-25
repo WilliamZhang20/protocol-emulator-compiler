@@ -481,6 +481,26 @@ are exact semantic profiles and do not imply general source-program support.
 Run `test_jtag_trace.sh CIRCT_MAP` and `test_coded_stream.sh CIRCT_MAP` to
 regenerate the chip fixtures and exercise source mutations and rejection.
 
+`compile_temporal_function.sh SOURCE FUNCTION EXAMPLE_HEX PREFIX CIRCT_MAP`
+(`--lower-temporal-function`) compiles a whole exported function onto the 5x3
+grid's sequencer: `spi.transfer` (`examples/spi.spt`, 8 rows; the source's
+`selected` and `cs_n` registers become registered LUT4 cells, its three timers
+timers 0-2) and `i2c.write_read` (`examples/i2c.spt`, 16 rows; START, repeated
+START and STOP follow the source's `condition()` patterns, each `write()`/
+`read()` is an SRAM frame, and a per-frame tag in shifter 1, latched by a LUT4
+cell, marks the frame before `restart()`). Declarations must match
+`profiles/spi_transfer.json` or `profiles/i2c_write_read.json` (`HALF` is a
+parameter); bodies are compiled statement by statement and anything outside
+the subset is rejected. Besides the image and routes, the program record has an
+`interface` (source pin to chip pin, and how call arguments become SRAM bytes
+and host words, in a small expression language), and `.plan.json` holds the
+source's tests and invariants from `spatial test-plan FILE`. The grid UART
+backend (`--compile-grid-uart`) reports the same `interface` for its streams.
+The hardware repo's generic runner, `test/cocotb_tests/test_compiled.py`, takes
+these three files and replays the source's own tests at the chip pins with the
+`sim/peers` devices. `test_temporal_functions.sh CIRCT_MAP` compares them with
+the hardware fixtures and checks parameters and rejection.
+
 `compile_coded_stream.sh SOURCE ethernet_session '' PREFIX CIRCT_MAP` compiles
 the whole exported `transmit()` of `examples/ethernet_tx_coded.spt` onto the
 5x3 grid. Declarations must match `profiles/ethernet_session.json` exactly

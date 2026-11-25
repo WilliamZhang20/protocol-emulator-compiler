@@ -711,9 +711,11 @@ static int analyze(ModuleOp arch, ModuleOp program) {
 #include "jtag_trace.inc"
 #include "ethernet_session.inc"
 #include "coded_stream.inc"
+#include "temporal_functions.inc"
 
 int main(int argc, char **argv) {
   bool lowerCoded = argc == 6 && llvm::StringRef(argv[1]) == "--lower-coded-stream";
+  bool lowerTemporal = argc == 6 && llvm::StringRef(argv[1]) == "--lower-temporal-function";
   bool lowerJtag = argc == 5 && llvm::StringRef(argv[1]) == "--lower-jtag-test";
   bool lowerI2c = argc == 6 && llvm::StringRef(argv[1]) == "--lower-i2c-write";
   bool verifyOnly = argc == 3 && llvm::StringRef(argv[1]) == "--verify";
@@ -735,8 +737,8 @@ int main(int argc, char **argv) {
   bool routeGrid = argc == 3 && llvm::StringRef(argv[1]) == "--route-grid";
   bool mapGraph = argc == 4 && llvm::StringRef(argv[1]) == "--map-graph";
   bool assessGraph = argc == 4 && llvm::StringRef(argv[1]) == "--assess-graph";
-  if (!lowerCoded && !lowerJtag && !lowerI2c && !verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !v2UnifiedSpi && !v2UnifiedUart && !gridSpi && !gridUart && !routeGrid && !mapGraph && !assessGraph && argc != 5)
-    return fail("usage: spatial-circt-map --verify FILE | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --compile-v2-uart-stream FRONTEND OUTPUT | --compile-grid-spi FRONTEND OUTPUT | --compile-grid-uart FRONTEND OUTPUT | --route-grid PROBLEM | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
+  if (!lowerCoded && !lowerTemporal && !lowerJtag && !lowerI2c && !verifyOnly && !frontendJson && !analyzeOnly && !controlOnly && !fullControl && !deriveSpi && !memorySpi && !workloadGraph && !uartGraph && !v2Spi && !v2Uart && !v2UartStream && !v2UnifiedSpi && !v2UnifiedUart && !gridSpi && !gridUart && !routeGrid && !mapGraph && !assessGraph && argc != 5)
+    return fail("usage: spatial-circt-map --verify FILE | --lower-temporal-function FRONTEND PROFILE FUNCTION ARG | --frontend-json FILE | --analyze ARCH PROGRAM | --control-rows FRONTEND NAME OUTPUT | --compile-control FRONTEND OUTPUT | --derive-spi-component FRONTEND TIMER SHIFTER PAYLOAD | --compile-memory-spi FRONTEND PAYLOAD OUTPUT | --memory-spi-graph FRONTEND | --uart-graph FRONTEND | --compile-v2-spi FRONTEND OUTPUT | --compile-v2-uart FRONTEND OUTPUT | --compile-v2-uart-stream FRONTEND OUTPUT | --compile-grid-spi FRONTEND OUTPUT | --compile-grid-uart FRONTEND OUTPUT | --route-grid PROBLEM | --map-graph TARGET WORKLOAD | --assess-graph TARGET WORKLOAD | ARCH PROGRAM CONTROL_FSM OUTPUT.mem");
   DialectRegistry registry;
   registry.insert<circt::hw::HWDialect, circt::comb::CombDialect, circt::fsm::FSMDialect>();
   registerSpatialDialect(registry);
@@ -745,6 +747,11 @@ int main(int argc, char **argv) {
     auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
     if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
     return lowerCodedStream(*frontend,argv[3],argv[4],argv[5]);
+  }
+  if (lowerTemporal) {
+    auto frontend=parseSourceFile<ModuleOp>(argv[2],&context);
+    if (!frontend || failed(verify(*frontend))) return fail("invalid frontend MLIR");
+    return lowerTemporalFunction(*frontend,argv[3],argv[4],argv[5]);
   }
   if (lowerJtag) {
     auto frontend = parseSourceFile<ModuleOp>(argv[2], &context);

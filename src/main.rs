@@ -99,6 +99,9 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         concurrent_host_bytes: u64,
     },
+    /// Print the program's tests and invariants as a hardware-independent plan.
+    /// A backend's chip runner replays them at its own pins.
+    TestPlan { file: PathBuf },
     /// Create a new project directory with a starter `main.spt`.
     New { name: PathBuf },
     /// Check that the program fits the chip, without writing anything.
@@ -1345,6 +1348,20 @@ fn run() -> AppResult<bool> {
                 Reported(error.render(&file.display().to_string(), &source, false))
             })?;
             print!("{}", frontend_mlir(&program, &file.to_string_lossy())?);
+        }
+        Command::TestPlan { file } => {
+            let source = fs::read_to_string(&file)?;
+            let build = spatial::compile(&source).map_err(|error| {
+                Reported(error.render(&file.display().to_string(), &source, false))
+            })?;
+            let mut plan = serde_json::Map::new();
+            for key in ["clock_hz", "pins", "calls", "tests", "invariants"] {
+                plan.insert(key.into(), build.plan[key].clone());
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::Value::Object(plan))?
+            );
         }
         Command::ModelIr { file } => {
             let source = fs::read_to_string(&file)?;

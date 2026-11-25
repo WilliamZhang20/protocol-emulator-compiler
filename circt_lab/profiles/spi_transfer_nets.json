@@ -1,0 +1,15 @@
+{"name":"spi_transfer_wiring","nets":[
+  {"name":"begin","source":{"resource":"sram0","port":0},"sinks":[{"resource":"lut4_0","port":25}]},
+  {"name":"finish","source":{"resource":"sram0","port":1},"sinks":[{"resource":"timer1","port":12}]},
+  {"name":"word_start","source":{"resource":"sram0","port":3},"sinks":[{"resource":"timer0","port":0},{"resource":"shifter0","port":3}]},
+  {"name":"word_done","source":{"resource":"shifter0","port":1},"sinks":[{"resource":"timer0","port":1}]},
+  {"name":"sck_fall","source":{"resource":"timer0","port":2},"sinks":[{"resource":"shifter0","port":4}]},
+  {"name":"sck_rise","source":{"resource":"timer0","port":1},"sinks":[{"resource":"shifter0","port":5}]},
+  {"name":"miso","source":{"resource":"input_io","port":0},"sinks":[{"resource":"shifter0","port":6}]},
+  {"name":"mosi","source":{"resource":"shifter0","port":2},"sinks":[{"resource":"output_io","port":7}]},
+  {"name":"sck","source":{"resource":"timer0","port":3},"sinks":[{"resource":"output_io","port":8}]},
+  {"name":"selected","source":{"resource":"lut4_0","port":0},"sinks":[{"resource":"lut4_0","port":26},{"resource":"lut4_1","port":29}]},
+  {"name":"cs_off_tick","source":{"resource":"timer1","port":0},"sinks":[{"resource":"timer1","port":13},{"resource":"lut4_0","port":27},{"resource":"timer2","port":19},{"resource":"sequencer_events","port":41}]},
+  {"name":"gap_tick","source":{"resource":"timer2","port":0},"sinks":[{"resource":"timer2","port":20},{"resource":"sequencer_events","port":42}]},
+  {"name":"cs_n","source":{"resource":"lut4_1","port":1},"sinks":[{"resource":"output_io","port":9}]}
+]}
