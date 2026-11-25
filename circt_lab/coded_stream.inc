@@ -41,8 +41,8 @@ static int lowerCodedStream(ModuleOp module, const char *profilePath,
       if (constant) return fail("duplicate WIRE_FRAME");constant=o;}}
     auto *value=constant ? constant->getObject("value") : nullptr;
     auto *values=value ? value->getArray("values") : nullptr;
-    if (!value || value->getString("kind")!="list" || !values || values->size()<68 || values->size()>1024)
-      return fail("WIRE_FRAME must contain preamble and at least 60 frame bytes");
+    if (!value || value->getString("kind")!="list" || !values || values->size()<68 || values->size()>1522)
+      return fail("WIRE_FRAME must contain preamble and 60..1514 frame bytes");
     for (auto &entry:*values) {
       auto *o=entry.getAsObject();auto s=o ? o->getString("value") : std::nullopt;unsigned v=0;
       if (!o || o->getString("kind")!="integer" || !s || s->getAsInteger(10,v) || v>255)

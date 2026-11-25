@@ -36,6 +36,14 @@ for mode in usb ethernet; do
    echo "unsupported $mode source accepted" >&2; exit 1
  fi
 done
+python3 "$repo/circt_lab/generate_ethernet_mtu.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/mtu.spt"
+"$compile" "$tmp/mtu.spt" ethernet '' "$tmp/mtu" "$mapper"
+cmp "$tmp/mtu.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-mtu.mem"
+cmp "$tmp/mtu.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-mtu.json"
+python3 "$repo/circt_lab/generate_ethernet_mtu.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/oversize.spt" --payload-bytes 1501
+if "$compile" "$tmp/oversize.spt" ethernet '' "$tmp/reject" "$mapper" >"$tmp/error" 2>&1; then
+ echo 'oversized Ethernet frame unexpectedly accepted' >&2; exit 1
+fi
 "$compile" "$tmp/different_frame.spt" ethernet '' "$tmp/different" "$mapper"
 python3 - "$tmp/ethernet.program.json" "$tmp/different.program.json" <<'PY'
 import json,sys
