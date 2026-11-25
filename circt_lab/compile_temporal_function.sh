@@ -15,7 +15,7 @@ mkdir -p "$(dirname "$output")"
 "$mapper" --lower-temporal-function "$output.frontend.mlir" "$repo/circt_lab/profiles/$profile" "$function" "$example" > "$output.program.json"
 python3 "$repo/circt_lab/grid_route.py" "$repo/circt_lab/profiles/$nets" --emit-mlir > "$output.route.mlir"
 "$mapper" --route-grid "$output.route.mlir" > "$output.routes.json"
-python3 "$repo/circt_lab/grid_coded_image.py" "$output.routes.json" "$output.program.json" "$repo/../protocol-emulator/test/data/grid-spi.mem" "$output.mem"
+python3 "$repo/circt_lab/grid_coded_image.py" --page-rows "${PAGE_ROWS:-16}" "$output.routes.json" "$output.program.json" "$repo/../protocol-emulator/test/data/grid-spi.mem" "$output.mem"
 python3 "$repo/circt_lab/show_grid_routes.py" "$output.routes.json" --program "$output.program.json" > "$output.map.txt"
 # The source's own tests, for the generic chip runner (hardware repo test_compiled.py).
 "${SPATIAL_FRONTEND:-$repo/target/debug/spatial}" test-plan "$source_file" > "$output.plan.json"

@@ -597,6 +597,7 @@ if [ -f "$RTL_ROOT/test/data/grid-jtag-idcode.json" ]; then
   SPATIAL_FRONTEND="$SPATIAL_FRONTEND" "$HERE/test_jtag_trace.sh" "$CIRCT_MAP"
   SPATIAL_FRONTEND="$SPATIAL_FRONTEND" "$HERE/test_coded_stream.sh" "$CIRCT_MAP"
 fi
+python3 "$HERE/test_grid_pager.py"
 if [ -d "$RTL_ROOT/test/data/compiled" ]; then
   SPATIAL_FRONTEND="$SPATIAL_FRONTEND" "$HERE/test_temporal_functions.sh" "$CIRCT_MAP"
 fi

@@ -11,7 +11,10 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 compile="$repo/circt_lab/compile_temporal_function.sh"
 "$compile" "$repo/examples/spi.spt" spi.transfer a53c81 "$tmp/spi" "$mapper"
 "$compile" "$repo/examples/i2c.spt" i2c.write_read '' "$tmp/i2c" "$mapper"
-for pair in spi:spi-transfer i2c:i2c-write-read; do
+# Forcing 12-row pages splits write_read across two SRAM pages at its
+# stretchable rows; the hardware repo replays its source tests on it.
+PAGE_ROWS=12 "$compile" "$repo/examples/i2c.spt" i2c.write_read '' "$tmp/i2cp" "$mapper"
+for pair in spi:spi-transfer i2c:i2c-write-read i2cp:i2c-write-read-paged; do
   name=${pair%%:*}; fixture=${pair#*:}
   for suffix in mem program.json plan.json; do cmp "$tmp/$name.$suffix" "$fixtures/$fixture.$suffix"; done
 done
@@ -26,6 +29,8 @@ spi = json.loads((tmp / 'spi.program.json').read_text())
 i2c = json.loads((tmp / 'i2c.program.json').read_text())
 assert spi['full_source_function_compiled'] and spi['sequencer_rows_used'] == 8
 assert i2c['full_source_function_compiled'] and i2c['sequencer_rows_used'] == 16
+paged = json.loads((tmp / 'i2cp.program.json').read_text())
+assert 'setup_sram' not in i2c['interface'] and [r['base'] for r in paged['interface']['setup_sram']] == [896, 960]
 assert set(spi['interface']['functions']) == {'transfer'} and set(i2c['interface']['functions']) == {'write_read'}
 spi_src, i2c_src = (examples / 'spi.spt').read_text(), (examples / 'i2c.spt').read_text()
 def variant(name, source, old, new):

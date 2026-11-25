@@ -67,10 +67,6 @@ static bool isFieldRef(const llvm::json::Object *v, llvm::StringRef object, llvm
   return v && v->getString("kind")=="field" && v->getString("field")==field && o && o->getString("kind")=="name" && o->getString("name")==object;
 }
 
-static int temporalRow(int halt,int no,int yes,int event,int action) {
-  return (halt<<15)|(no<<11)|(yes<<7)|(event<<4)|action;
-}
-
 static int lut4Table(const std::function<int(int,int,int,int)> &f) {
   int t=0; for (int i=0;i<16;i++) if (f(i&1,(i>>1)&1,(i>>2)&1,(i>>3)&1)) t|=1<<i; return t;
 }
@@ -113,7 +109,7 @@ static int lowerSpiTransfer(const std::vector<llvm::json::Value> &items, const l
     if (!n || n->getAsInteger(10,gapCycles) || gapCycles<1 || gapCycles>65535 || q->getString("denominator")!="1") return fail("gap period");
   }
 
-  std::vector<int> rows; bool limited=false, begun=false, words=false, finished=false, csOff=false, gapped=false;
+  std::vector<TemporalRow> rows; bool limited=false, begun=false, words=false, finished=false, csOff=false, gapped=false;
   auto step=[&](int act){int n=rows.size();rows.push_back(temporalRow(0,n+1,n+1,0,act));};
   auto wait=[&](int ev){int n=rows.size();rows.push_back(temporalRow(0,n,n+1,ev,0));};
   for (auto &stmt:*fn->getArray("body")) {
@@ -161,7 +157,6 @@ static int lowerSpiTransfer(const std::vector<llvm::json::Value> &items, const l
   if (!gapped) return fail("transfer must end CS (wait cs_off.tick) and its gap (wait gap.tick)");
   rows.push_back(temporalRow(1,0,0,0,0));
   int64_t used=rows.size();
-  while (rows.size()<16) rows.push_back(temporalRow(1,0,0,0,0));
 
   int selected=lut4Table([](int begin,int sel,int tick,int){return begin || (sel && !tick);});
   int csReg=lut4Table([](int sel,int,int,int){return sel;});
@@ -174,13 +169,13 @@ static int lowerSpiTransfer(const std::vector<llvm::json::Value> &items, const l
     {"88",0},{"89",100},{"90",200},{"93",0},{"123",0},
     {"152",selected},{"153",csReg},{"172",(int64_t)gapCycles},{"173",(int64_t)gapCycles},{"184",3}};
   llvm::json::Array payload; for (auto b:example) payload.push_back((int64_t)b);
-  llvm::json::Array rowValues; for (auto r:rows) rowValues.push_back(r);
   llvm::json::Object result{{"base_words",std::move(words_)},{"payload_base",100},{"payload_bytes",std::move(payload)},
     {"reply_base",200},{"source_profile","spi-mode0-transfer"},{"source_function","transfer"},
     {"full_source_function_compiled",true},{"half_period_cycles",(int64_t)half},{"gap_cycles",(int64_t)gapCycles},
     {"sequencer_rows_used",used},
     {"limitations","One SRAM byte per word: consecutive words are separate frames, so SCK pauses between words (no edges while paused)."}};
-  result["temporal"]=llvm::json::Object{{"entry",0},{"idle_actions",0},{"rows",std::move(rowValues)}};
+  // No stretchable rows: CS, SCK and the gap are timed by the fabric.
+  result["temporal"]=temporalProgram(rows,0,0,{});
   // How a host runs transfer(data) on the chip: the generic runner in the
   // hardware repo (test/cocotb_tests/test_compiled.py) interprets this.
   auto len=[]{return llvm::json::Object{{"len","data"}};};
@@ -339,7 +334,7 @@ static int lowerI2cWriteRead(const std::vector<llvm::json::Value> &items, const 
   // Actions: bit0 SDA, bit1 SCL (context 0), bit2 stops the slot clock,
   // bit3 selects context 1; 12 requests a frame. Events: 1 slot tick,
   // 3 restart tag, 5 sampled ninth bit, 6 frame done, 7 stream finished.
-  std::vector<int> rows{
+  std::vector<TemporalRow> rows{
     row(0,1,1,0,7),                    // 0 bus idle, slot clock reset
     row(0,1,2,1,2), row(0,2,3,1,0),    // 1-2 START tail: SDA low, then SCL low
     row(0,4,4,0,4),                    // 3 reset the clock for the frame
@@ -352,7 +347,6 @@ static int lowerI2cWriteRead(const std::vector<llvm::json::Value> &items, const 
     row(0,13,12,7,3),                  // 11 SDA high; finished stream = success
     row(1,0,0,0,3), row(1,0,0,0,7),    // 12 done, 13 fail "nack" (error bit)
     row(0,14,15,1,1), row(0,15,1,1,3)};// 14-15 restart(): SDA high, SCL high, then START tail
-  llvm::json::Array rowValues; for (auto r:rows) rowValues.push_back(r);
   int latch=lut4Table([](int busy,int tag,int held,int){return busy ? tag : held;});
   const int64_t txBase=100, rxBase=600;
   llvm::json::Object words{
@@ -364,7 +358,10 @@ static int lowerI2cWriteRead(const std::vector<llvm::json::Value> &items, const 
   llvm::json::Object result{{"base_words",std::move(words)},{"source_profile","i2c-write-read"},{"source_function","write_read"},
     {"full_source_function_compiled",true},{"half_period_cycles",(int64_t)half},{"sequencer_rows_used",16},
     {"limitations","Reads must end the transaction (read(last: 1) then stop()); writes after reads and restart() after a read are rejected."}};
-  result["temporal"]=llvm::json::Object{{"entry",0},{"idle_actions",3},{"rows",std::move(rowValues)}};
+  // Rows 1 (START hold), 3 (between frames), 9 (STOP: SCL low) and 14
+  // (restart: SCL low) may start late: a controller may hold SCL low or hold
+  // a START longer, and every phase they begin is timed from slot ticks.
+  result["temporal"]=temporalProgram(rows,0,3,{1,3,9,14});
   result["interface"]=llvm::json::Object{
     {"pins",llvm::json::Object{{"scl","uio5"},{"sda","uio6"}}},
     {"functions",llvm::json::Object{{"write_read",llvm::json::Object{

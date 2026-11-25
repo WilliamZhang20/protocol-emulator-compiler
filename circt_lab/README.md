@@ -501,6 +501,21 @@ these three files and replays the source's own tests at the chip pins with the
 `sim/peers` devices. `test_temporal_functions.sh CIRCT_MAP` compares them with
 the hardware fixtures and checks parameters and rejection.
 
+Sequencer programs may exceed the hardware's 16-row page. Lowerings emit the
+flat `program` (rows with absolute successors) and the `stretchable_rows` whose
+entry may be delayed while their own action is held. `grid_pager.py`, called by
+`grid_coded_image.py`, splits a longer program into up to 16 contiguous SRAM
+pages with the fewest pages: edges leaving a page must target a stretchable row
+(through a local page row, which costs about 45 clocks at run time) or a halt
+row (copied into the page). Pages sit at the top of the host bank; the image
+sets word 94 and the program record gains `interface.setup_sram`, which the
+runner writes after arming. Programs that fit one page are unchanged.
+`i2c.write_read` marks its START hold, inter-frame, STOP and restart rows
+(SCL is low or a START is held, so a controller may stretch them); SPI and the
+Ethernet session mark none yet. `PAGE_ROWS=12` forces `write_read` onto two
+pages for the `i2c-write-read-paged` fixture. `test_grid_pager.py` checks
+that paged programs make the same row-by-row actions as the flat program.
+
 `compile_coded_stream.sh SOURCE ethernet_session '' PREFIX CIRCT_MAP` compiles
 the whole exported `transmit()` of `examples/ethernet_tx_coded.spt` onto the
 5x3 grid. Declarations must match `profiles/ethernet_session.json` exactly

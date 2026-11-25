@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 from grid_contract import DEFAULT
+import grid_pager
 
 
 def switch_address(net, cell, direction):
@@ -20,7 +21,35 @@ def sink_address(net, sink):
     return net['sink_word_first']+sink if sink<net['sink_word_split'] else net['sink_word_second']+sink-net['sink_word_split']
 
 
-def encode(contract, routes, program, base):
+def temporal_rows(temporal):
+    """Flat rows [halt, no, yes, event, action] from either program form."""
+    if 'program' in temporal:
+        rows=temporal['program']
+        if not rows or any(not isinstance(r,list) or len(r)!=5 or not all(isinstance(x,int) for x in r) for r in rows):
+            raise ValueError('invalid temporal program')
+        return rows
+    rows=temporal['rows']
+    if len(rows)!=16 or any(not isinstance(x,int) or not 0<=x<=65535 for x in rows):raise ValueError('invalid temporal program')
+    return [[x>>15,(x>>11)&15,(x>>7)&15,(x>>4)&7,x&15] for x in rows]
+
+
+def static_bases(program):
+    """SRAM addresses the program states as constants (streams and preloads)."""
+    found=[]
+    for key in ('89','90'):
+        if isinstance(program['base_words'].get(key),int):found.append(program['base_words'][key])
+    for fn in program.get('interface',{}).get('functions',{}).values():
+        for key in ('89','90'):
+            if isinstance(fn.get('words',{}).get(key),int):found.append(fn['words'][key])
+        for region in fn.get('sram',[]):
+            if isinstance(region.get('base'),int):found.append(region['base'])
+    return found
+
+
+def encode(contract, routes, program, base, page_rows=grid_pager.PAGE_ROWS, sram=None):
+    """Return the configuration words. A program longer than one page is
+    split into SRAM pages; their bytes are appended to `sram` as
+    {'base', 'bytes'} regions to write after arming."""
     net=contract['bit_network']
     if routes['status']!='routed' or routes['track_count']!=net['tracks_per_direction'] or routes['registered_hops'] or routes['direct_links']:
         raise ValueError('requires current unregistered grid')
@@ -61,8 +90,9 @@ def encode(contract, routes, program, base):
         words[addr]=select
     temporal=program.get('temporal')
     if temporal:
-        rows=temporal['rows']
-        if len(rows)!=16 or any(not isinstance(x,int) or not 0<=x<=65535 for x in rows):raise ValueError('invalid temporal program')
+        flat=temporal_rows(temporal)
+        pages=grid_pager.paginate(flat,temporal['entry'],temporal.get('stretchable_rows',[]),page_rows)
+        rows=pages[0] if pages else [grid_pager.pack(r) for r in flat]+[0x8000]*(16-len(flat))
         overrides=[]
         for (context,sink),select in selections.items():
             if not context:continue
@@ -73,6 +103,15 @@ def encode(contract, routes, program, base):
         for i,word in enumerate(overrides):words[112+i]=word
         words[91]=1;words[92]=temporal['entry']|(temporal['idle_actions']<<4)
         words[96:112]=rows
+        if pages:
+            if size<=94:raise ValueError('paging needs the extended image (word 94)')
+            if (words[88]&1):raise ValueError('pages are placed in bank 0; route the host to bank 0')
+            start=grid_pager.page_base(len(pages))
+            if any(b>=start for b in static_bases(program)):raise ValueError(f'SRAM above {start} is reserved for sequencer pages')
+            words[94]=0x8000|start
+            if sram is None:raise ValueError('paged program needs an SRAM output')
+            for offset,data in grid_pager.page_bytes(pages,words[112:117]):
+                sram.append({'base':start+offset,'bytes':data})
     elif any(context for context,_ in selections):raise ValueError('alternate routes require temporal program')
     return words
 
@@ -80,7 +119,14 @@ def encode(contract, routes, program, base):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('routes',type=Path);p.add_argument('program',type=Path);p.add_argument('base',type=Path);p.add_argument('output',type=Path)
-    p.add_argument('--contract',type=Path,default=DEFAULT);a=p.parse_args()
-    words=encode(json.loads(a.contract.read_text()),json.loads(a.routes.read_text()),json.loads(a.program.read_text()),[int(s,16) for s in a.base.read_text().splitlines()])
+    p.add_argument('--contract',type=Path,default=DEFAULT)
+    p.add_argument('--page-rows',type=int,default=grid_pager.PAGE_ROWS,help='rows per page (below 16 only to exercise paging)')
+    a=p.parse_args()
+    program=json.loads(a.program.read_text());sram=[]
+    words=encode(json.loads(a.contract.read_text()),json.loads(a.routes.read_text()),program,[int(s,16) for s in a.base.read_text().splitlines()],a.page_rows,sram)
     a.output.write_text(''.join(f'{x:04x}\n' for x in words))
+    if sram:
+        # Static SRAM contents for the host to write once after arming.
+        program.setdefault('interface',{})['setup_sram']=sram
+        a.program.write_text(json.dumps(program,indent=2)+'\n')
 if __name__=='__main__':main()

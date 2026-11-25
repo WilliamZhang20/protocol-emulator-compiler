@@ -104,8 +104,8 @@ static int lowerEthernetSession(const std::vector<llvm::json::Value> &items, con
   // starts the tick counter (and parks half_bit), bit2 starts half_bit, which
   // releases the armed frame on its first tick. Events: 0 always, 3 pulse.fall,
   // 4 tail.tick (routed sequencer inputs), 5 counter done, 6 packet stop.
-  auto row=[](int h,int no,int yes,int ev,int act){return (h<<15)|(no<<11)|(yes<<7)|(ev<<4)|act;};
-  std::vector<int> rows; bool sending=false, sent=false, idleOpen=false, pulsePending=false; int repeatCount=-1;
+  auto row=temporalRow;
+  std::vector<TemporalRow> rows; bool sending=false, sent=false, idleOpen=false, pulsePending=false; int repeatCount=-1;
   auto emitStep=[&](int act){int n=rows.size();rows.push_back(row(0,n+1,n+1,0,act));};
   auto emitWait=[&](int ev){int n=rows.size();rows.push_back(row(0,n,n+1,ev,0));};
   for (auto &stmt:*transmit->getArray("body")) {
@@ -148,9 +148,7 @@ static int lowerEthernetSession(const std::vector<llvm::json::Value> &items, con
   }
   if (!sent || idleOpen || pulsePending || sending) return fail("session must send one frame and end idle with flags clear");
   rows.push_back(row(1,0,0,0,0));
-  if (rows.size()>16) return fail("session needs more than 16 sequencer rows");
   int64_t rowsUsed=rows.size();
-  while (rows.size()<16) rows.push_back(row(1,0,0,0,0));
 
   // Registered LUT4 tables, index {d,c,b,a}.
   auto table=[](auto f){int t=0;for(int i=0;i<16;i++) if(f(i&1,(i>>1)&1,(i>>2)&1,(i>>3)&1)) t|=1<<i; return t;};
@@ -170,13 +168,14 @@ static int lowerEthernetSession(const std::vector<llvm::json::Value> &items, con
     {"172",(int64_t)pulseFirst},{"173",(int64_t)pulseEvery},
     {"174",(int64_t)(tailFirst-tailPipeline)},{"175",(int64_t)tailEvery},{"184",3}};
   llvm::json::Array payload; for (auto b:bytes) payload.push_back(b);
-  llvm::json::Array rowValues; for (auto r:rows) rowValues.push_back(r);
   llvm::json::Object result{{"base_words",std::move(words)},{"payload_base",100},{"payload_bytes",std::move(payload)},
     {"source_profile","ethernet-10base-t-link-session"},{"full_source_function_compiled",true},
     {"nlp_tick_cycles",(int64_t)nlpTick},{"link_pulse_period_cycles",(int64_t)nlpTick*width},
     {"sequencer_rows_used",rowsUsed},
     {"limitations","Digital 10BASE-T transmit waveforms only: no analog PHY/magnetics, receive, collision or auto-negotiation."}};
-  result["temporal"]=llvm::json::Object{{"entry",0},{"idle_actions",0},{"rows",std::move(rowValues)}};
+  // No stretchable rows yet: a longer session needs its link-pulse timing
+  // reviewed before page loads may delay any phase.
+  result["temporal"]=temporalProgram(rows,0,0,{});
   llvm::outs()<<llvm::formatv("{0:2}\n",llvm::json::Value(std::move(result)));
   return 0;
 }
