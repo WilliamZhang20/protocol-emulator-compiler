@@ -458,3 +458,25 @@ from explicit refill latency, byte period, startup burst and fair-service
 assumptions. It reports an overloaded bank separately and makes no claim of
 physical timing or general deadlock freedom. The hardware experiment tests
 depth two with three contending bank clients and a delayed ordered return.
+
+## JTAG and coded packet experiments
+
+`compile_jtag_test.sh SOURCE TEST_NAME PREFIX CIRCT_MAP GRID_SPI_IMAGE` lowers
+literal `step`/`scan8` calls from a source test to an SRAM stream and a
+programmable-sequencer image. It rejects unsupported statements, and only pads
+partial bytes when the TAP is known to be idle. Peer assertions are reported as
+simulation checks, not synthesized read operations.
+
+`compile_coded_stream.sh SOURCE usb|ethernet PAYLOAD_HEX PREFIX CIRCT_MAP`
+lower source-checked USB DATA0 or the Ethernet stored-frame fragment to the
+grid's coded stream resource. Ethernet uses the source `WIRE_FRAME` and takes
+an empty payload argument. The output includes `.program.json` with SRAM
+payload bytes, `.mem` with chip configuration, `.routes.json` with CIRCT bit
+routes, and `.map.txt` with an ASCII grid and its routed resources. The map
+is a configuration view, not physical utilization or a complete schedule.
+
+The USB path covers low-speed DATA0 transmit only. The Ethernet fragment does
+not compile the source's link-pulse session or implement an analog PHY. These
+are exact semantic profiles and do not imply general source-program support.
+Run `test_jtag_trace.sh CIRCT_MAP` and `test_coded_stream.sh CIRCT_MAP` to
+regenerate the chip fixtures and exercise source mutations and rejection.
