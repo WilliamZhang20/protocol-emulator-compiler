@@ -54,6 +54,11 @@ def target(contract):
         elif kind == 'shifter':
             add_tile(id, kind, ['shift_msb_first'], resource['width_bits_max'])
             add_link(id, cell); add_link(cell, id)
+        elif kind == 'coded_shifter':
+            # Abstract capability only; shared CRC selectors and stream
+            # arbitration still require the concrete image/RTL checks.
+            add_tile(id, kind, ['coded_transmit'], 8)
+            add_link(id, cell); add_link(cell, id)
         elif kind == 'lut':
             add_tile(id, 'lut', ['lut2'])
             add_link(id, cell); add_link(cell, id)

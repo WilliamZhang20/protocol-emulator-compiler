@@ -1,0 +1,813 @@
+[
+  {
+    "kind": "clock",
+    "value": {
+      "kind": "quantity",
+      "unit": "MHz",
+      "value": "50"
+    }
+  },
+  {
+    "kind": "constant",
+    "name": "BIT",
+    "value": {
+      "kind": "quantity",
+      "unit": "cycles",
+      "value": "33"
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "dp",
+    "pads": null,
+    "source": {
+      "kind": "name",
+      "name": "d_plus"
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "dm",
+    "pads": null,
+    "source": {
+      "kind": "name",
+      "name": "d_minus"
+    }
+  },
+  {
+    "kind": "events",
+    "names": [
+      "finish"
+    ]
+  },
+  {
+    "flags": [
+      [
+        "absorbing",
+        null
+      ],
+      [
+        "ending",
+        null
+      ]
+    ],
+    "kind": "flags"
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "name",
+          "name": "BIT"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "field": "busy",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "bits"
+            }
+          },
+          "op": "until",
+          "right": {
+            "kind": "name",
+            "name": "finish"
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "bit",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "33",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "shift",
+        "value": {
+          "kind": "name",
+          "name": "step"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "bits",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "count",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bit"
+          }
+        }
+      },
+      {
+        "name": "streak",
+        "value": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "x"
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "ones"
+          },
+          "kind": "call"
+        }
+      },
+      {
+        "name": "limit",
+        "value": {
+          "kind": "integer",
+          "value": "6"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "ones",
+    "payload_width": null,
+    "resource_kind": "counter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "count",
+        "value": {
+          "kind": "name",
+          "name": "emit"
+        }
+      },
+      {
+        "name": "limit",
+        "value": {
+          "kind": "integer",
+          "value": "16"
+        }
+      },
+      {
+        "name": "clear",
+        "value": {
+          "kind": "name",
+          "name": "finish"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "check_bits",
+    "payload_width": null,
+    "resource_kind": "counter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "width",
+        "value": {
+          "kind": "integer",
+          "value": "16"
+        }
+      },
+      {
+        "name": "poly",
+        "value": {
+          "kind": "integer",
+          "value": "32773"
+        }
+      },
+      {
+        "name": "check",
+        "value": {
+          "kind": "integer",
+          "value": "32781"
+        }
+      },
+      {
+        "name": "absorb",
+        "value": {
+          "kind": "name",
+          "name": "absorb"
+        }
+      },
+      {
+        "name": "data",
+        "value": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      },
+      {
+        "name": "emit",
+        "value": {
+          "kind": "name",
+          "name": "emit"
+        }
+      },
+      {
+        "name": "restart",
+        "value": {
+          "kind": "name",
+          "name": "finish"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "check",
+    "payload_width": null,
+    "resource_kind": "crc",
+    "state_width": {
+      "bits": "16",
+      "status": "known"
+    },
+    "timings": []
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "x",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "at_least",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "ones"
+          }
+        }
+      },
+      "op": "&&",
+      "right": {
+        "condition": {
+          "field": "busy",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        },
+        "kind": "if",
+        "no": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "check"
+          }
+        },
+        "yes": {
+          "field": "out",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "step",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "field": "tick",
+        "kind": "field",
+        "object": {
+          "kind": "name",
+          "name": "bit"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "at_least",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "ones"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "absorb",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "binary",
+        "left": {
+          "kind": "binary",
+          "left": {
+            "field": "tick",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "bit"
+            }
+          },
+          "op": "&&",
+          "right": {
+            "kind": "unary",
+            "op": "!",
+            "value": {
+              "field": "at_least",
+              "kind": "field",
+              "object": {
+                "kind": "name",
+                "name": "ones"
+              }
+            }
+          }
+        },
+        "op": "&&",
+        "right": {
+          "field": "busy",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "name",
+        "name": "absorbing"
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "emit",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "binary",
+        "left": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bit"
+          }
+        },
+        "op": "&&",
+        "right": {
+          "kind": "unary",
+          "op": "!",
+          "value": {
+            "field": "at_least",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "ones"
+            }
+          }
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "field": "busy",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "bit"
+      }
+    },
+    "initial": null,
+    "kind": "register",
+    "name": "se0",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "name",
+        "name": "ending"
+      },
+      "op": "&&",
+      "right": {
+        "kind": "binary",
+        "left": {
+          "kind": "unary",
+          "op": "!",
+          "value": {
+            "field": "at_least",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "ones"
+            }
+          }
+        },
+        "op": "||",
+        "right": {
+          "kind": "name",
+          "name": "se0"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": {
+      "field": "tick",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "bit"
+      }
+    },
+    "initial": null,
+    "kind": "register",
+    "name": "nrzi",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "kind": "name",
+          "name": "se0"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "condition": {
+          "kind": "name",
+          "name": "x"
+        },
+        "kind": "if",
+        "no": {
+          "kind": "unary",
+          "op": "!",
+          "value": {
+            "kind": "name",
+            "name": "nrzi"
+          }
+        },
+        "yes": {
+          "kind": "name",
+          "name": "nrzi"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "d_plus",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "name",
+        "name": "nrzi"
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "kind": "name",
+          "name": "se0"
+        }
+      }
+    }
+  },
+  {
+    "clock_enable": null,
+    "initial": null,
+    "kind": "register",
+    "name": "d_minus",
+    "value": {
+      "kind": "binary",
+      "left": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "kind": "name",
+          "name": "nrzi"
+        }
+      },
+      "op": "&&",
+      "right": {
+        "kind": "unary",
+        "op": "!",
+        "value": {
+          "kind": "name",
+          "name": "se0"
+        }
+      }
+    }
+  },
+  {
+    "body": [
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "field": "drive",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "dp"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "field": "drive",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "dm"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "word",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "word",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bits"
+          }
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "absorbing"
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "set_flags"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "at_least",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "check_bits"
+          }
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "absorbing"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "ending"
+              }
+            }
+          ],
+          "callee": {
+            "kind": "name",
+            "name": "set_flags"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "kind": "name",
+          "name": "se0"
+        }
+      },
+      {
+        "next": true,
+        "op": "wait",
+        "signal": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bit"
+          }
+        }
+      },
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "kind": "name",
+            "name": "clear_flags"
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "next": true,
+        "op": "wait",
+        "signal": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bit"
+          }
+        }
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "bit"
+          }
+        }
+      },
+      {
+        "event": "finish",
+        "op": "fire"
+      },
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "field": "release",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "dp"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "expression": {
+          "args": [],
+          "callee": {
+            "field": "release",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "dm"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      }
+    ],
+    "exported": true,
+    "kind": "function",
+    "name": "transmit",
+    "params": [
+      [
+        "packet",
+        {
+          "name": "bytes",
+          "range": null,
+          "via": "bits"
+        }
+      ]
+    ],
+    "returns": null
+  },
+  {
+    "kind": "constant",
+    "name": "SYNC",
+    "value": {
+      "kind": "integer",
+      "value": "128"
+    }
+  },
+  {
+    "kind": "constant",
+    "name": "DATA0",
+    "value": {
+      "kind": "integer",
+      "value": "195"
+    }
+  }
+]

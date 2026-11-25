@@ -1,0 +1,164 @@
+[
+  {
+    "kind": "clock",
+    "value": {
+      "kind": "quantity",
+      "unit": "MHz",
+      "value": "40"
+    }
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "quantity",
+          "unit": "cycles",
+          "value": "2"
+        }
+      },
+      {
+        "name": "pulse",
+        "value": null
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "integer",
+          "value": "1"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "half_bit",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "2",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "shift",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "half_bit"
+          }
+        }
+      },
+      {
+        "name": "start",
+        "value": {
+          "field": "tick",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "half_bit"
+          }
+        }
+      },
+      {
+        "name": "burst",
+        "value": null
+      },
+      {
+        "name": "end",
+        "value": {
+          "kind": "name",
+          "name": "no_end"
+        }
+      },
+      {
+        "name": "end_on_packet",
+        "value": null
+      },
+      {
+        "name": "manchester",
+        "value": null
+      },
+      {
+        "name": "crc_tail_bits",
+        "value": {
+          "kind": "integer",
+          "value": "32"
+        }
+      },
+      {
+        "name": "crc_skip_bits",
+        "value": {
+          "kind": "integer",
+          "value": "64"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "bits",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "width",
+        "value": {
+          "kind": "integer",
+          "value": "32"
+        }
+      },
+      {
+        "name": "poly",
+        "value": {
+          "kind": "integer",
+          "value": "79764919"
+        }
+      },
+      {
+        "name": "check",
+        "value": {
+          "kind": "integer",
+          "value": "3338984827"
+        }
+      },
+      {
+        "name": "link",
+        "value": {
+          "kind": "name",
+          "name": "bits"
+        }
+      },
+      {
+        "name": "restart",
+        "value": {
+          "kind": "name",
+          "name": "begin_frame"
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "fcs",
+    "payload_width": null,
+    "resource_kind": "crc",
+    "state_width": {
+      "bits": "32",
+      "status": "known"
+    },
+    "timings": []
+  }
+]

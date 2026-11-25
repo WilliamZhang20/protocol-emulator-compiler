@@ -1,0 +1,7 @@
+{"name":"usb_coded_temporal_wiring","nets":[
+  {"name":"bit_tick","source":{"resource":"timer0","port":0},"sinks":[{"resource":"crc","port":78}]},
+  {"name":"serial","source":{"resource":"coded_shifter","port":2},"sinks":[{"resource":"output_io","port":7,"context":0},{"resource":"lut","port":10,"context":0}]},
+  {"name":"inverse","source":{"resource":"lut","port":0},"sinks":[{"resource":"output_io","port":8,"context":0}]},
+  {"name":"control0","source":{"resource":"sram0","port":0},"sinks":[{"resource":"output_io","port":7,"context":1}]},
+  {"name":"control1","source":{"resource":"sram0","port":1},"sinks":[{"resource":"output_io","port":8,"context":1}]}
+]}

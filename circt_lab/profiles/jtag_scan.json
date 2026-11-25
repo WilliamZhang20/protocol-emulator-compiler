@@ -1,0 +1,581 @@
+[
+  {
+    "kind": "clock",
+    "value": {
+      "kind": "quantity",
+      "unit": "MHz",
+      "value": "50"
+    }
+  },
+  {
+    "kind": "constant",
+    "name": "HALF",
+    "value": {
+      "kind": "quantity",
+      "unit": "cycles",
+      "value": "16"
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "tck",
+    "pads": null,
+    "source": {
+      "field": "out",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "clock"
+      }
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "tms",
+    "pads": null,
+    "source": {
+      "field": "out",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "mode"
+      }
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "out",
+    "name": "tdi",
+    "pads": null,
+    "source": {
+      "field": "out",
+      "kind": "field",
+      "object": {
+        "kind": "name",
+        "name": "data"
+      }
+    }
+  },
+  {
+    "kind": "pin",
+    "mode": "in",
+    "name": "tdo",
+    "pads": null,
+    "source": null
+  },
+  {
+    "kind": "events",
+    "names": [
+      "go"
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "every",
+        "value": {
+          "kind": "name",
+          "name": "HALF"
+        }
+      },
+      {
+        "name": "idle",
+        "value": {
+          "kind": "integer",
+          "value": "0"
+        }
+      },
+      {
+        "name": "run",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "field": "busy",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "data"
+            }
+          },
+          "op": "until",
+          "right": {
+            "field": "done",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "data"
+            }
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "clock",
+    "payload_width": null,
+    "resource_kind": "timer",
+    "state_width": null,
+    "timings": [
+      [
+        "every",
+        {
+          "denominator": "1",
+          "numerator": "16",
+          "status": "known"
+        }
+      ]
+    ]
+  },
+  {
+    "fields": [
+      {
+        "name": "start",
+        "value": {
+          "kind": "name",
+          "name": "go"
+        }
+      },
+      {
+        "name": "shift",
+        "value": {
+          "field": "fall",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "clock"
+          }
+        }
+      },
+      {
+        "name": "sample",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "kind": "name",
+            "name": "tdo"
+          },
+          "op": "at",
+          "right": {
+            "field": "rise",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "clock"
+            }
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "data",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "fields": [
+      {
+        "name": "start",
+        "value": {
+          "kind": "name",
+          "name": "go"
+        }
+      },
+      {
+        "name": "shift",
+        "value": {
+          "field": "fall",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "clock"
+          }
+        }
+      }
+    ],
+    "kind": "resource",
+    "name": "mode",
+    "payload_width": {
+      "bits": "8",
+      "status": "known"
+    },
+    "resource_kind": "shifter",
+    "state_width": null,
+    "timings": []
+  },
+  {
+    "body": [
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "integer",
+                        "value": "1"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "data"
+        }
+      },
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "integer",
+                        "value": "1"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "mode"
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "tms"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "mode"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "tdi"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "data"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "event": "go",
+        "op": "fire"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "data"
+          }
+        }
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "op": "reply",
+        "value": {
+          "kind": "binary",
+          "left": {
+            "field": "received",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "data"
+            }
+          },
+          "op": "&",
+          "right": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      }
+    ],
+    "exported": true,
+    "kind": "function",
+    "name": "step",
+    "params": [
+      [
+        "tms",
+        {
+          "name": "bit",
+          "range": null,
+          "via": null
+        }
+      ],
+      [
+        "tdi",
+        {
+          "name": "bit",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": {
+      "name": "bytes",
+      "range": null,
+      "via": null
+    }
+  },
+  {
+    "body": [
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "integer",
+                        "value": "8"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "data"
+        }
+      },
+      {
+        "fields": [
+          {
+            "name": "frame",
+            "value": {
+              "kind": "list",
+              "values": [
+                {
+                  "args": [
+                    {
+                      "name": null,
+                      "value": {
+                        "kind": "integer",
+                        "value": "8"
+                      }
+                    }
+                  ],
+                  "callee": {
+                    "kind": "name",
+                    "name": "data"
+                  },
+                  "kind": "call"
+                }
+              ]
+            }
+          }
+        ],
+        "op": "set",
+        "target": {
+          "kind": "name",
+          "name": "mode"
+        }
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "tms"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "mode"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "expression": {
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "kind": "name",
+                "name": "tdi"
+              }
+            }
+          ],
+          "callee": {
+            "field": "load",
+            "kind": "field",
+            "object": {
+              "kind": "name",
+              "name": "data"
+            }
+          },
+          "kind": "call"
+        },
+        "op": "evaluate"
+      },
+      {
+        "event": "go",
+        "op": "fire"
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "data"
+          }
+        }
+      },
+      {
+        "next": false,
+        "op": "wait",
+        "signal": {
+          "field": "done",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "op": "reply",
+        "value": {
+          "field": "received",
+          "kind": "field",
+          "object": {
+            "kind": "name",
+            "name": "data"
+          }
+        }
+      }
+    ],
+    "exported": true,
+    "kind": "function",
+    "name": "scan8",
+    "params": [
+      [
+        "tms",
+        {
+          "name": "u8",
+          "range": null,
+          "via": null
+        }
+      ],
+      [
+        "tdi",
+        {
+          "name": "u8",
+          "range": null,
+          "via": null
+        }
+      ]
+    ],
+    "returns": {
+      "name": "bytes",
+      "range": null,
+      "via": null
+    }
+  }
+]

@@ -30,7 +30,7 @@ unset VERILATOR_ROOT
 cd "$RTL_ROOT"
 "$VERILATOR" --binary --assert --timing -Wno-fatal -DFUNCTIONAL -DGRID_STREAM_ASSERT --top-module grid_stream_fabric_tb \
   --Mdir "$TMP/build" experiments/grid_stream/grid_stream_fabric_tb.sv src/grid_stream_fabric.v src/grid_stream_tiles.v \
-  src/grid_stream_memory.v "$TMP/candidate/grid_core.v" src/grid_sequencer.v src/grid_switch.v src/fabric_v2_tiles.v src/fabric_crc.v \
+  src/grid_stream_memory.v "$TMP/candidate/grid_core.v" src/grid_sequencer.v src/grid_switch.v src/fabric_v2_tiles.v src/fabric_crc.v src/fabric_shifter.v src/config_bank.v \
   src/memory_tiles.v src/program_memory.v test/models/RM_IHPSG13_1P_core_behavioral_bm_bist.v \
   test/models/RM_IHPSG13_1P_1024x8_c2_bm_bist.v -MAKEFLAGS -j1 > "$TMP/build.log" 2>&1 || { cat "$TMP/build.log"; exit 1; }
 "$TMP/build/Vgrid_stream_fabric_tb" "+SPI_IMAGE=$TMP/spi.mem" "+UART_IMAGE=$TMP/uart.mem"

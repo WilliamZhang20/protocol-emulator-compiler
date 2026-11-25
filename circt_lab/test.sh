@@ -593,4 +593,8 @@ python3 - "$TEST_TMP/strict-corpus.json" <<'PY'
 import json, sys
 assert json.load(open(sys.argv[1]))['summary']['full_programs_mapped'] == 1
 PY
+if [ -f "$RTL_ROOT/test/data/grid-jtag-idcode.json" ]; then
+  SPATIAL_FRONTEND="$SPATIAL_FRONTEND" "$HERE/test_jtag_trace.sh" "$CIRCT_MAP"
+  SPATIAL_FRONTEND="$SPATIAL_FRONTEND" "$HERE/test_coded_stream.sh" "$CIRCT_MAP"
+fi
 printf 'PASS: registered MLIR verification, flexible selector analysis, image encoding, and rejection\n'

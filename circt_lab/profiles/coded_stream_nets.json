@@ -1,0 +1,5 @@
+{"name":"coded_stream_wiring","nets":[
+  {"name":"bit_tick","source":{"resource":"timer0","port":0},"sinks":[{"resource":"crc","port":78}]},
+  {"name":"serial","source":{"resource":"coded_shifter","port":2},"sinks":[{"resource":"output_io","port":7},{"resource":"lut","port":10}]},
+  {"name":"inverse","source":{"resource":"lut","port":0},"sinks":[{"resource":"output_io","port":8}]}
+]}
