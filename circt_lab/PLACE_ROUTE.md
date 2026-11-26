@@ -209,7 +209,7 @@ between a timer's start and its tick's effect:
 | start | tick's effect | taken off | where stated |
 |---|---|---|---|
 | input pin edge | samples that pin into a shifter | old chip 1, lane core `edge_to_sample_cycles` (1) | `hardware.rs` `PIN_EDGE_TO_SAMPLE`; contract, measured by `sample_latency_matches_contract` |
-| shifter busy | shifts that shifter onto a pin | old chip 2; lane core: refused, not measured yet | `hardware.rs` `SHIFT_START_TO_SHIFT` |
+| shifter busy | shifts that shifter onto a pin | old chip 2, lane core `start_to_shift_cycles` (2) | `hardware.rs` `SHIFT_START_TO_SHIFT`; contract, measured by `start_to_shift_matches_contract` |
 | anything internal at either end | | 0: the count as written | |
 
 A `first` no larger than the latency is refused ("measured at the pins").
@@ -219,9 +219,14 @@ byte-identical to before, so no compensation is applied twice. Tests:
 `tests/pin_timing.rs` (both boundaries, the internal case, one pin cycle
 moves the encoded count by one) and `test_grid_lower.py` (the lowering
 emits `sample_first`; its image equals the hand-offset count's; a time
-inside the offset and an unmeasured transmit path are refused). Next: the
-lane core's start-to-shift latency, measured by an RTL pin test and stated
-in the contract like the edge-to-sample offset.
+inside the offset is refused). The lane core's start-to-shift latency
+is measured (2 clocks for first 3/6/9, the next bit exactly the period)
+and stated in the contract; `grid_lower.py` lowers a transmit timer to
+`shift_first` and a host stream to a pull/shift program.
+`lanes/uart_tx_8n1.spt`, written from the specification (`first: BIT`),
+lowers to the data the RTL pin test `uart_tx_lowered_from_source` runs:
+every bit, the start bit included, is exactly 64 clocks at uio 6, and the
+same data built with a latency of 1 fails it (start bit 65 clocks).
 
 ## R7 coverage (2026-11-26): what lowers to one lane core, and why not
 

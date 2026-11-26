@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: WilliamZhang20/protocol-emulator
-          ref: dc539bfbb1ffb78a1ed3020cf53a3e5dd8985ba3
+          ref: f233e68b576be88a80a5cc8cd700eafcde770b15
           path: fabric-rtl
       - name: Build frontend, dialect and RTL tests
         run: |

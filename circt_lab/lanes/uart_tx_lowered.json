@@ -1,0 +1,34 @@
+{
+  "schema": "spatial.lane-design.v2",
+  "name": "uart_tx_lowered",
+  "description": "Lowered from source by grid_lower.py.",
+  "connect": {
+    "timer0.start": "coder.active",
+    "timer0.stop": "coder.stop",
+    "coder.shift": "timer0.tick",
+    "out0.value": "coder.serial",
+    "out0.enable": "high",
+    "coder.start": "shift"
+  },
+  "timers": {
+    "timer0": {
+      "period": 64,
+      "shift_first": 64
+    }
+  },
+  "coder": {
+    "frame": {
+      "length": 8,
+      "pre": 1,
+      "pre_value": 0,
+      "post": 1,
+      "post_value": 1,
+      "idle": 1
+    }
+  },
+  "host_words": {
+    "68": 3
+  },
+  "program_base": 768,
+  "program": "uart_tx_lowered.lane"
+}

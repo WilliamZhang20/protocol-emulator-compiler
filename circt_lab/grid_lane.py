@@ -237,22 +237,29 @@ class CoreEncoder:
         for name, spec in design.get('timers', {}).items():
             if name not in ('timer0', 'timer1'):
                 raise ValueError(f'timers: no timer {name!r} in the lane core')
-            unknown = set(spec) - {'first', 'period', 'function', 'phase', 'resync_limit', 'sample_first', 'sample_phase'}
+            unknown = set(spec) - {'first', 'period', 'function', 'phase', 'resync_limit', 'sample_first', 'sample_phase',
+                                   'shift_first'}
             if unknown:
                 raise ValueError(f'timers: {name}: unknown keys {sorted(unknown)}')
             # sample_first / sample_phase: the clock after the starting (or
             # resyncing) edge at which the coded shifter should sample. The
             # contract states the edge-to-sample offset the hardware adds,
             # measured by the RTL lane-core test; the count is what is left.
+            # shift_first: the start bit's width at the pin for a timer
+            # started by the coded shifter's active level that shifts it; the
+            # contract states the start-to-shift latency (lane-core test
+            # start_to_shift_matches_contract).
             spec = dict(spec)
-            offset = core['edge_to_sample_cycles']
-            for key, raw in (('sample_first', 'first'), ('sample_phase', 'phase')):
+            for key, raw, offset, what in (
+                    ('sample_first', 'first', core['edge_to_sample_cycles'], 'edge-to-sample'),
+                    ('sample_phase', 'phase', core['edge_to_sample_cycles'], 'edge-to-sample'),
+                    ('shift_first', 'first', core['start_to_shift_cycles'], 'start-to-shift')):
                 if key in spec:
                     if raw in spec:
                         raise ValueError(f'timers: {name}: give {key} or {raw}, not both')
                     if spec[key] <= offset:
                         raise ValueError(f'timers: {name}: {key} {spec[key]} is not after the '
-                                         f'{offset}-clock edge-to-sample offset')
+                                         f'{offset}-clock {what} offset')
                     spec[raw] = spec.pop(key) - offset
             base = layout[name][0]
             first, period = spec.get('first', 0), spec.get('period', 0)

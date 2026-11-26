@@ -200,7 +200,7 @@ with tempfile.TemporaryDirectory() as tmp:
 # 7. The shipped designs build to exactly the data the RTL pin tests load.
 data = RTL / 'test/data/lane'
 for name in ('i2c_target', 'spi_target', 'slip_uart_tx', 'pulse_period', 'uart_rx_resync', 'uart_rx_plain',
-             'uart_rx_8e1', 'manchester_rx', 'lin_checksum'):
+             'uart_rx_8e1', 'manchester_rx', 'lin_checksum', 'uart_tx_lowered'):
     image, prog = build(contract, HERE / 'lanes' / f'{name}.json')
     stem = name.replace('_', '-')
     assert (data / f'{stem}.mem').read_text() == ''.join(f'{x:04x}\n' for x in image), name

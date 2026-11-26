@@ -1,0 +1,7 @@
+# Send 4 words from the host stream through the coded shifter.
+        SETC 4
+next:   PULL
+        SHIFT                       # the shift line starts the coded shifter
+        WAIT event:coder.stop
+        LOOP next
+        HALT

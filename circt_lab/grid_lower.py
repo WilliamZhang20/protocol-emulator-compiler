@@ -17,15 +17,19 @@ Rules:
   the pins (PLACE_ROUTE.md, "R7: source times"): a timer started by an
   input pin's edge whose tick samples the shifter gets `sample_first`, and
   grid_lane.py subtracts the contract's edge_to_sample_cycles; a timer
-  started by the shifter's busy that shifts it is refused until the lane
-  core's start-to-shift latency is measured and in the contract; any
-  other start is internal at one end and takes the count as written.
+  started by the shifter's busy that shifts it gets `shift_first` (the
+  start bit's width at the pin), less the contract's
+  start_to_shift_cycles; any other start is internal at one end and takes
+  the count as written.
 - one shifter -> the coded shifter: the frame list `[bits.., data(n),
   odd|even, bits..]` -> pre bits, length, parity, post bits; `idle`,
   `start`, `shift`, `sample: X at E` -> start, shift, in X, sample E.
 - a stream from the shifter to the host -> a receive program: wait for
   each word, fail on a bad word (parity or post bit), push it; `count`
   words, then halt.
+- a stream from the host to the shifter -> a transmit program: pull each
+  word, SHIFT it (the controller's shift line starts the shifter), wait
+  for the frame's stop; `count` words, then halt.
 """
 import argparse
 import json
@@ -147,6 +151,14 @@ class Lowering:
                 raise LowerError(f'output pin {pin} is not driven')
             connect[f'out{k}.value'] = self.line(drive)
             connect[f'out{k}.enable'] = 'high'
+        streams = [i for i in self.items if i['kind'] == 'stream']
+        self.rx = [s for s in streams if s['to'].get('name') == 'host']
+        self.tx = [s for s in streams if s['from'].get('name') == 'host']
+        if self.tx and self.shifters:
+            if 'coder.start' in connect:
+                raise LowerError(f'{self.shifters[0]["name"]}: fed by a host stream and also started by '
+                                 f'{connect["coder.start"]}; the stream starts it')
+            connect['coder.start'] = 'shift'
         self.pin_reference(connect, timers)
         program = self.program()
         design = {'schema': 'spatial.lane-design.v2', 'name': self.name,
@@ -172,9 +184,7 @@ class Lowering:
             if pin_edge and connect.get('coder.sample') == tick:
                 spec['sample_first'] = spec.pop('first')
             elif start == 'coder.active' and connect.get('coder.shift') == tick:
-                raise LowerError(f'{t["name"]}: started by the shifter and shifting it; the lane core\'s '
-                                 'start-to-shift latency is not measured in the contract yet, so a '
-                                 'pin-measured `first` cannot be lowered')
+                spec['shift_first'] = spec.pop('first')
 
     def frame(self, name, fields):
         f = fields.get('frame')
@@ -212,15 +222,20 @@ class Lowering:
         return out
 
     def program(self):
-        streams = [i for i in self.items if i['kind'] == 'stream']
-        rx = [s for s in streams if s['to'].get('name') == 'host']
-        tx = [s for s in streams if s['from'].get('name') == 'host']
-        if tx:
-            raise LowerError('host-to-pin streams are not lowered to a lane core yet')
-        if len(rx) != 1:
-            raise LowerError(f'{len(rx)} receive streams; this lowering takes one')
+        rx, tx = self.rx, self.tx
+        if len(rx) + len(tx) != 1:
+            raise LowerError(f'{len(rx)} receive and {len(tx)} transmit streams; this lowering takes one stream')
         if self.count is None or not 1 <= self.count <= 255:
-            raise LowerError('a receive program needs a word count of 1-255')
+            raise LowerError('a stream program needs a word count of 1-255')
+        if tx:
+            return '\n'.join([
+                f'# Send {self.count} words from the host stream through the coded shifter.',
+                f'        SETC {self.count}',
+                'next:   PULL',
+                '        SHIFT                       # the shift line starts the coded shifter',
+                '        WAIT event:coder.stop',
+                '        LOOP next',
+                '        HALT', ''])
         return '\n'.join([
             f'# Receive {self.count} words from the coded shifter to the host stream.',
             f'        SETC {self.count}',
