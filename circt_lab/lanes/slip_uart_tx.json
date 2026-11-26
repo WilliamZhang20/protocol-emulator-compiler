@@ -1,0 +1,28 @@
+{
+  "schema": "spatial.lane-design.v1",
+  "name": "slip_uart_tx",
+  "description": "SLIP-framed UART transmitter, 8N1: the lane escapes END/ESC per byte and builds each 10-bit frame; FIRE starts shifter0 and timer0 together, each timer tick shifts one bit, shifter done stops the timer so the next frame starts on a fresh bit period. The line is output 0 (uio6), push-pull, idle high.",
+  "nets": [
+    {"name": "frame_start", "source": {"resource": "sram0", "port": 3}, "sinks": [
+      {"resource": "shifter0", "port": 3, "context": 0}, {"resource": "timer0", "port": 0, "context": 0}]},
+    {"name": "bit_tick", "source": {"resource": "timer0", "port": 0}, "sinks": [{"resource": "shifter0", "port": 4, "context": 0}]},
+    {"name": "frame_done", "source": {"resource": "shifter0", "port": 1}, "sinks": [{"resource": "timer0", "port": 1, "context": 0}]},
+    {"name": "line", "source": {"resource": "shifter0", "port": 3}, "sinks": [{"resource": "output_io", "port": 7, "context": 0}]}
+  ],
+  "words": {
+    "0": 20, "1": 20,
+    "2": 10,
+    "4": 1,
+    "53": 1, "54": 1, "55": 1,
+    "63": 10,
+    "68": 3
+  },
+  "word_notes": {
+    "0-1": "timer0: 20 clocks per bit (first tick and period)",
+    "2": "shifter0: 10 bits, LSB first, no restart",
+    "4": "only output 0 enabled, push-pull"
+  },
+  "idle_actions": 0,
+  "program": "slip_uart_tx.lane",
+  "program_base": 768
+}

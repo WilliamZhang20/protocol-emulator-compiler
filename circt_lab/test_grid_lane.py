@@ -38,6 +38,8 @@ next:   RD 3
 loop:   LOOP loop
         ATOC
         CTOA
+        SHL
+        SHR
         AND 0xFF
         ADD 1
         J next
