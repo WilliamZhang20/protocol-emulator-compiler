@@ -206,3 +206,24 @@ or keep a legacy flag until they are retired.
 Until this is decided, R7 lowers lane designs from the frontend IR
 (`spatial model-ir`: resources, fields, resolved inputs) with the source
 counts taken as raw, which reproduces today's hand designs.
+
+## R7 coverage (2026-11-26): what lowers to one lane core, and why not
+
+`grid_lower.py` over all 35 examples: 2 lower (`ps2`, at the pins;
+`byte_tag_errors`). Refusals, each a named construct, grouped by what
+would remove it:
+
+| Needed | Examples | Where it comes from |
+|---|---|---|
+| a second coded shifter (two lanes) | uart, i2c, jtag, loopback, byte_filter, byte_framing, byte_xor, io_saturation, 4 memory_dual/unequal | steps 2.5-2.6 (hardware) |
+| `timer.run` (level-gated timers) | 5 protocol_control variants | lowering rule: hold mode with aux = !run |
+| counters | spi, usb, ethernet_tx | timer count mode ("tick after N events") or controller LOOP |
+| CRC resource | crc_link_trace, ethernet_tx_coded (+ usb, ethernet_tx) | the core's CRC tile: polynomial/additive, link |
+| registers / logic in signal paths | contexts_logic, packets (+ spi) | step 5.3: reg expressions to LUT4 cells |
+| host-to-pin streams | contexts, contexts_initial_one | auto-pull transmit program |
+| a third timer | byte_tag_gap | two lanes, or a counter rule |
+| no receive stream (host-driven only) | 3 memory_bandwidth, stored_bytes | exported functions to controller programs |
+| `shifter.end`, raw shifter (no frame) | packet_errors, swd | burst/end rules; bit-level shifter use |
+
+The largest group waits on hardware (a second lane); the rest are
+compiler rules, each with a pin test to land it like PS/2.
