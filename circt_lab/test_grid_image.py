@@ -11,7 +11,7 @@ import sys
 
 kind, image_path, report_path = sys.argv[1:]
 rtl_root = pathlib.Path(os.environ.get('RTL_ROOT', pathlib.Path(__file__).resolve().parents[2] / 'protocol-emulator'))
-contract = json.loads((rtl_root / 'architecture/grid_3x3.json').read_text())
+contract = json.loads((rtl_root / 'architecture/grid_5x3.json').read_text())
 grid, network = contract['grid'], contract['bit_network']
 assert contract['schema'] == 'protocol-emulator.grid-contract.v1'
 words = [int(x, 16) for x in pathlib.Path(image_path).read_text().splitlines()]

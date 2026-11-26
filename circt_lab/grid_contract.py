@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-DEFAULT = Path(os.environ.get('RTL_ROOT', Path(__file__).resolve().parents[2] / 'protocol-emulator')) / 'architecture/grid_3x3.json'
+DEFAULT = Path(os.environ.get('RTL_ROOT', Path(__file__).resolve().parents[2] / 'protocol-emulator')) / 'architecture/grid_5x3.json'
 
 
 def target(contract):

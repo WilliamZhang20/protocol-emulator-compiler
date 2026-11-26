@@ -105,7 +105,7 @@ def main():
         track(33,2,3);track(21,2,5)
         image[50]=12;image[59]=14;image[60]=21;image[63]=0x2005
         args.output.write_text(''.join(f'{word:04x}\n' for word in image))
-        print(json.dumps({'target':'grid-3x3-jtag-scan8-component', 'source_validated':True,
+        print(json.dumps({'target':'grid-5x3-jtag-scan8-component', 'source_validated':True,
             'general_mapping':False, 'full_source_program_compiled':False, 'full_tap_verified':False,
             'half_period':half, 'source_bytes':['TDI','TMS'], 'destination':'TDO',
             'limitations':'Fixed routes and placement; scan8 component only. Host loads two bytes; step, TAP control and exact source-cycle equivalence are not compiled.'}, indent=2))

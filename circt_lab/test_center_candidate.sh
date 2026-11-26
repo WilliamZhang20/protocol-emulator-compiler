@@ -13,17 +13,17 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 python3 "$RTL_ROOT/experiments/grid_fabric/center_timer.py" --output "$TMP/candidate"
 mkdir -p "$TMP/candidate/architecture"
-cp "$TMP/candidate/grid_3x3.json" "$TMP/candidate/architecture/grid_3x3.json"
+cp "$TMP/candidate/grid_5x3.json" "$TMP/candidate/architecture/grid_5x3.json"
 printf '%s\n' '{"timer0":4,"lut":2}' > "$TMP/layout.json"
 for proto in spi uart; do
   if [ "$proto" = spi ]; then source="$HERE/examples/memory_spi.spt"; else source="$HERE/../examples/uart.spt"; fi
   "$SPATIAL_FRONTEND" frontend-mlir "$source" > "$TMP/$proto.mlir"
   "$CIRCT_MAP" "--compile-grid-$proto" "$TMP/$proto.mlir" "$TMP/$proto-base.mem" > "$TMP/$proto-base.json"
-  python3 "$HERE/grid_workload.py" "$TMP/$proto-base.json" --contract "$RTL_ROOT/architecture/grid_3x3.json" > "$TMP/$proto-nets.json"
-  python3 "$HERE/grid_route.py" "$TMP/$proto-nets.json" --contract "$RTL_ROOT/architecture/grid_3x3.json" --layout "$TMP/layout.json" --emit-mlir > "$TMP/$proto-route.mlir"
+  python3 "$HERE/grid_workload.py" "$TMP/$proto-base.json" --contract "$RTL_ROOT/architecture/grid_5x3.json" > "$TMP/$proto-nets.json"
+  python3 "$HERE/grid_route.py" "$TMP/$proto-nets.json" --contract "$RTL_ROOT/architecture/grid_5x3.json" --layout "$TMP/layout.json" --emit-mlir > "$TMP/$proto-route.mlir"
   "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TMP/$proto-route.mlir" -o /dev/null
   "$CIRCT_MAP" --route-grid "$TMP/$proto-route.mlir" > "$TMP/$proto-route.json"
-  python3 "$HERE/grid_route_image.py" "$TMP/$proto-route.json" "$TMP/$proto-base.json" "$TMP/$proto-base.mem" "$TMP/$proto.mem" "$TMP/$proto.json" --contract "$TMP/candidate/grid_3x3.json"
+  python3 "$HERE/grid_route_image.py" "$TMP/$proto-route.json" "$TMP/$proto-base.json" "$TMP/$proto-base.mem" "$TMP/$proto.mem" "$TMP/$proto.json" --contract "$TMP/candidate/grid_5x3.json"
   RTL_ROOT="$TMP/candidate" python3 "$HERE/test_grid_image.py" "$proto" "$TMP/$proto.mem" "$TMP/$proto.json"
 done
 unset VERILATOR_ROOT

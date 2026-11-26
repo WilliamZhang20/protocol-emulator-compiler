@@ -1,6 +1,6 @@
 {
   "schema": "spatial.grid-candidate-sweep.v1",
-  "contract": "/home/wzhang20/Documents/protocol-emulator/architecture/grid_3x3.json",
+  "contract": "/home/wzhang20/Documents/protocol-emulator/architecture/grid_5x3.json",
   "area_library_sha256": "7677a8918689f452e80405ad16a83e744709342574f2aedcc507c2758986b396",
   "contract_sha256": "748cf1912033048f15fe4b45e2a0b5e586457eb36ca73e4e5045102b091201ea",
   "source_sha256": {
@@ -13,12 +13,12 @@
   },
   "protocol_workloads": {
     "spi": {
-      "name": "grid-3x3-spi-experiment",
+      "name": "grid-5x3-spi-experiment",
       "source_validated": true,
       "full_source_program_compiled": false
     },
     "uart": {
-      "name": "grid-3x3-uart-experiment",
+      "name": "grid-5x3-uart-experiment",
       "source_validated": true,
       "full_source_program_compiled": false
     },

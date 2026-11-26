@@ -4,7 +4,7 @@
   "rows": [
     {
       "workloads": [
-        "grid-3x3-spi-experiment"
+        "grid-5x3-spi-experiment"
       ],
       "blocks": 6,
       "nets": 9,
@@ -14,7 +14,7 @@
     },
     {
       "workloads": [
-        "grid-3x3-uart-experiment"
+        "grid-5x3-uart-experiment"
       ],
       "blocks": 7,
       "nets": 8,
@@ -64,7 +64,7 @@
     },
     {
       "workloads": [
-        "grid-3x3-spi-experiment",
+        "grid-5x3-spi-experiment",
         "usb-direct-bit-slice"
       ],
       "blocks": 9,
@@ -75,7 +75,7 @@
     },
     {
       "workloads": [
-        "grid-3x3-spi-experiment",
+        "grid-5x3-spi-experiment",
         "ethernet_tx-direct-bit-slice"
       ],
       "blocks": 9,

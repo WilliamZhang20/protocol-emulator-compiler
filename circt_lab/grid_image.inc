@@ -1,4 +1,4 @@
-// Fixed tile placement with a real finite-track router for the 3x3 RTL grid.
+// Fixed tile placement with a real finite-track router for the 5x3 RTL grid.
 // This is a restricted source-derived SPI component, not a general mapper.
 static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
   std::string text; llvm::raw_string_ostream stream(text);
@@ -109,7 +109,7 @@ static int compileGridImage(ModuleOp frontend,const char *output,bool uart) {
     routes.push_back(llvm::json::Object{{"signal",nets[i].name},{"source_cell",nets[i].source},
       {"source_port",nets[i].port},{"track",initial.lane[i]},{"paths",std::move(paths)}});
   }
-  llvm::json::Object report{{"target",uart ? "grid-3x3-uart-experiment" : "grid-3x3-spi-experiment"},{"source_validated",true},
+  llvm::json::Object report{{"target",uart ? "grid-5x3-uart-experiment" : "grid-5x3-spi-experiment"},{"source_validated",true},
     {"general_mapping",false},{"full_source_program_compiled",false},{"routing",std::move(routes)},
     {"host_configuration",llvm::json::Object{{"tx_length_word",66},{"rx_capacity_word",67},{"pad_feedback_word",68},{"pad_feedback_value",0},{"independent_bank_routes_word",88},{"tx_base_word",89},{"rx_base_word",90}}},
     {"limitations","Fixed tile placement and hand-written frame scheduling; two turn-restricted route classes, no general stream/function lowering or physical timing proof."}};

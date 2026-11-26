@@ -18,7 +18,7 @@ TEST_TMP=$(mktemp -d)
 trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM
 RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"}
 export RTL_ROOT
-python3 "$HERE/grid_contract.py" target --contract "$RTL_ROOT/architecture/grid_3x3.json" > "$TEST_TMP/grid-target.mlir"
+python3 "$HERE/grid_contract.py" target --contract "$RTL_ROOT/architecture/grid_5x3.json" > "$TEST_TMP/grid-target.mlir"
 "$CIRCT_OPT" "--load-dialect-plugin=$SPATIAL_DIALECT" "$TEST_TMP/grid-target.mlir" -o /dev/null
 "$CIRCT_MAP" --map-graph "$TEST_TMP/grid-target.mlir" "$HERE/examples/grid_contract_loopback.mlir" > "$TEST_TMP/grid-loopback.json"
 python3 "$HERE/show_graph.py" "$TEST_TMP/grid-loopback.json" > "$TEST_TMP/grid-loopback.txt"
@@ -119,14 +119,14 @@ for name,mode in [('spi',0),('uart',1)]:
 for name,mode in [('spi',0),('uart',1)]:
  image=[int(x,16) for x in (p/f'grid-{name}.mem').read_text().splitlines()]
  report=json.loads((p/f'grid-{name}.json').read_text())
- assert len(image)==66 and image[65]==mode and report['target']==f'grid-3x3-{name}-experiment'
+ assert len(image)==66 and image[65]==mode and report['target']==f'grid-5x3-{name}-experiment'
  assert report['source_validated'] and not report['general_mapping'] and not report['full_source_program_compiled']
  assert all(0<=r['track']<4 for r in report['routing'])
 PY
 python3 "$HERE/test_grid_image.py" spi "$TEST_TMP/grid-spi.mem" "$TEST_TMP/grid-spi.json"
 python3 "$HERE/test_grid_image.py" uart "$TEST_TMP/grid-uart.mem" "$TEST_TMP/grid-uart.json"
 mkdir -p "$TEST_TMP/mutated-rtl/architecture"
-python3 - "$RTL_ROOT/architecture/grid_3x3.json" "$TEST_TMP/mutated-rtl/architecture/grid_3x3.json" <<'PY'
+python3 - "$RTL_ROOT/architecture/grid_5x3.json" "$TEST_TMP/mutated-rtl/architecture/grid_5x3.json" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
 c['bit_network']['selector_values']['local_first'] = 2

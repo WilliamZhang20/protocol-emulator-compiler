@@ -105,7 +105,7 @@ this is not a general Mealy-machine lowering.
 
 ### Current-grid architecture contract
 
-The hardware repository owns `architecture/grid_3x3.json`. It records the
+The hardware repository owns `architecture/grid_5x3.json`. It records the
 current fabric, including ports, coordinates, switch encodings, configuration
 words, memory, and the fixed scheduler. The grid image checker reads its switch
 and sink descriptions rather than duplicating their encoding. The hardware

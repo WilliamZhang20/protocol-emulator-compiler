@@ -13,7 +13,7 @@ SOURCE = {0: 'input_io', 2: 'timer0', 3: 'shifter0', 4: 'lut',
 
 
 def from_report(contract, report):
-    if report.get('target') not in ('grid-3x3-spi-experiment', 'grid-3x3-uart-experiment') or not report.get('source_validated'):
+    if report.get('target') not in ('grid-5x3-spi-experiment', 'grid-5x3-uart-experiment') or not report.get('source_validated'):
         raise ValueError('expected source-validated grid SPI/UART component report')
     nets = []
     for route in report['routing']:
