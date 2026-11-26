@@ -6,7 +6,7 @@ set -euo pipefail
 if [[ $# != 1 ]]; then echo "usage: $0 CIRCT_MAP" >&2; exit 2; fi
 repo=$(cd "$(dirname "$0")/.." && pwd); mapper=$(realpath "$1")
 frontend=${SPATIAL_FRONTEND:-$repo/target/debug/spatial}
-fixtures="$repo/../protocol-emulator/test/data/compiled"
+fixtures="${RTL_ROOT:-$repo/../protocol-emulator}/test/data/compiled"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 compile="$repo/circt_lab/compile_temporal_function.sh"
 "$compile" "$repo/examples/spi.spt" spi.transfer a53c81 "$tmp/spi" "$mapper"

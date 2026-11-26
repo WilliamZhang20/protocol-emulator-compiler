@@ -8,15 +8,15 @@ compile="$repo/circt_lab/compile_coded_stream.sh"
 "$compile" "$repo/examples/ethernet_tx_coded.spt" ethernet '' "$tmp/ethernet" "$mapper"
 for mode in usb ethernet; do
  grep -Fq "coded_shifter*" "$tmp/$mode.map.txt"
- cmp "$tmp/$mode.mem" "$repo/../protocol-emulator/test/data/grid-$mode-coded.mem"
- cmp "$tmp/$mode.program.json" "$repo/../protocol-emulator/test/data/grid-$mode-coded.json"
+ cmp "$tmp/$mode.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-$mode-coded.mem"
+ cmp "$tmp/$mode.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-$mode-coded.json"
 done
 "$compile" "$repo/examples/usb.spt" usb 80c3 "$tmp/empty" "$mapper"
-cmp "$tmp/empty.mem" "$repo/../protocol-emulator/test/data/grid-usb-empty.mem"
-cmp "$tmp/empty.program.json" "$repo/../protocol-emulator/test/data/grid-usb-empty.json"
+cmp "$tmp/empty.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-usb-empty.mem"
+cmp "$tmp/empty.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-usb-empty.json"
 "$compile" "$repo/examples/usb.spt" usb 80c3ffffffffffffffff "$tmp/max" "$mapper"
-cmp "$tmp/max.mem" "$repo/../protocol-emulator/test/data/grid-usb-max.mem"
-cmp "$tmp/max.program.json" "$repo/../protocol-emulator/test/data/grid-usb-max.json"
+cmp "$tmp/max.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-usb-max.mem"
+cmp "$tmp/max.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-usb-max.json"
 if "$compile" "$repo/examples/usb.spt" usb 80c3000000000000000000 "$tmp/too_long" "$mapper" >"$tmp/error" 2>&1; then
  echo 'oversized low-speed USB packet unexpectedly accepted' >&2; exit 1
 fi
@@ -38,8 +38,8 @@ for mode in usb ethernet; do
 done
 python3 "$repo/circt_lab/generate_ethernet_mtu.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/mtu.spt"
 "$compile" "$tmp/mtu.spt" ethernet '' "$tmp/mtu" "$mapper"
-cmp "$tmp/mtu.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-mtu.mem"
-cmp "$tmp/mtu.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-mtu.json"
+cmp "$tmp/mtu.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-mtu.mem"
+cmp "$tmp/mtu.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-mtu.json"
 python3 "$repo/circt_lab/generate_ethernet_mtu.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/oversize.spt" --payload-bytes 1501
 if "$compile" "$tmp/oversize.spt" ethernet '' "$tmp/reject" "$mapper" >"$tmp/error" 2>&1; then
  echo 'oversized Ethernet frame unexpectedly accepted' >&2; exit 1
@@ -47,12 +47,12 @@ fi
 # Full 10BASE-T link session: the exported transmit() compiles onto the
 # 5x3 grid; NLP_TICK is a source parameter (fast fixture for gate level).
 "$compile" "$repo/examples/ethernet_tx_coded.spt" ethernet_session '' "$tmp/session" "$mapper"
-cmp "$tmp/session.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-session.mem"
-cmp "$tmp/session.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-session.json"
+cmp "$tmp/session.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-session.mem"
+cmp "$tmp/session.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-session.json"
 python3 "$repo/circt_lab/generate_ethernet_session.py" "$repo/examples/ethernet_tx_coded.spt" "$tmp/fast.spt" --nlp-tick 4000
 "$compile" "$tmp/fast.spt" ethernet_session '' "$tmp/fast" "$mapper"
-cmp "$tmp/fast.mem" "$repo/../protocol-emulator/test/data/grid-ethernet-session-fast.mem"
-cmp "$tmp/fast.program.json" "$repo/../protocol-emulator/test/data/grid-ethernet-session-fast.json"
+cmp "$tmp/fast.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-session-fast.mem"
+cmp "$tmp/fast.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-ethernet-session-fast.json"
 python3 - "$repo/examples/ethernet_tx_coded.spt" "$tmp" <<'PY'
 from pathlib import Path
 import sys

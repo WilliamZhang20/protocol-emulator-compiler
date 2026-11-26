@@ -3,13 +3,13 @@ set -euo pipefail
 if [[ $# != 1 ]]; then echo "usage: $0 CIRCT_MAP" >&2; exit 2; fi
 repo=$(cd "$(dirname "$0")/.." && pwd); mapper=$(realpath "$1")
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-base="$repo/../protocol-emulator/test/data/grid-spi.mem"
+base="${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-spi.mem"
 compile="$repo/circt_lab/compile_jtag_test.sh"; name='reset and read a 32-bit IDCODE'
 "$compile" "$repo/examples/jtag.spt" "$name" "$tmp/ref" "$mapper" "$base"
-cmp "$tmp/ref.mem" "$repo/../protocol-emulator/test/data/grid-jtag-temporal.mem"
-cmp "$tmp/ref.program.json" "$repo/../protocol-emulator/test/data/grid-jtag-idcode.json"
+cmp "$tmp/ref.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-jtag-temporal.mem"
+cmp "$tmp/ref.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-jtag-idcode.json"
 "$compile" "$repo/examples/jtag.spt" 'select IR and write and read the user DR' "$tmp/user" "$mapper" "$base"
-cmp "$tmp/user.program.json" "$repo/../protocol-emulator/test/data/grid-jtag-user.json"
+cmp "$tmp/user.program.json" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/grid-jtag-user.json"
 python3 - "$repo/examples/jtag.spt" "$tmp" <<'PY'
 from pathlib import Path
 import sys

@@ -8,7 +8,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 compile="$repo/circt_lab/compile_i2c_write.sh"
 "$compile" "$repo/examples/i2c.spt" 0x48 a6 "$tmp/reference" "$mapper"
-cmp "$tmp/reference.mem" "$repo/../protocol-emulator/test/data/temporal-i2c.mem"
+cmp "$tmp/reference.mem" "${RTL_ROOT:-$repo/../protocol-emulator}/test/data/temporal-i2c.mem"
 "$compile" "$repo/examples/i2c.spt" 0x50 3c "$tmp/alternate" "$mapper"
 "$compile" "$repo/examples/i2c.spt" 0x50 '' "$tmp/empty" "$mapper"
 python3 - "$tmp" "$repo/examples/i2c.spt" <<'PY'
