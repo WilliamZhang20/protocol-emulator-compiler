@@ -21,7 +21,12 @@ from grid_rrg import RRG, WordSim
 
 
 def _cell_of(rrg, node):
-    """Where a node's signal is: a track's arrival cell, else its cell."""
+    """Where a node's signal is: a track's arrival cell, else its cell.
+    A graph with nodes of its own (grid_cluster) supplies cell_of; None
+    means no mesh position (inside a cluster), and the search then has no
+    distance estimate there."""
+    if hasattr(rrg, 'cell_of'):
+        return rrg.cell_of(node)
     kind = node[0]
     if kind == 'track':
         return rrg.neighbour(node[1], node[2])
@@ -31,6 +36,8 @@ def _cell_of(rrg, node):
 
 
 def _manhattan(rrg, a, b):
+    if a is None or b is None:
+        return 0
     ra, ca = divmod(a, rrg.cols)
     rb, cb = divmod(b, rrg.cols)
     return abs(ra - rb) + abs(ca - cb)
@@ -54,11 +61,13 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
     if len(set(names)) != len(names):
         raise ValueError('duplicate net name')
     seen_sinks = {}
+    is_source = getattr(rrg, 'is_source', lambda node: node[0] == 'opin')
+    is_sink = getattr(rrg, 'is_sink', lambda node: node[0] == 'ipin')
     for n in nets:
-        if n['source'] not in rrg.index or n['source'][0] != 'opin':
+        if n['source'] not in rrg.index or not is_source(n['source']):
             raise ValueError(f'{n["name"]}: source {n["source"]} is not a local output')
         for s in n['sinks']:
-            if s not in rrg.index or s[0] != 'ipin':
+            if s not in rrg.index or not is_sink(s):
                 raise ValueError(f'{n["name"]}: sink {s} is not a tile input')
             if s in seen_sinks:
                 raise ValueError(f'sink {s} driven by {seen_sinks[s]} and {n["name"]}')
@@ -77,7 +86,7 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
         kind, n = latency.get(sink, ('max', None))
         return n is None or (cyc == n if kind == 'exact' else cyc <= n)
 
-    capacity = {node: 1 for node in rrg.nodes if node[0] in ('track', 'ipin')}
+    capacity = getattr(rrg, 'capacity', None) or {node: 1 for node in rrg.nodes if node[0] in ('track', 'ipin')}
     history = {node: 0.0 for node in capacity}
     occupancy = {node: 0 for node in capacity}
     trees = {n['name']: [] for n in nets}
@@ -121,7 +130,7 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
                     if nxt in in_tree:          # one parent per node: a selector picks one input
                         continue
                     ncyc = cyc + hop_cycles(nxt)
-                    if nxt[0] == 'ipin' and (nxt != sink or not allowed(sink, ncyc)):
+                    if is_sink(nxt) and (nxt != sink or not allowed(sink, ncyc)):
                         continue
                     kind, bound = latency.get(sink, ('max', None))
                     if bound is not None and ncyc > bound:
@@ -130,7 +139,7 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
                     if ng < best.get((nxt, ncyc), float('inf')):
                         best[(nxt, ncyc)] = ng
                         parent[(nxt, ncyc)] = ((node, cyc), label)
-                        h = 0 if nxt[0] == 'ipin' else _manhattan(rrg, _cell_of(rrg, nxt), target)
+                        h = 0 if is_sink(nxt) else _manhattan(rrg, _cell_of(rrg, nxt), target)
                         heapq.heappush(frontier, (ng + h, ng, nxt, ncyc))
             if found is None:
                 return None

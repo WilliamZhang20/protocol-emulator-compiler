@@ -1,0 +1,37 @@
+{
+ "name": "i2c_target",
+ "about": "I2C target at address 0x48: ACKs its address and each data byte, stores the data bytes, NAKs other addresses. Control is two routing-context FSMs (FABRIC_REORG.md criterion 1).",
+ "pins": {"scl": 0, "sda": 1},
+ "events": {
+  "scl_rise": {"pin": "scl", "edge": "rise"},
+  "scl_fall": {"pin": "scl", "edge": "fall"},
+  "sda": {"pin": "sda", "edge": "level"},
+  "start": {"pin": "sda", "edge": "fall", "when": {"pin": "scl", "level": 1}},
+  "stop": {"pin": "sda", "edge": "rise", "when": {"pin": "scl", "level": 1}}
+ },
+ "drivers": {"sda_out": {"pin": "sda"}},
+ "tiles": {
+  "rx": {"kind": "shifter", "word_port": true, "frame": "0x1007",
+         "step": {"shift": "shift", "sample": "shift"}, "io": {"start": "start", "in": true, "auto_push": true},
+         "abort": "abort"}
+ },
+ "words": {"gate": "rx", "writer": "gate", "tap": "rx", "cmp_value": "0x90", "cmp_mask": "0xff"},
+ "fsms": {
+  "ack": {"states": ["RELEASE", "WAIT", "DRIVE"],
+          "on": [["RELEASE", "ack_go", "WAIT"], ["WAIT", "scl_fall", "DRIVE"], ["DRIVE", "scl_fall", "RELEASE"]]},
+  "addr": {"states": ["IDLE", "ADDR", "ON", "OFF"],
+           "on": [["IDLE", "start", "ADDR"], ["ADDR", "words.match", "ON"], ["ADDR", "words.mismatch", "OFF"],
+                  ["ON", "stop", "IDLE"], ["OFF", "stop", "IDLE"]]}
+ },
+ "signals": {
+  "ack_go": {"fsm": "addr", "cases": {"ADDR": "words.match", "ON": "rx.word"}},
+  "ack_end": {"fsm": "ack", "cases": {"DRIVE": "scl_fall"}}
+ },
+ "connect": {
+  "rx.start": {"fsm": "addr", "cases": {"IDLE": "start", "ON": "ack_end"}},
+  "rx.shift": "scl_rise", "rx.in": "sda", "rx.abort": "stop",
+  "words.gate": {"fsm": "addr", "cases": {"ON": 1}},
+  "sda_out.enable": {"fsm": "ack", "cases": {"DRIVE": 1}},
+  "sda_out.value": 0
+ }
+}

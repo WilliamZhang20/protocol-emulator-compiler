@@ -1,0 +1,12 @@
+{
+ "name": "uart_rx",
+ "about": "UART receive, 8N1, 20 clocks per bit (the shipped uart-rx-plain program's timer and frame words); bytes to the host.",
+ "pins": {"rx": 2},
+ "events": {"rx_fall": {"pin": "rx", "edge": "fall"}, "rx_level": {"pin": "rx", "edge": "level"}},
+ "tiles": {
+  "bit": {"kind": "timer", "first": 8, "period": 20},
+  "rx": {"kind": "shifter", "frame": "0x8297", "step": {"shift": "shift", "sample": "shift"},
+         "io": {"start": "start", "in": true, "auto_push": true}}
+ },
+ "connect": {"bit.start": "rx_fall", "bit.stop": "rx.stop", "rx.start": "rx_fall", "rx.shift": "bit.tick", "rx.in": "rx_level"}
+}

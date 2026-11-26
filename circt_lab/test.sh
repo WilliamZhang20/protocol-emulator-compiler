@@ -9,7 +9,7 @@ RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"} python3 "$HERE/test_grid_l
 # Step 5 (PLACE_ROUTE.md): routing-resource graph, PathFinder with its
 # independent checker, latency constraints, placement, channel width, and
 # general lowering from source (with pin-referenced timing).
-for t in test_grid_rrg test_grid_pathfinder test_grid_latency test_grid_place test_grid_chanwidth test_grid_lower; do
+for t in test_grid_rrg test_grid_pathfinder test_grid_latency test_grid_place test_grid_chanwidth test_grid_lower test_fabric_map; do
   RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"} SPATIAL_FRONTEND=${SPATIAL_FRONTEND:-"$HERE/../target/debug/spatial"} \
     python3 "$HERE/$t.py"
 done

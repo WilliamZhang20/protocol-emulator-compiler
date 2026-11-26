@@ -85,6 +85,9 @@ class Problem:
     def cost(self, binding, weights):
         return sum(weights[i] * self.net_cost(binding, n) for i, n in enumerate(self.nets))
 
+    def verify(self, binding):
+        """Placement rules beyond kind matching; none for the grid."""
+
     def routing_nets(self, binding):
         out = []
         for n in self.nets:
@@ -157,7 +160,7 @@ def _route_cost(problem, rrg, binding, budget):
     return len(result['overused']), result
 
 
-def place_and_route(contract, blocks, nets, seed=1, tracks=None, budget=8):
+def place_and_route(contract, blocks, nets, seed=1, tracks=None, budget=8, problem=None, rrg=None):
     """Two phases, as VPR's routability-driven placement but with the
     router itself as the estimate (routing a netlist takes milliseconds):
     1. anneal on bounding-box wirelength; route; done if it routes.
@@ -165,16 +168,17 @@ def place_and_route(contract, blocks, nets, seed=1, tracks=None, budget=8):
        scored by a short PathFinder run, so placement sees what routing
        sees: track scarcity and turn classes, not just distance.
     The result is always checked from its words (R2)."""
-    problem = Problem(contract, blocks, nets)
+    problem = problem or Problem(contract, blocks, nets)
     rng = random.Random(seed)
-    rrg = RRG(contract, tracks=tracks)
+    rrg = rrg or RRG(contract, tracks=tracks)
     ones = [1.0] * len(nets)
 
     def finish(binding, result, phase):
         rnets = problem.routing_nets(binding)
-        if rrg.native:   # words exist only at the contract's track count
+        if getattr(rrg, 'native', False):   # words exist only at the contract's track count
             problems = check(contract, rnets, result['words'])
             assert not problems, problems
+        problem.verify(binding)
         return {'status': 'routed', 'phase': phase,
                 'binding': {b: problem.inst[problem.blocks[b]][s][0] for b, s in binding.items()},
                 'wirelength': problem.cost(binding, ones), 'iterations': result['iterations'],
