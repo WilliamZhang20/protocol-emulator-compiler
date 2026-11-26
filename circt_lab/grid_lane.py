@@ -310,6 +310,12 @@ class CoreEncoder:
                 raise ValueError('crc.shape.link_select: a lane core has one coded shifter (link 0)')
             if shape.get('twos_complement') and not shape.get('additive'):
                 raise ValueError('crc.shape: twos_complement needs additive')
+            # The link carries the bits the coder codes: the sent ones unless
+            # the coder receives. A shifter that samples a line with a linked
+            # CRC but codes the sent bits sums its idle output, not the frame.
+            if shape.get('linked') and 'coder.sample' in connect and not get('receive'):
+                raise ValueError('crc.shape.linked on a sampling shifter needs coder.coder.receive '
+                                 '(the link carries the coded bits: the sent ones otherwise)')
             self.fields(words, 'crc.shape', shape)
         # Settings: idle actions.
         lane = self.contract['lane']

@@ -1,0 +1,39 @@
+{
+  "schema": "spatial.lane-design.v2",
+  "name": "uart_rx_8e1",
+  "description": "UART receive, 8E1 at 20 clocks per bit on in0 (uio5), with timer0 resync. The coded shifter samples start, 8 data bits, the even parity bit and the stop bit; its status bit 6 (word bad) is set when parity or the stop bit is wrong. The lane pushes every byte followed by a tag byte (0 good, 0x40 bad), so a bad byte is kept and marked instead of failing the transfer.",
+  "connect": {
+    "timer0.start": "in0.fall",
+    "timer0.stop": "coder.stop",
+    "timer0.aux": "in0.fall",
+    "coder.shift": "timer0.tick",
+    "coder.sample": "timer0.tick",
+    "coder.start": "in0.fall",
+    "coder.in": "in0"
+  },
+  "timers": {
+    "timer0": {
+      "first": 8,
+      "period": 20,
+      "function": "resync",
+      "phase": 8,
+      "resync_limit": 8
+    }
+  },
+  "coder": {
+    "frame": {
+      "length": 8,
+      "pre": 1,
+      "pre_value": 0,
+      "post": 1,
+      "post_value": 1,
+      "parity": "even",
+      "idle": 1
+    }
+  },
+  "host_words": {
+    "68": 3
+  },
+  "program": "rx_tagged.lane",
+  "program_base": 768
+}

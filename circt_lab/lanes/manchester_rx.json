@@ -1,0 +1,41 @@
+{
+  "schema": "spatial.lane-design.v2",
+  "name": "manchester_rx",
+  "description": "Manchester receive (IEEE 802.3: a 1 is low then high), 20 clocks per bit on in0 (uio5), idle high. Each frame is a sync 1 then 8 data bits LSB first, so it begins with a falling edge at a bit boundary: that edge starts timer0 and the coded shifter. timer0 ticks every half bit (10 clocks) and resyncs on every falling edge, which always lies on a half-bit boundary; the shifter keeps each first half and takes the bit from the second, flagging equal halves as a code violation (status bit 6). Each byte is pushed with a tag byte.",
+  "connect": {
+    "timer0.start": "in0.fall",
+    "timer0.stop": "coder.stop",
+    "timer0.aux": "in0.fall",
+    "coder.shift": "timer0.tick",
+    "coder.sample": "timer0.tick",
+    "coder.start": "in0.fall",
+    "coder.in": "in0"
+  },
+  "timers": {
+    "timer0": {
+      "first": 3,
+      "period": 10,
+      "function": "resync",
+      "phase": 3,
+      "resync_limit": 3
+    }
+  },
+  "coder": {
+    "frame": {
+      "length": 8,
+      "pre": 1,
+      "pre_value": 1,
+      "idle": 1
+    },
+    "coder": {
+      "manchester": 1,
+      "receive": 1
+    }
+  },
+  "notes": "first and phase 3: a quarter bit (5) less the 2-clock sample latency, so each half is sampled mid-half.",
+  "host_words": {
+    "68": 3
+  },
+  "program": "rx_tagged.lane",
+  "program_base": 768
+}

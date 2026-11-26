@@ -1,0 +1,19 @@
+# LIN response receive with the classic checksum checked in the CRC tile:
+# four data bytes and the checksum byte are pushed as they arrive; the CRC
+# tile sums the data bits of all five over the coder link (one's
+# complement, end-around carry), so a good response sums to 0xFF. The lane
+# pushes the sum and fails on a mismatch.
+        SETC 5
+next:   WAIT event:coder.word
+        RD readback:coder.status
+        AND 0x40                    # word bad: the stop bit was low
+        JNZ bad
+        RD readback:coder.rx_word
+        PUSH
+        LOOP next
+        RD readback:crc.value_low
+        PUSH
+        XOR 0xFF
+        JNZ bad
+        HALT
+bad:    FAIL

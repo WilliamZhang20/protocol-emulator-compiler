@@ -1,0 +1,12 @@
+# Tagged receive: every received byte is pushed with a tag byte after it
+# (coder status bit 6: parity, a post bit, stuffing or Manchester wrong).
+# Eight frames per run.
+        SETC 8
+next:   WAIT event:coder.word
+        RD readback:coder.rx_word
+        PUSH
+        RD readback:coder.status
+        AND 0x40
+        PUSH                        # tag: 0 good, 0x40 bad
+        LOOP next
+        HALT

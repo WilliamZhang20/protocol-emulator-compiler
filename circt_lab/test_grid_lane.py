@@ -130,6 +130,9 @@ assert words[core['registers']['coder.coder']['word']] == 5 | 1 << cf['runs_of_o
 lo, hi = core['registers']['crc.polynomial']['words']
 assert (words[lo], words[hi]) == (0x1DB7, 0x04C1)
 assert words[core['registers']['crc.shape']['word']] == 31 | 1 << 5
+c2 = core['registers']['coder.coder2']
+w = CoreEncoder(contract).encode({'coder': {'coder2': {'link_data_only': 1, 'crc_skip': 3}}}, {})
+assert w[c2['word']] == 1 << c2['fields']['link_data_only'][1] | 3 << c2['fields']['crc_skip'][1]
 assert words[L['idle_actions_word']] == 5 << L['idle_actions_bits'][1]
 
 # 5. Configurations the core would refuse are refused here.
@@ -149,6 +152,8 @@ for bad_design, bad_connect, why in [
         ({'coder': {'frame': {'pre': 4}}}, {}, 'does not fit'),
         ({'crc': {'shape': {'twos_complement': 1}}}, {}, 'needs additive'),
         ({'crc': {'shape': {'link_select': 1}}}, {}, 'one coded shifter'),
+        ({'crc': {'shape': {'linked': 1}}}, {'coder.sample': 'timer0.tick'}, 'needs coder.coder.receive'),
+        ({'coder': {'coder2': {'link_data_only': 2}}}, {}, 'does not fit'),
         ({'idle_actions': 16}, {}, 'does not fit')]:
     refused(lambda: enc.encode(bad_design, bad_connect), why)
 
@@ -186,7 +191,8 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # 7. The shipped designs build to exactly the data the RTL pin tests load.
 data = RTL / 'test/data/lane'
-for name in ('i2c_target', 'spi_target', 'slip_uart_tx', 'pulse_period', 'uart_rx_resync', 'uart_rx_plain'):
+for name in ('i2c_target', 'spi_target', 'slip_uart_tx', 'pulse_period', 'uart_rx_resync', 'uart_rx_plain',
+             'uart_rx_8e1', 'manchester_rx', 'lin_checksum'):
     image, prog = build(contract, HERE / 'lanes' / f'{name}.json')
     stem = name.replace('_', '-')
     assert (data / f'{stem}.mem').read_text() == ''.join(f'{x:04x}\n' for x in image), name

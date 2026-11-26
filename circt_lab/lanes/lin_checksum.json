@@ -1,0 +1,52 @@
+{
+  "schema": "spatial.lane-design.v2",
+  "name": "lin_checksum",
+  "description": "LIN response receive (8N1, 20 clocks per bit on in0, timer0 resync) with the classic checksum in the CRC tile: additive one's complement over 8-bit words, linked to the coded shifter with the link carrying data bits only, so the start and stop bits never enter the sum. Four data bytes and the checksum (the inverted sum) total 0xFF; the lane pushes the bytes and the sum and fails on any other sum.",
+  "connect": {
+    "timer0.start": "in0.fall",
+    "timer0.stop": "coder.stop",
+    "coder.shift": "timer0.tick",
+    "coder.sample": "timer0.tick",
+    "coder.start": "in0.fall",
+    "coder.in": "in0",
+    "timer0.aux": "in0.fall"
+  },
+  "timers": {
+    "timer0": {
+      "first": 8,
+      "period": 20,
+      "function": "resync",
+      "phase": 8,
+      "resync_limit": 8
+    }
+  },
+  "coder": {
+    "frame": {
+      "length": 8,
+      "pre": 1,
+      "pre_value": 0,
+      "post": 1,
+      "post_value": 1,
+      "idle": 1
+    },
+    "coder2": {
+      "link_data_only": 1
+    },
+    "coder": {
+      "receive": 1
+    }
+  },
+  "host_words": {
+    "68": 3
+  },
+  "program": "lin_checksum.lane",
+  "program_base": 768,
+  "crc": {
+    "residue": 255,
+    "shape": {
+      "width": 8,
+      "linked": 1,
+      "additive": 1
+    }
+  }
+}
