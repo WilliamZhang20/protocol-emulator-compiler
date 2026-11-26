@@ -19,7 +19,7 @@ for node in g.nodes:
     kinds[node[0]] = kinds.get(node[0], 0) + 1
 assert kinds['track'] == interior_sides * net['tracks_per_direction'], kinds
 assert kinds['opin'] == sum(len(c['local_outputs']) for c in cells)
-assert kinds['ipin'] == len(net['sink_cells'])
+assert kinds['ipin'] == len(net['sink_cells']) + len(net['selector_sinks']) == len(g.sinks)
 
 # 2. Legality by construction: no U-turn, no track change, turns only as
 #    the track's class allows, a track only continues from its neighbour.
@@ -34,7 +34,7 @@ for a, b, label in g.edges:
             order = g.classes[ta]
             assert (db in VERTICAL) == (order == 'horizontal_then_vertical'), ('turn class', a, b)
     if b[0] == 'ipin' and a[0] == 'opin':
-        assert cells[a[1]]['id'] == net['sink_cells'][b[1]]
+        assert cells[a[1]]['id'] == g.sinks[b[1]][0]
         assert not (b[1] in net['lut_sinks'] and not net['lut_local_feedback'])
 
 # 3. Every source-to-sink path in the graph, turned into words, drives that
@@ -82,11 +82,11 @@ DIRS = net['directions']
 agree = 0
 for start, sinks in reach.items():
     _, cell, k = start
-    for s, scell in enumerate(net['sink_cells']):
+    for s, (scell, _) in g.sinks.items():
         if cell not in by_cell or scell not in by_cell:
             continue
         work = {'name': 'pair', 'nets': [{'name': 'n', 'source': {'resource': by_cell[cell], 'port': k},
-                                          'sinks': [{'resource': by_cell[scell], 'port': s}]}]}
+                                          'sinks': [{'resource': 'crc' if s >= 77 else by_cell[scell], 'port': s}]}]}
         result = routes(contract, work)
         assert (result['status'] == 'routed') == (s in sinks), (start, s, result['status'])
         if result['status'] == 'routed':

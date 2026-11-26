@@ -17,13 +17,13 @@ by_cell = {}
 for name, r in contract['resources'].items():
     by_cell.setdefault(r['cell'], name)
 opins = [n for n in g.nodes if n[0] == 'opin' and n[1] in by_cell]
-ipins = [n for n in g.nodes if n[0] == 'ipin' and net['sink_cells'][n[1]] in by_cell]
+ipins = [n for n in g.nodes if n[0] == 'ipin' and g.sinks[n[1]][0] in by_cell]
 
 
 def old_workload(nets):
     return {'name': 'w', 'nets': [
         {'name': n['name'], 'source': {'resource': by_cell[n['source'][1]], 'port': n['source'][2]},
-         'sinks': [{'resource': by_cell[net['sink_cells'][s[1]]], 'port': s[1]} for s in n['sinks']]}
+         'sinks': [{'resource': 'crc' if s[1] >= 77 else by_cell[g.sinks[s[1]][0]], 'port': s[1]} for s in n['sinks']]}
         for n in nets]}
 
 

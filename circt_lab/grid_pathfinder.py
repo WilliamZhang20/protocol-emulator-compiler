@@ -27,7 +27,7 @@ def _cell_of(rrg, node):
         return rrg.neighbour(node[1], node[2])
     if kind == 'opin':
         return node[1]
-    return rrg.contract['bit_network']['sink_cells'][node[1]]
+    return rrg.sinks[node[1]][0]
 
 
 def _manhattan(rrg, a, b):
@@ -36,7 +36,7 @@ def _manhattan(rrg, a, b):
     return abs(ra - rb) + abs(ca - cb)
 
 
-def route(rrg, nets, max_iterations=60, pres_fac=0.5, pres_mult=1.6, hist_fac=0.4):
+def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1.0):
     """nets: [{'name', 'source': ('opin', cell, k), 'sinks': [('ipin', s), ...]}].
 
     Returns {'status': 'routed'|'unroutable', 'iterations', 'trees':
@@ -145,7 +145,7 @@ def check(contract, nets, words):
     for n in nets:
         for s in n['sinks']:
             wanted[s[1]] = n['source']
-    for s in range(len(contract['bit_network']['sink_cells'])):
+    for s in sim.sinks:
         got = sim.drives(s)
         if s in wanted:
             if got != wanted[s]:

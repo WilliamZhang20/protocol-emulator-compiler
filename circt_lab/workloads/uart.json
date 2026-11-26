@@ -1,0 +1,123 @@
+{
+  "name": "grid-3x3-uart-experiment",
+  "source_validated": true,
+  "full_source_program_compiled": false,
+  "nets": [
+    {
+      "name": "tx_start",
+      "source": {
+        "resource": "sram0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 0
+        },
+        {
+          "resource": "shifter0",
+          "port": 3
+        }
+      ]
+    },
+    {
+      "name": "tx_done",
+      "source": {
+        "resource": "shifter0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 1
+        }
+      ]
+    },
+    {
+      "name": "tx_tick",
+      "source": {
+        "resource": "timer0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 4
+        }
+      ]
+    },
+    {
+      "name": "tx_wire",
+      "source": {
+        "resource": "shifter0",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 7
+        }
+      ]
+    },
+    {
+      "name": "rx_fall",
+      "source": {
+        "resource": "input_io",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "timer1",
+          "port": 12
+        },
+        {
+          "resource": "shifter1",
+          "port": 15
+        }
+      ]
+    },
+    {
+      "name": "rx_done",
+      "source": {
+        "resource": "shifter1",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer1",
+          "port": 13
+        }
+      ]
+    },
+    {
+      "name": "rx_tick",
+      "source": {
+        "resource": "timer1",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter1",
+          "port": 16
+        },
+        {
+          "resource": "shifter1",
+          "port": 17
+        }
+      ]
+    },
+    {
+      "name": "rx_wire",
+      "source": {
+        "resource": "input_io",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "shifter1",
+          "port": 18
+        }
+      ]
+    }
+  ]
+}

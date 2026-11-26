@@ -1,0 +1,142 @@
+{
+  "name": "jtag-direct-bit-slice",
+  "source_validated": true,
+  "full_source_program_compiled": false,
+  "nets": [
+    {
+      "name": "clock.out",
+      "source": {
+        "resource": "timer0",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 7
+        }
+      ]
+    },
+    {
+      "name": "mode.out",
+      "source": {
+        "resource": "shifter1",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 8
+        }
+      ]
+    },
+    {
+      "name": "data.out",
+      "source": {
+        "resource": "shifter0",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 9
+        }
+      ]
+    },
+    {
+      "name": "data.busy",
+      "source": {
+        "resource": "shifter0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 0
+        }
+      ]
+    },
+    {
+      "name": "data.done",
+      "source": {
+        "resource": "shifter0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 1
+        }
+      ]
+    },
+    {
+      "name": "go",
+      "source": {
+        "resource": "sram0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 3
+        },
+        {
+          "resource": "shifter1",
+          "port": 15
+        }
+      ]
+    },
+    {
+      "name": "clock.fall",
+      "source": {
+        "resource": "timer0",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 4
+        },
+        {
+          "resource": "shifter1",
+          "port": 16
+        }
+      ]
+    },
+    {
+      "name": "tdo",
+      "source": {
+        "resource": "input_io",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 6
+        }
+      ]
+    },
+    {
+      "name": "clock.rise",
+      "source": {
+        "resource": "timer0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 5
+        }
+      ]
+    }
+  ],
+  "selected_connections": 11,
+  "all_source_connections": 11,
+  "source_resource_counts": {
+    "timer": 1,
+    "shifter": 2
+  },
+  "limitations": [
+    "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+    "Full protocol support cannot be inferred from this slice."
+  ]
+}

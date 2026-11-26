@@ -1,0 +1,128 @@
+{
+  "name": "grid-3x3-spi-experiment",
+  "source_validated": true,
+  "full_source_program_compiled": false,
+  "nets": [
+    {
+      "name": "start",
+      "source": {
+        "resource": "sram0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 0
+        },
+        {
+          "resource": "shifter0",
+          "port": 3
+        }
+      ]
+    },
+    {
+      "name": "shift_done",
+      "source": {
+        "resource": "shifter0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 1
+        }
+      ]
+    },
+    {
+      "name": "timer_fall",
+      "source": {
+        "resource": "timer0",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 4
+        }
+      ]
+    },
+    {
+      "name": "timer_rise",
+      "source": {
+        "resource": "timer0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 5
+        }
+      ]
+    },
+    {
+      "name": "miso",
+      "source": {
+        "resource": "input_io",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 6
+        }
+      ]
+    },
+    {
+      "name": "mosi",
+      "source": {
+        "resource": "shifter0",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 7
+        }
+      ]
+    },
+    {
+      "name": "sck",
+      "source": {
+        "resource": "timer0",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 8
+        }
+      ]
+    },
+    {
+      "name": "chip_select",
+      "source": {
+        "resource": "lut",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 9
+        }
+      ]
+    },
+    {
+      "name": "busy",
+      "source": {
+        "resource": "shifter0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "lut",
+          "port": 10
+        }
+      ]
+    }
+  ]
+}

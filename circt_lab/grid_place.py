@@ -24,20 +24,28 @@ from grid_rrg import RRG
 
 def instances(contract):
     """kind -> [(resource, cell, [input sinks], output count)] from the
-    contract. Inputs: a resource's `input_sinks`, else the sinks of its
-    cell (cells that hold one input-bearing resource)."""
+    contract. A resource alone in its cell is movable among its kind: its
+    inputs are its `input_sinks`, else its cell's sinks; its outputs are the
+    cell's local outputs. Resources sharing a cell (memory with the
+    sequencer, the CRC with the coded shifter) are fixed: each is its own
+    kind `fixed:<name>`, exposing the cell's outputs by index and its own
+    `input_sinks` or selector sinks."""
     net = contract['bit_network']
     cells = contract['grid']['cells']
+    claimed = {s for r in contract['resources'].values() for s in r.get('input_sinks', [])}
+    selector = {}
+    for k, v in net.get('selector_sinks', {}).items():
+        selector.setdefault(v['resource'], []).append(int(k))
     out = {}
     for name, r in contract['resources'].items():
         cell = r['cell']
-        sinks = r.get('input_sinks') or [s for s, c in enumerate(net['sink_cells']) if c == cell
-                                         and not any('input_sinks' in o and s in o['input_sinks']
-                                                     for o in contract['resources'].values())]
-        if len(cells[cell]['resources']) > 1 and 'input_sinks' not in r:
-            sinks = []   # shared cells (memory, CRC, coded shifter): no generic ports
-        outputs = len(cells[cell]['local_outputs']) if len(cells[cell]['resources']) == 1 else 0
-        out.setdefault(r['kind'], []).append((name, cell, sinks, outputs))
+        outputs = len(cells[cell]['local_outputs'])
+        if len(cells[cell]['resources']) == 1:
+            ins = r.get('input_sinks') or [s for s, c in enumerate(net['sink_cells']) if c == cell and s not in claimed]
+            out.setdefault(r['kind'], []).append((name, cell, ins, outputs))
+        else:
+            ins = r.get('input_sinks') or sorted(selector.get(name, []))
+            out[f'fixed:{name}'] = [(name, cell, ins, outputs)]
     return out
 
 

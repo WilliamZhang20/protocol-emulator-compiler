@@ -32,6 +32,19 @@ OPPOSITE = {'north': 'south', 'south': 'north', 'west': 'east', 'east': 'west'}
 VERTICAL = {'north', 'south'}
 
 
+def sinks(contract):
+    """Every routable tile input: id -> (cell, selector word). The sink
+    array (ids 0..n-1) and the contract's selector sinks (the CRC's inputs,
+    ids = their words), all read through the same route_input selector."""
+    net = contract['bit_network']
+    table = {s: (c, w) for s, (c, w) in enumerate(zip(net['sink_cells'], net['sink_words']))}
+    for k, v in net.get('selector_sinks', {}).items():
+        if int(k) in table:
+            raise ValueError(f'selector sink {k} collides with the sink array')
+        table[int(k)] = (v['cell'], v['word'])
+    return table
+
+
 def _classes(net, tracks):
     """Turn order per track. At the contract's track count, the contract's
     classes; for a hypothetical count (the channel-width sweep), half and
@@ -84,8 +97,8 @@ class RRG:
                 if self.neighbour(cell['id'], d) is not None:
                     for t in range(self.tracks):
                         add(('track', cell['id'], d, t))
-        sinks = net['sink_cells']
-        for s in range(len(sinks)):
+        self.sinks = sinks(contract)
+        for s in self.sinks:
             add(('ipin', s))
 
         # Into a track: from a local output, straight on, or a turn.
@@ -109,7 +122,7 @@ class RRG:
                 edge(('track', prev, OPPOSITE[port], t), ('track', cell, d, t), self.switch_label(cell, d, t, value))
         # Into a sink: a local output of its cell, or a track arriving there.
         lut = set(net['lut_sinks'])
-        for s, cell in enumerate(sinks):
+        for s, (cell, _) in self.sinks.items():
             if not (s in lut and not net['lut_local_feedback']):
                 for k in range(len(cells[cell]['local_outputs'])):
                     edge(('opin', cell, k), ('ipin', s), self.sink_label(s, isel['local_first'] + k))
@@ -161,7 +174,7 @@ class RRG:
         return ('switch', word, t * bits + bits - 1, t * bits, value)
 
     def sink_label(self, s, value):
-        return ('sink', self.contract['bit_network']['sink_words'][s], 15, 0, value)
+        return ('sink', self.sinks[s][1], 15, 0, value)
 
     @staticmethod
     def words(labels, base=None):
@@ -188,6 +201,7 @@ class WordSim:
         g, n = contract['grid'], contract['bit_network']
         self.rows, self.cols = g['rows'], g['columns']
         self.cells, self.n, self.words = g['cells'], n, words
+        self.sinks = sinks(contract)
 
     def _word(self, w):
         return self.words.get(w, 0)
@@ -231,8 +245,8 @@ class WordSim:
     def drives(self, s):
         """RTL route_input() for sink s."""
         n = self.n
-        cell = n['sink_cells'][s]
-        v = self._word(n['sink_words'][s])
+        cell, word = self.sinks[s]
+        v = self._word(word)
         isel = n['input_selector']
         if v == isel['constant_zero']:
             return ('const', 0)

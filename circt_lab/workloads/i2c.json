@@ -1,0 +1,82 @@
+{
+  "name": "i2c-direct-bit-slice",
+  "source_validated": true,
+  "full_source_program_compiled": false,
+  "nets": [
+    {
+      "name": "sda_bits.out",
+      "source": {
+        "resource": "shifter0",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 8
+        }
+      ]
+    },
+    {
+      "name": "sda_bits.done",
+      "source": {
+        "resource": "shifter0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 1
+        }
+      ]
+    },
+    {
+      "name": "pattern.busy",
+      "source": {
+        "resource": "shifter1",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "timer1",
+          "port": 12
+        }
+      ]
+    },
+    {
+      "name": "pattern.done",
+      "source": {
+        "resource": "shifter1",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer1",
+          "port": 13
+        }
+      ]
+    },
+    {
+      "name": "cond_clock.tick",
+      "source": {
+        "resource": "timer1",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter1",
+          "port": 16
+        }
+      ]
+    }
+  ],
+  "selected_connections": 5,
+  "all_source_connections": 18,
+  "source_resource_counts": {
+    "timer": 2,
+    "shifter": 2
+  },
+  "limitations": [
+    "Explicit placement hypothesis; omitted control, logic expressions, phases, and memory.",
+    "Full protocol support cannot be inferred from this slice."
+  ]
+}

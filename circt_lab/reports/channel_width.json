@@ -1,0 +1,88 @@
+{
+  "schema": "spatial.channel-width.v1",
+  "contract_tracks": 4,
+  "rows": [
+    {
+      "workloads": [
+        "grid-3x3-spi-experiment"
+      ],
+      "blocks": 6,
+      "nets": 9,
+      "sinks": 10,
+      "min_tracks": 2,
+      "wirelength": 18.0
+    },
+    {
+      "workloads": [
+        "grid-3x3-uart-experiment"
+      ],
+      "blocks": 7,
+      "nets": 8,
+      "sinks": 11,
+      "min_tracks": 2,
+      "wirelength": 14.0
+    },
+    {
+      "workloads": [
+        "i2c-direct-bit-slice"
+      ],
+      "blocks": 5,
+      "nets": 5,
+      "sinks": 5,
+      "min_tracks": 2,
+      "wirelength": 7.0
+    },
+    {
+      "workloads": [
+        "jtag-direct-bit-slice"
+      ],
+      "blocks": 6,
+      "nets": 9,
+      "sinks": 11,
+      "min_tracks": 2,
+      "wirelength": 18.0
+    },
+    {
+      "workloads": [
+        "usb-direct-bit-slice"
+      ],
+      "blocks": 3,
+      "nets": 2,
+      "sinks": 2,
+      "min_tracks": 1,
+      "wirelength": 2.0
+    },
+    {
+      "workloads": [
+        "ethernet_tx-direct-bit-slice"
+      ],
+      "blocks": 3,
+      "nets": 2,
+      "sinks": 5,
+      "min_tracks": 1,
+      "wirelength": 3.0
+    },
+    {
+      "workloads": [
+        "grid-3x3-spi-experiment",
+        "usb-direct-bit-slice"
+      ],
+      "blocks": 9,
+      "nets": 11,
+      "sinks": 12,
+      "min_tracks": 2,
+      "wirelength": 18.0
+    },
+    {
+      "workloads": [
+        "grid-3x3-spi-experiment",
+        "ethernet_tx-direct-bit-slice"
+      ],
+      "blocks": 9,
+      "nets": 11,
+      "sinks": 15,
+      "min_tracks": 2,
+      "wirelength": 19.0
+    }
+  ]
+}
