@@ -1,17 +1,12 @@
-# UART receive, 8N1. timer0 and shifter0 time every sample (9 samples: 8
-# data bits and the stop bit, LSB first); shifter0 done stops timer0. The
-# lane only starts each frame on the start edge and checks the stop bit.
-# Eight frames per run.
+# UART receive, 8N1, timed entirely by the lane core: the start edge starts
+# timer0 and the coded shifter, timer0 ticks sample, the shifter's stop
+# stops timer0. The lane only checks and moves bytes. Eight frames per run.
         SETC 8
-        CLEAR
-next:   WAIT event:input0_edge      # start bit (pin 0 edge events on fall)
-        FIRE                        # start timer0 and shifter0
-        WAIT event:shifter0_done    # mid stop bit
-        CLEAR                       # drop the frame's own data edges
-        RD readback:shifter0_rx
-        AND 0x100
-        JZ bad                      # stop bit low: framing error
-        RD readback:shifter0_rx
+next:   WAIT event:coder.word       # a frame was sampled (mid stop bit)
+        RD readback:coder.status
+        AND 0x40                    # word bad: the stop bit was low
+        JNZ bad
+        RD readback:coder.rx_word
         PUSH
         LOOP next
         HALT

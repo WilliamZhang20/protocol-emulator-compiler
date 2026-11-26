@@ -1,92 +1,35 @@
 {
-  "schema": "spatial.lane-design.v1",
+  "schema": "spatial.lane-design.v2",
   "name": "uart_rx_plain",
-  "description": "The same UART receiver without resynchronization (timer0 in hold mode, nothing on its third input): the baseline that a drifting sender breaks.",
-  "nets": [
-    {
-      "name": "frame_start",
-      "source": {
-        "resource": "sram0",
-        "port": 3
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 3,
-          "context": 0
-        },
-        {
-          "resource": "timer0",
-          "port": 0,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "bit_tick",
-      "source": {
-        "resource": "timer0",
-        "port": 0
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 4,
-          "context": 0
-        },
-        {
-          "resource": "shifter0",
-          "port": 5,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "frame_done",
-      "source": {
-        "resource": "shifter0",
-        "port": 1
-      },
-      "sinks": [
-        {
-          "resource": "timer0",
-          "port": 1,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "rx_line",
-      "source": {
-        "resource": "input_io",
-        "port": 0
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 6,
-          "context": 0
-        }
-      ]
+  "description": "UART receive, 8N1 at 20 clocks per bit on in0 (uio5), entirely in the lane core: the start edge starts timer0 and the coded shifter; every timer0 tick samples (start, 8 data bits LSB first, stop); the shifter's stop pulse stops timer0. Without resync the samples walk off the bits when the sender drifts. The lane waits for each word, fails on a bad stop bit (status bit 6) and pushes the byte.",
+  "connect": {
+    "timer0.start": "in0.fall",
+    "timer0.stop": "coder.stop",
+    "coder.shift": "timer0.tick",
+    "coder.sample": "timer0.tick",
+    "coder.start": "in0.fall",
+    "coder.in": "in0"
+  },
+  "timers": {
+    "timer0": {
+      "first": 8,
+      "period": 20
     }
-  ],
-  "words": {
-    "0": 27,
-    "1": 20,
-    "2": 9,
-    "4": 0,
-    "53": 1,
-    "54": 1,
-    "55": 1,
-    "63": 10,
+  },
+  "coder": {
+    "frame": {
+      "length": 8,
+      "pre": 1,
+      "pre_value": 0,
+      "post": 1,
+      "post_value": 1,
+      "idle": 1
+    }
+  },
+  "host_words": {
     "68": 3
   },
-  "word_notes": {
-    "0-1": "timer0: first sample 27 clocks after the start (about 1.5 bits after the start edge, less the edge-to-start latency), then every 20 clocks",
-    "2": "shifter0: 9 bits (8 data + stop), LSB first",
-    "4": "pin 0 edge events on fall; no outputs enabled"
-  },
-  "idle_actions": 0,
+  "notes": "first 8 = half a bit less the 2-clock sample latency (the tick and the shifter's sample are registers). The input's own latency (pin synchronizer, the core's input register) delays the start edge and the sampled level alike, so it cancels; the resync phase is the same distance from a falling edge.",
   "program": "uart_rx.lane",
   "program_base": 768
 }

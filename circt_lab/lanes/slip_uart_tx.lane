@@ -1,8 +1,8 @@
 # SLIP (RFC 1055) framing on a UART transmitter, 8N1, LSB first.
 # END (0xC0) inside the packet is sent as ESC ESC_END (0xDB 0xDC), ESC
 # (0xDB) as ESC ESC_ESC (0xDB 0xDD); END closes the packet. The lane
-# decides per byte and builds each frame {stop, byte, start}; timer0 and
-# shifter0 time every bit.
+# decides per byte and SHIFTs the byte; the coded shifter adds the start
+# and stop bits and timer0 times every bit.
 next:   RD readback:stream_bytes_left
         JZ end
         PULL
@@ -12,25 +12,21 @@ next:   RD readback:stream_bytes_left
         XOR 0x1B                    # byte ^ 0xDB
         JZ is_esc
         CTOA
-        SHL
-        ADD 0x200                   # stop bit; bit 0 is the start bit
         SHIFT
-        WAIT event:shifter0_done
+        WAIT event:coder.stop
         J next
 is_end: LDI 0xDC
         J escape
 is_esc: LDI 0xDD
 escape: ATOC                        # C = the escaped code
-        LDI 0x3B6                   # ESC frame: 0xDB << 1 | 0x200
+        LDI 0xDB                    # ESC
         SHIFT
-        WAIT event:shifter0_done
+        WAIT event:coder.stop
         CTOA
-        SHL
-        ADD 0x200
         SHIFT
-        WAIT event:shifter0_done
+        WAIT event:coder.stop
         J next
-end:    LDI 0x380                   # END frame: 0xC0 << 1 | 0x200
+end:    LDI 0xC0                    # END
         SHIFT
-        WAIT event:shifter0_done
+        WAIT event:coder.stop
         HALT

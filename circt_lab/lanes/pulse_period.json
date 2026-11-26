@@ -1,24 +1,14 @@
 {
-  "schema": "spatial.lane-design.v1",
+  "schema": "spatial.lane-design.v2",
   "name": "pulse_period",
-  "description": "Pulse-period meter: timer0 in capture mode counts clocks between rising edges on pin 0 (uio5); after each edge the lane reads the capture register and pushes it, low byte first, to the stream. Four periods per run.",
-  "nets": [
-    {"name": "pulse_edge", "source": {"resource": "input_io", "port": 2}, "sinks": [{"resource": "timer0", "port": 2, "context": 0}]}
-  ],
-  "words": {
-    "0": 1, "1": 1,
-    "2": 8,
-    "4": 64,
-    "53": 1, "54": 1, "55": 1,
-    "63": 10,
-    "68": 3
+  "description": "Pulse-period meter: timer0 in capture mode counts clocks between rising edges on in0 (uio5); after each edge the lane reads the capture register and pushes it, low byte first, to the stream. Four periods per run.",
+  "connect": {
+    "timer0.aux": "in0.rise"
   },
-  "word_notes": {
-    "0-1": "timer0 is never started; capture counts whether or not it runs",
-    "4": "pin 0 edge events on rise; no outputs enabled"
+  "timers": {
+    "timer0": {"function": "capture"}
   },
-  "timer_modes": {"timer0": {"function": "capture"}},
-  "idle_actions": 0,
+  "host_words": {"68": 3},
   "program": "pulse_period.lane",
   "program_base": 768
 }

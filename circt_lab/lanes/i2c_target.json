@@ -1,104 +1,21 @@
 {
-  "schema": "spatial.lane-design.v1",
+  "schema": "spatial.lane-design.v2",
   "name": "i2c_target",
-  "description": "I2C target, write transactions to address 0x48: shifter0 samples SDA on SCL rises, the lane matches the address, ACKs each byte and streams it to SRAM. Pin 0 is SCL (uio5), pin 1 is SDA (uio6); both outputs are open drain.",
-  "nets": [
-    {
-      "name": "sda_drive",
-      "source": {
-        "resource": "sram0",
-        "port": 0
-      },
-      "sinks": [
-        {
-          "resource": "output_io",
-          "port": 7,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "scl_drive",
-      "source": {
-        "resource": "sram0",
-        "port": 1
-      },
-      "sinks": [
-        {
-          "resource": "output_io",
-          "port": 8,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "byte_start",
-      "source": {
-        "resource": "sram0",
-        "port": 3
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 3,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "scl_rise",
-      "source": {
-        "resource": "input_io",
-        "port": 2
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 4,
-          "context": 0
-        },
-        {
-          "resource": "shifter0",
-          "port": 5,
-          "context": 0
-        }
-      ]
-    },
-    {
-      "name": "sda_in",
-      "source": {
-        "resource": "input_io",
-        "port": 1
-      },
-      "sinks": [
-        {
-          "resource": "shifter0",
-          "port": 6,
-          "context": 0
-        }
-      ]
-    }
-  ],
-  "words": {
-    "0": 250,
-    "1": 250,
-    "2": 104,
-    "4": 219,
-    "53": 1,
-    "54": 1,
-    "55": 1,
-    "63": 10,
-    "68": 3
+  "description": "I2C target, write transactions to address 0x48: the core's coded shifter samples SDA on SCL rises (8 bits, MSB first); the lane detects START and STOP, matches the address, ACKs each byte and streams it to SRAM. in0 is SCL (uio5), in1 is SDA (uio6). SDA is out0 (uio6), open drain as a selection: value low, enabled by action 0. Action 1 holds the shifter in abort; the idle actions set it, so a STOP that leaves the shifter mid-word drops that word when the lane halts.",
+  "connect": {
+    "coder.start": "fire",
+    "coder.shift": "in0.rise",
+    "coder.sample": "in0.rise",
+    "coder.in": "in1",
+    "coder.abort": "action1",
+    "out0.value": "low",
+    "out0.enable": "action0"
   },
-  "word_notes": {
-    "0-1": "timer0 period, unused but must be valid",
-    "2": "shifter0: 8 bits, MSB first, restart (a STOP right after the next byte was armed leaves it mid-word; the next start resynchronizes it)",
-    "4": "outputs 0 and 1 enabled and open drain; pin 0 (SCL) and pin 1 (SDA) edges on rise",
-    "53-55": "timer1 and shifter1 settings, unused but must be valid",
-    "63": "frame word as in the I2C controller image",
-    "68": "pins 0 and 1 read their own pads"
+  "coder": {
+    "frame": {"length": 8, "msb_first": 1}
   },
-  "idle_actions": 3,
+  "idle_actions": 2,
+  "host_words": {"68": 3},
   "program": "i2c_target.lane",
   "program_base": 768
 }

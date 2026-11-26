@@ -1,14 +1,14 @@
-# SPI target, mode 0, no chip select: full duplex, one byte per shifter
-# word. The shifter samples MOSI on each SCLK rise and shifts MISO out
-# right after it (mode 0 only needs the next bit before the next rise).
-# The lane loads each reply byte from the source stream before its first
-# clock and stores each received byte; the transfer is as long as the
-# source. The controller must leave at least one SCLK period between bytes
-# (the lane needs about ten clocks to load the next reply).
+# SPI target, mode 0, no chip select: full duplex, one byte per frame of the
+# core's coded shifter. It samples MOSI on each SCLK rise and shifts MISO out
+# right after it (mode 0 only needs the next bit before the next rise). The
+# lane loads each reply byte from the source stream before its first clock
+# and stores each received byte; the transfer is as long as the source. The
+# controller must leave at least one SCLK period between bytes (the lane
+# needs about ten clocks to load the next reply).
 next:   PULL                        # reply byte
         SHIFT                       # load it and start the shifter
-        WAIT event:shifter0_done    # eighth SCLK rise
-        RD readback:shifter0_rx
+        WAIT event:coder.word       # eighth SCLK rise
+        RD readback:coder.rx_word
         PUSH
         RD readback:stream_bytes_left
         JNZ next
