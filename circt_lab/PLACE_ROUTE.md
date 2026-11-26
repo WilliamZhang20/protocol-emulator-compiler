@@ -1,8 +1,18 @@
 # Placement and routing (step 5): design
 
-Status: design, 2026-11-26. Nothing here is built yet. The existing
-`grid_route.py` is an exhaustive search over one fixed layout; it stays as
-the oracle for small cases (milestone R3) and is retired after that.
+Status (2026-11-26): R1-R4 and R6 built and tested on today's 5 x 3 grid
+(`grid_rrg.py`, `grid_pathfinder.py`, `grid_place.py`,
+`grid_chanwidth.py`, each with a `test_*.py`); R5 (latency classes) and R7
+(the full flow from `.spt`) remain. The exhaustive `grid_route.py` is the
+oracle for R1 and R3; brute force over every binding is R4's.
+
+Findings so far: 26 dead switch edges (tracks into cells without inputs
+that cannot continue); PathFinder needs a strong history term on this
+small, turn-constrained graph (history 1.0, present growth 1.3; with 0.4
+and 1.6 one track stayed shared forever where a routing exists);
+bounding-box wirelength alone misses routable placements at 1 track, so
+placement falls back to annealing on the router's own overuse; the six
+corpus workloads need at most 2 tracks of the contract's 4.
 
 ## What the compiler must do
 
