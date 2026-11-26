@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for the reorganised-fabric compiler (fabric_arch.py, fabric_map.py).
 
-1. The I2C target + UART receive compile from source onto the 3 x 3
-   prototype mesh and pass the independent configuration check.
+1. The I2C target + UART receive compile from source onto the test mesh
+   (a 3 x 5 candidate) and pass the independent configuration check.
 2. The checker catches a broken context invariant (a route through the
    ACK FSM's switch that changes in one context: the RTL slice's +BAD),
    a wrong mux case, and a stray sink.
@@ -23,12 +23,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fabric_arch import DIRS, prototype, verilog_params
+from fabric_arch import DIRS, test_mesh, verilog_params
 from fabric_map import MapError, Netlist, check, compile_designs, hexfile
 
 HERE = Path(__file__).resolve().parent
 DESIGNS = HERE / 'fabric_designs'
-C3 = prototype()
+C3 = test_mesh()
 K3 = [c['kind'] for c in C3['cells']]
 
 
@@ -84,7 +84,7 @@ def main():
     lsb = drv[1] * lay['cell_bits'] + lay['sink_lsb'] + 5 * lay['sink_slots'] * 1 + 5 * drv[2]
     assert any('sda_out.enable' in p for p in check(C3, nl, prob, flip_field(bits, lsb, 5, 1)))
     # A stray sink: an unused timer sink reads constant 1.
-    unused = next((c, k) for c in range(9) for k in range(3) if K3[c] == 'timer' and ('ipin', c, k) not in prob.ipin_of.values())
+    unused = next((c, k) for c in range(len(K3)) for k in range(3) if K3[c] == 'timer' and ('ipin', c, k) not in prob.ipin_of.values())
     lsb = unused[0] * lay['cell_bits'] + lay['sink_lsb'] + 5 * unused[1]
     assert any('unused sink' in p for p in check(C3, nl, prob, flip_field(bits, lsb, 5, 1)))
     print('wrong mux case and stray sink caught')
@@ -123,9 +123,9 @@ def main():
     if rtl:
         committed = Path(rtl) / 'experiments/grid_fabric/reorg/compiled'
         if committed.exists():
-            assert json.loads((committed / 'mesh_3x3.json').read_text()) == C3, 'RTL contract differs from prototype()'
+            assert json.loads((committed / 'test_3x5b.json').read_text()) == C3, 'RTL contract differs from test_mesh()'
             for name, (b, _) in vectors.items():
-                assert (committed / f'{name}.3x3.hex').read_text() == hexfile(C3, b), \
+                assert (committed / f'{name}.test_3x5b.hex').read_text() == hexfile(C3, b), \
                     f'RTL repository holds a stale {name} vector: rerun fabric_map.py --hex'
             print('RTL repository contract and compiled vectors match this compiler')
         run_rtl(Path(rtl), C3, vectors)

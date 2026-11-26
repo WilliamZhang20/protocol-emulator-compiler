@@ -284,15 +284,20 @@ def load(path):
     return json.loads(Path(path).read_text())
 
 
-def prototype():
-    k = ['io', 'io', 'shifter', 'timer', 'crc', 'shifter', 'io', 'shifter', 'timer']
-    return make_contract(3, 3, k, [1 if x == 'timer' else 4 for x in k], 4, 'mesh_3x3')
+def test_mesh():
+    """The test configuration (a 3 x 5 candidate: 3 rows, 5 columns, wide
+    like the 8 x 4 Tiny Tapeout die). Not the chosen fabric: the grid-size
+    study decides the size and mix. Contexts on the io and crc cells."""
+    k = ['timer', 'io', 'timer', 'io', 'timer',
+         'shifter', 'crc', 'shifter', 'crc', 'shifter',
+         'timer', 'io', 'timer', 'io', 'timer']
+    return make_contract(3, 5, k, [4 if x in ('io', 'crc') else 1 for x in k], 6, 'test_3x5b')
 
 
 if __name__ == '__main__':
     import argparse
-    p = argparse.ArgumentParser(description='write the default 3 x 3 prototype mesh contract')
+    p = argparse.ArgumentParser(description='write the test mesh contract (3 x 5 candidate)')
     p.add_argument('output', type=Path)
     a = p.parse_args()
-    a.output.write_text(json.dumps(prototype(), indent=1) + '\n')
+    a.output.write_text(json.dumps(test_mesh(), indent=1) + '\n')
 
