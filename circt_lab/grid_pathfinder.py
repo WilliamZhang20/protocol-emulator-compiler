@@ -36,11 +36,20 @@ def _manhattan(rrg, a, b):
     return abs(ra - rb) + abs(ca - cb)
 
 
-def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1.0):
+def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1.0,
+          registered=None, latency=None):
     """nets: [{'name', 'source': ('opin', cell, k), 'sinks': [('ipin', s), ...]}].
 
+    registered: None (every hop combinational, the contract's hop_cycles
+    0), True (every hop a register) or a set of directed (cell, next cell)
+    links that are registered; a route's latency is the number of
+    registered hops it takes. latency: {('ipin', s): ('exact', n) |
+    ('max', n)}, constraints the search must meet: the state is (node,
+    cycles so far), so a sink is reached only at an allowed latency.
+
     Returns {'status': 'routed'|'unroutable', 'iterations', 'trees':
-    {name: [(a, b, label), ...]}, 'overused': [nodes], 'words'}."""
+    {name: [(a, b, label), ...]}, 'latency': {sink: cycles}, 'overused':
+    [nodes], 'words'}."""
     names = [n['name'] for n in nets]
     if len(set(names)) != len(names):
         raise ValueError('duplicate net name')
@@ -54,10 +63,25 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
             if s in seen_sinks:
                 raise ValueError(f'sink {s} driven by {seen_sinks[s]} and {n["name"]}')
             seen_sinks[s] = n['name']
+    latency = dict(latency or {})
+    for s, (kind, n) in latency.items():
+        if s not in seen_sinks or kind not in ('exact', 'max') or n < 0:
+            raise ValueError(f'latency constraint {s}: {kind} {n}')
+
+    def hop_cycles(node):
+        if node[0] != 'track' or not registered:
+            return 0
+        return 1 if registered is True or (node[1], rrg.neighbour(node[1], node[2])) in registered else 0
+
+    def allowed(sink, cyc):
+        kind, n = latency.get(sink, ('max', None))
+        return n is None or (cyc == n if kind == 'exact' else cyc <= n)
+
     capacity = {node: 1 for node in rrg.nodes if node[0] in ('track', 'ipin')}
     history = {node: 0.0 for node in capacity}
     occupancy = {node: 0 for node in capacity}
     trees = {n['name']: [] for n in nets}
+    reached = {}
 
     def cost(node, pres):
         if node not in capacity:
@@ -72,44 +96,51 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
         trees[name] = []
 
     def route_net(net, pres):
-        in_tree = {net['source']}
+        in_tree = {net['source']: 0}          # node -> cycles from the source
         edges = []
-        # Nearest sinks first: later sinks branch from a tree that already
-        # reaches toward them.
+        # Constrained sinks first (they have the fewest acceptable paths),
+        # then nearest first: later sinks branch from a tree already
+        # reaching toward them.
         src_cell = _cell_of(rrg, net['source'])
-        for sink in sorted(net['sinks'], key=lambda s: _manhattan(rrg, src_cell, _cell_of(rrg, s))):
+        order = sorted(net['sinks'], key=lambda s: (s not in latency, _manhattan(rrg, src_cell, _cell_of(rrg, s))))
+        for sink in order:
             target = _cell_of(rrg, sink)
             frontier, best, parent = [], {}, {}
-            for node in in_tree:
-                best[node] = 0.0
-                heapq.heappush(frontier, (_manhattan(rrg, _cell_of(rrg, node), target), 0.0, node))
-            found = False
+            for node, cyc in in_tree.items():
+                best[(node, cyc)] = 0.0
+                heapq.heappush(frontier, (_manhattan(rrg, _cell_of(rrg, node), target), 0.0, node, cyc))
+            found = None
             while frontier:
-                _, g, node = heapq.heappop(frontier)
-                if g > best.get(node, float('inf')):
+                _, g, node, cyc = heapq.heappop(frontier)
+                if g > best.get((node, cyc), float('inf')):
                     continue
                 if node == sink:
-                    found = True
+                    found = (node, cyc)
                     break
                 for nxt, label in rrg.out[node]:
                     if nxt in in_tree:          # one parent per node: a selector picks one input
                         continue
-                    if nxt[0] == 'ipin' and nxt != sink:
+                    ncyc = cyc + hop_cycles(nxt)
+                    if nxt[0] == 'ipin' and (nxt != sink or not allowed(sink, ncyc)):
                         continue
+                    kind, bound = latency.get(sink, ('max', None))
+                    if bound is not None and ncyc > bound:
+                        continue                # cycles only grow along a path
                     ng = g + cost(nxt, pres)
-                    if ng < best.get(nxt, float('inf')):
-                        best[nxt] = ng
-                        parent[nxt] = (node, label)
+                    if ng < best.get((nxt, ncyc), float('inf')):
+                        best[(nxt, ncyc)] = ng
+                        parent[(nxt, ncyc)] = ((node, cyc), label)
                         h = 0 if nxt[0] == 'ipin' else _manhattan(rrg, _cell_of(rrg, nxt), target)
-                        heapq.heappush(frontier, (ng + h, ng, nxt))
-            if not found:
+                        heapq.heappush(frontier, (ng + h, ng, nxt, ncyc))
+            if found is None:
                 return None
-            node = sink
-            while node not in in_tree:
-                prev, label = parent[node]
-                edges.append((prev, node, label))
-                in_tree.add(node)
-                node = prev
+            state = found
+            reached[sink] = found[1]
+            while state[0] not in in_tree:
+                prev, label = parent[state]
+                edges.append((prev[0], state[0], label))
+                in_tree[state[0]] = state[1]
+                state = prev
         return edges
 
     pres = pres_fac
@@ -128,7 +159,7 @@ def route(rrg, nets, max_iterations=100, pres_fac=0.5, pres_mult=1.3, hist_fac=1
         if not overused:
             labels = [l for t in trees.values() for _, _, l in t]
             return {'status': 'routed', 'iterations': iteration, 'trees': trees, 'overused': [],
-                    'words': RRG.words(labels)}
+                    'latency': dict(reached), 'words': RRG.words(labels)}
         for n in overused:
             history[n] += hist_fac * (occupancy[n] - capacity[n])
         pres *= pres_mult

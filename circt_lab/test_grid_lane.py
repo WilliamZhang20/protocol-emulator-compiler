@@ -120,6 +120,12 @@ layout = core['word_layout']
 cfg = contract['configuration']
 t0 = layout['timer0'][0]
 assert words[t0:t0 + 4] == [8, 20, cfg['timer_functions']['resync'] | 4 << cfg['timer_mode_fields']['resync_limit'][1], 8]
+# sample_first / sample_phase: the sample clock after the edge, less the
+# contract's edge-to-sample offset.
+off = core['edge_to_sample_cycles']
+w = CoreEncoder(contract).encode({'timers': {'timer0': {'sample_first': 9, 'period': 20, 'function': 'resync',
+                                                        'sample_phase': 9, 'resync_limit': 4}}}, {})
+assert w[t0] == 9 - off and w[t0 + 3] == 9 - off
 t1 = layout['timer1'][0]
 assert words[t1:t1 + 4] == [0, 0, cfg['timer_functions']['capture'], 0]
 frame = core['registers']['coder.frame']
@@ -154,7 +160,9 @@ for bad_design, bad_connect, why in [
         ({'crc': {'shape': {'link_select': 1}}}, {}, 'one coded shifter'),
         ({'crc': {'shape': {'linked': 1}}}, {'coder.sample': 'timer0.tick'}, 'needs coder.coder.receive'),
         ({'coder': {'coder2': {'link_data_only': 2}}}, {}, 'does not fit'),
-        ({'idle_actions': 16}, {}, 'does not fit')]:
+        ({'idle_actions': 16}, {}, 'does not fit'),
+        ({'timers': {'timer0': {'first': 8, 'sample_first': 9, 'period': 20}}}, {}, 'not both'),
+        ({'timers': {'timer0': {'sample_first': 1, 'period': 20}}}, {}, 'edge-to-sample offset')]:
     refused(lambda: enc.encode(bad_design, bad_connect), why)
 
 # 6. A whole design: the page-0 image is the inert grid in lane mode, page 1

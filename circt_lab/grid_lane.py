@@ -237,9 +237,23 @@ class CoreEncoder:
         for name, spec in design.get('timers', {}).items():
             if name not in ('timer0', 'timer1'):
                 raise ValueError(f'timers: no timer {name!r} in the lane core')
-            unknown = set(spec) - {'first', 'period', 'function', 'phase', 'resync_limit'}
+            unknown = set(spec) - {'first', 'period', 'function', 'phase', 'resync_limit', 'sample_first', 'sample_phase'}
             if unknown:
                 raise ValueError(f'timers: {name}: unknown keys {sorted(unknown)}')
+            # sample_first / sample_phase: the clock after the starting (or
+            # resyncing) edge at which the coded shifter should sample. The
+            # contract states the edge-to-sample offset the hardware adds,
+            # measured by the RTL lane-core test; the count is what is left.
+            spec = dict(spec)
+            offset = core['edge_to_sample_cycles']
+            for key, raw in (('sample_first', 'first'), ('sample_phase', 'phase')):
+                if key in spec:
+                    if raw in spec:
+                        raise ValueError(f'timers: {name}: give {key} or {raw}, not both')
+                    if spec[key] <= offset:
+                        raise ValueError(f'timers: {name}: {key} {spec[key]} is not after the '
+                                         f'{offset}-clock edge-to-sample offset')
+                    spec[raw] = spec.pop(key) - offset
             base = layout[name][0]
             first, period = spec.get('first', 0), spec.get('period', 0)
             if (first == 0) != (period == 0):

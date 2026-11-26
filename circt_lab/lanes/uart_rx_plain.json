@@ -12,7 +12,7 @@
   },
   "timers": {
     "timer0": {
-      "first": 8,
+      "sample_first": 9,
       "period": 20
     }
   },
@@ -29,7 +29,7 @@
   "host_words": {
     "68": 3
   },
-  "notes": "first 8 = half a bit less the 2-clock sample latency (the tick and the shifter's sample are registers). The input's own latency (pin synchronizer, the core's input register) delays the start edge and the sampled level alike, so it cancels; the resync phase is the same distance from a falling edge.",
+  "notes": "sample_first and sample_phase are the bit's centre clock, (period - 1) // 2 after the edge; the compiler subtracts the contract's edge-to-sample offset (lane_core.edge_to_sample_cycles, measured by the RTL lane-core test) to get the timer counts.",
   "program": "uart_rx.lane",
   "program_base": 768
 }

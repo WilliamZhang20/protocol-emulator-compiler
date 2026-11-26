@@ -13,10 +13,10 @@
   },
   "timers": {
     "timer0": {
-      "first": 8,
+      "sample_first": 9,
       "period": 20,
       "function": "resync",
-      "phase": 8,
+      "sample_phase": 9,
       "resync_limit": 8
     }
   },

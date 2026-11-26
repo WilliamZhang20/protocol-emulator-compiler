@@ -13,10 +13,10 @@
   },
   "timers": {
     "timer0": {
-      "first": 3,
+      "sample_first": 4,
       "period": 10,
       "function": "resync",
-      "phase": 3,
+      "sample_phase": 4,
       "resync_limit": 3
     }
   },
@@ -32,7 +32,7 @@
       "receive": 1
     }
   },
-  "notes": "first and phase 3: a quarter bit (5) less the 2-clock sample latency, so each half is sampled mid-half.",
+  "notes": "sample_first and sample_phase are the bit's centre clock, (period - 1) // 2 after the edge; the compiler subtracts the contract's edge-to-sample offset (lane_core.edge_to_sample_cycles, measured by the RTL lane-core test) to get the timer counts.",
   "host_words": {
     "68": 3
   },
