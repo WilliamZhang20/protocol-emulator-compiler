@@ -182,3 +182,27 @@ they can start as soon as step 2 is done; R6 must precede step 4.2.
   sink's latency can make a net unroutable while plain negotiation would
   succeed. Compensation (`adjust_by`) is the preferred answer; the router
   reports which sinks lacked it.
+
+## R7 design question: what source times mean (decision needed)
+
+`.spt` timer counts are raw hardware counts tuned to one chip: the UART
+example's transmit timer is `first: BIT - 2 cycles` "to cover the pulse and
+pin registers", and its receiver's `BIT / 2 - 1` is "net of the input
+synchronizer". A source written that way is correct only on the chip whose
+latencies it absorbed, so it cannot pass the held-out check of the finish
+line (protocols written from specifications compile with zero edits).
+
+Recommendation: source times are **pin-referenced** — `first` is the time
+from the starting event at the pins to the action at the pins (`sample:
+rx at rx_bit.tick` samples the pin then) — and the compiler subtracts the
+target's latencies, which the contract states and RTL tests measure
+(`lane_core.edge_to_sample_cycles` is the first, R5; the output path's
+`5 + k` of LANE_TIMING.md is next). Existing examples drop their hand
+compensation (`first: BIT / 2` for mid-bit receive). Cost: every example's
+timing constants change by 1-2 clocks, and the older backends (the
+`arch/spatial` actor fabric) must apply their own latencies the same way,
+or keep a legacy flag until they are retired.
+
+Until this is decided, R7 lowers lane designs from the frontend IR
+(`spatial model-ir`: resources, fields, resolved inputs) with the source
+counts taken as raw, which reproduces today's hand designs.
