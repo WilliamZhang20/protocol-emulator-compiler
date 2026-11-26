@@ -1,0 +1,42 @@
+# I2C target, write transactions, 7-bit address 0x48, at most 400 kHz SCL.
+# Tiles time every bit: shifter0 samples SDA on each SCL rise and is done
+# at the eighth. The lane decides: START and STOP, the address match, when
+# to pull SDA for ACK (a window: SCL low after the eighth bit until the
+# ninth clock falls), and where each byte goes (the stream writer).
+# Transactions to other addresses get no ACK and are skipped up to their
+# STOP. The lane halts after the first matching transaction's STOP.
+        ACT 3                       # release SDA (action 0) and SCL (action 1)
+free:   WAIT level:input1           # SDA high
+        WAIT level:input0           # SCL high: the bus is idle
+idle:   WAIT level:input1_low       # SDA falls ...
+        RD readback:inputs
+        AND 1
+        JZ free                     # ... while SCL is low: not a START
+        FIRE                        # START: receive the address byte
+        WAIT event:shifter0_done
+        RD readback:shifter0_rx
+        XOR 0x90                    # 0x48 << 1 | write
+        JNZ skip
+ack:    WAIT level:input0_low       # SCL low after the eighth bit
+        ACT 2                       # pull SDA: ACK
+        WAIT level:input0           # ninth clock high
+        WAIT level:input0_low       # ninth clock low
+        ACT 3                       # release SDA
+        CLEAR                       # forget SDA edges seen so far
+        FIRE                        # receive the next byte
+byte:   WANY bit:event:shifter0_done|bit:event:input1_edge
+        AND bit:event:shifter0_done
+        JNZ got
+        RD readback:inputs          # SDA rose: with SCL high it is a STOP
+        AND 1
+        JZ byte                     # SCL low: an ordinary data change
+        HALT                        # STOP: transfer complete
+got:    RD readback:shifter0_rx
+        PUSH                        # the stream writer stores it
+        J ack
+skip:   CLEAR                       # not addressed: wait for this STOP
+stop:   WAIT event:input1_edge
+        RD readback:inputs
+        AND 1
+        JZ stop
+        J free
