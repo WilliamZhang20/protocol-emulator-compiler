@@ -11,7 +11,7 @@
  },
  "drivers": {"sda_out": {"pin": "sda"}},
  "tiles": {
-  "rx": {"kind": "shifter", "word_port": true, "frame": "0x1007",
+  "rx": {"kind": "shifter", "rx_port": true, "frame": "0x1007",
          "step": {"shift": "shift", "sample": "shift"}, "io": {"start": "start", "in": true, "auto_push": true},
          "abort": "abort"}
  },

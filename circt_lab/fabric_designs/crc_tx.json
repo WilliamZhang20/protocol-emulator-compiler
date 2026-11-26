@@ -1,0 +1,17 @@
+{
+ "name": "crc_tx",
+ "about": "Fixture (fabric IR) for the CRC cell's shifter link and pad polarity: a burst of 8-bit LSB-first words from the reader, then a 16-bit CRC tail (CRC-16 0x8005, init ones) from the linked CRC; data on a push-pull pad pair (B inverted) and the bit timer's level as a clock.",
+ "pins": {"d_p": 3, "clk": 4, "d_n": 5},
+ "drivers": {"dp": {"pin": "d_p", "push_pull": true}, "dn": {"pin": "d_n", "push_pull": true, "invert": true},
+             "ck": {"pin": "clk", "push_pull": true}},
+ "tiles": {
+  "bit": {"kind": "timer", "first": 8, "period": 8},
+  "tx": {"kind": "shifter", "tx_port": true, "frame": "0x0007", "step": {"shift": "shift"}, "io": {"auto_pull": true},
+         "burst": "0x20", "coder5": "0x2000"},
+  "fcs": {"kind": "crc", "width": 16, "poly": "0x8005", "init_ones": true, "link": "tx"}
+ },
+ "words": {"tx": "reader"},
+ "connect": {"bit.start": "tx.active", "bit.stop": "tx.stop", "tx.shift": "bit.tick",
+             "dp.value": "tx.out", "dp.enable": "tx.active", "dn.value": "tx.out", "dn.enable": "tx.active",
+             "ck.value": "bit.level", "ck.enable": "tx.active"}
+}

@@ -8,11 +8,14 @@ context number):
 
   pins     {name: pad index}
   events   {name: {pin, edge: level|rise|fall, when?: {pin, level}}}   I/O tile outputs
-  drivers  {name: {pin}}                       consumers name.value, name.enable (open drain)
+  drivers  {name: {pin, push_pull?, invert?}}  consumers name.value, name.enable (default open drain)
   tiles    {name: {kind: timer, first, period, mode?, phase?}
                  | {kind: shifter, frame, step: {shift, sample}, io: {start?, in?, auto_push?,
-                    auto_pull?}, abort?, burst?, coder5?, coder6?, word_port?}}
-           shifter line fields name the tile's sinks (start, shift, sample, abort)
+                    auto_pull?}, abort?, burst?, coder5?, coder6?, rx_port?, tx_port?}
+                 | {kind: crc, width, poly, check?, init_ones?, link?: shifter, additive?, twos?,
+                    absorb?, emit?, init?, data?, absorb_gate?, emit_gate?}}
+           shifter / crc line fields name the tile's own sinks; rx_port / tx_port bind
+           the shifter's receive / transmit FIFO to the word network
   words    {writer, gate, ... (word-network sinks <- sources), cmp_value, cmp_mask, tap}
   fsms     {name: {states: [reset, ...], on: [[from, signal, to], ...]}}  (order = priority)
   signals  {name: {fsm, cases: {state: ref}, default?: ref}}           muxed signals
@@ -38,7 +41,7 @@ import json
 import random
 from pathlib import Path
 
-from fabric_arch import DIRS, RRG, ConfigSim, config_bits
+from fabric_arch import DIRS, KINDS, RRG, ConfigSim, config_bits
 
 
 class MapError(Exception):
@@ -82,23 +85,28 @@ class Netlist:
                               'qual': (pins[when['pin']], when['level']) if when else None}
             self.signals[b] = {'type': 'base', 'block': b, 'local': None}
         for name, v in d.get('drivers', {}).items():
-            self.blocks[q(name)] = {'kind': 'io_drv', 'design': dn, 'pin': pins[v['pin']]}
+            self.blocks[q(name)] = {'kind': 'io_drv', 'design': dn, 'pin': pins[v['pin']],
+                                    'push_pull': bool(v.get('push_pull')), 'invert': bool(v.get('invert'))}
         for name, t in d.get('tiles', {}).items():
             b = q(name)
             self.blocks[b] = dict(t, design=dn)
-            for k, local in enumerate(['tick', 'level', 'rise', 'fall'] if t['kind'] == 'timer' else ['word', 'stop']):
+            if t['kind'] not in ('timer', 'shifter', 'crc'):
+                raise MapError('rules', f'{dn}: {name}: unknown tile kind {t["kind"]}')
+            locals_ = ['ok'] if t['kind'] == 'crc' else KINDS[t['kind']]['locals']
+            for k, local in enumerate(locals_):
                 self.signals[f'{b}.{local}'] = {'type': 'base', 'block': b, 'local': k}
         for name, f in d.get('fsms', {}).items():
             self.blocks[q(name)] = {'kind': 'fsm', 'design': dn, 'states': f['states'], 'on_src': f.get('on', [])}
         if 'words' in d:
             if self.words is not None:
                 raise MapError('resources', 'two designs use the one word network')
-            ports = [n for n, t in d['tiles'].items() if t.get('word_port')]
-            if len(ports) != 1:
-                raise MapError('rules', f'{dn}: words need exactly one word_port shifter')
-            self.words = dict(d['words'], design=dn, shifter=q(ports[0]))
-            self.signals['#match'] = {'type': 'base', 'block': '#wp', 'local': 2}
-            self.signals['#mismatch'] = {'type': 'base', 'block': '#wp', 'local': 3}
+            rx = [q(n) for n, t in d['tiles'].items() if t.get('rx_port')]
+            tx = [q(n) for n, t in d['tiles'].items() if t.get('tx_port')]
+            if len(rx) > 1 or len(tx) > 1 or not (rx or tx):
+                raise MapError('rules', f'{dn}: words need one rx_port and/or one tx_port shifter')
+            self.words = dict(d['words'], design=dn, rx_shifter=rx[0] if rx else None, tx_shifter=tx[0] if tx else None)
+            for k, local in (('avail', 1), ('match', 2), ('mismatch', 3)):
+                self.signals['#' + k] = {'type': 'base', 'block': '#wp', 'local': local}
         self.signals['#0'] = {'type': 'const', 'value': 0}
         self.signals['#1'] = {'type': 'const', 'value': 1}
         anon = itertools.count()
@@ -110,7 +118,7 @@ class Netlist:
                 n = f'{dn}/~mux{next(anon)}'
                 mux(n, r)
                 return n
-            if r in ('words.match', 'words.mismatch'):
+            if r in ('words.match', 'words.mismatch', 'words.avail'):
                 return '#' + r.split('.')[1]
             if q(r) in self.signals or r in d.get('signals', {}):
                 return q(r)
@@ -221,15 +229,15 @@ class Placement:
     def __init__(self, arch, nl):
         self.arch, self.nl = arch, nl
         a = arch
-        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k] for k in ('io', 'timer', 'shifter')}
+        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k] for k in ('io', 'timer', 'shifter', 'crc')}
         self.ctx_cells = [c for c in range(a.n) if a.contexts(c) == 4]
         self.wp = a.c['word_port']['cell']
-        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'fsm': 0}
+        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'fsm': 0}
         for v in nl.blocks.values():
             need[v['kind']] += 1
-        have = {'io_out': 4 * len(self.cells_of['io']), 'io_drv': len(self.cells_of['io']),
+        have = {'io_out': 4 * len(self.cells_of['io']), 'io_drv': 2 * len(self.cells_of['io']),
                 'timer': len(self.cells_of['timer']), 'shifter': len(self.cells_of['shifter']),
-                'fsm': len(self.ctx_cells)}
+                'crc': len(self.cells_of['crc']), 'fsm': len(self.ctx_cells)}
         short = [f'{k} {need[k]} > {have[k]}' for k in need if need[k] > have[k]]
         if short:
             raise MapError('resources', 'not enough ' + ', '.join(short))
@@ -245,7 +253,19 @@ class Placement:
                         raise MapError('rules', f'{s["fsm"]} pinned to two cells')
                 else:
                     self.colocate.append((s['fsm'], c['block']))
+        for f, blk in self.colocate:
+            if not set(self.domain(blk)) & set(self.domain(f)):
+                raise MapError('resources', f'{f} must share a cell with {blk} (a constant-1 case is read there), '
+                               f'but no {self.nl.blocks[blk]["kind"]} cell has contexts')
         self.links = self._links()
+        # CRC tiles linked to a shifter: the shifter must sit west or east of it.
+        self.adjacent = [(b, v['design'] + '/' + v['link']) for b, v in nl.blocks.items()
+                         if v['kind'] == 'crc' and v.get('link')]
+        for crc, sh in self.adjacent:
+            if sh not in nl.blocks or nl.blocks[sh]['kind'] != 'shifter':
+                raise MapError('rules', f'{crc}: link {sh} is not a shifter')
+        if nl.words and self.wp not in self.cells_of['crc']:
+            raise MapError('rules', 'the word port is not a crc cell')
 
     def _links(self):
         """(block, block) pairs whose cells should be close: every signal
@@ -282,7 +302,17 @@ class Placement:
         for f, b in self.colocate:
             if self.cell(binding, f) != self.cell(binding, b):
                 c += 100
+        for crc, sh in self.adjacent:
+            if self.link_index(binding, crc, sh) is None:
+                c += 100
         return c
+
+    def link_index(self, binding, crc, sh):
+        cc, sc = binding[crc], binding[sh]
+        for k, d in enumerate(KINDS['crc']['links']):
+            if self.arch.neighbour(cc, d) == sc:
+                return k
+        return None
 
     def domain(self, b):
         v = self.nl.blocks[b]
@@ -296,7 +326,7 @@ class Placement:
         return self.cells_of[k]
 
     def capacity(self, b):
-        return 4 if self.nl.blocks[b]['kind'] == 'io_out' else 1
+        return {'io_out': 4, 'io_drv': 2}.get(self.nl.blocks[b]['kind'], 1)
 
     def legal(self, binding):
         use = {}
@@ -357,11 +387,12 @@ class Placement:
         return binding, cost
 
     def slots(self, binding):
-        """io_out blocks -> local index within their io cell."""
+        """io_out blocks -> local index within their io cell; io_drv blocks
+        -> pad (0 A, 1 B) within it."""
         out, used = {}, {}
         for b in sorted(binding):
-            if self.nl.blocks[b]['kind'] == 'io_out':
-                c = binding[b]
+            if self.nl.blocks[b]['kind'] in ('io_out', 'io_drv'):
+                c = (self.nl.blocks[b]['kind'], binding[b])
                 out[b] = used.get(c, 0)
                 used[c] = out[b] + 1
         return out
@@ -442,7 +473,7 @@ class Problem:
         v = nl.blocks[c['block']]
         cell = self.binding[c['block']]
         if v['kind'] == 'io_drv':
-            k = {'value': 0, 'enable': 1}[c['sink']]
+            k = 2 * self.slot[c['block']] + {'value': 0, 'enable': 1}[c['sink']]
         else:
             sinks = a.c['kinds'][v['kind']]['sinks']
             if c['sink'] not in sinks or (c['sink'] == 'gate'):
@@ -553,8 +584,10 @@ def route(rrg, prob, max_iterations=60, pres_fac=0.5, pres_mult=1.4, hist_fac=1.
             for s in missing:
                 if s[0] == 'feed':
                     m = s[1]
-                    bad[m].add(xs[m])
                     retry = True
+                    if m not in xs:
+                        continue          # its mux net found no X this iteration
+                    bad[m].add(xs[m])
                     if len(bad[m]) >= 4 * rrg.tracks:
                         raise MapError('routing', f'no track out of {m}\'s cell can be fed by all its alternatives')
                 else:
@@ -564,8 +597,11 @@ def route(rrg, prob, max_iterations=60, pres_fac=0.5, pres_mult=1.4, hist_fac=1.
                 if capacity(b):
                     occupancy[b] = occupancy.get(b, 0) + 1
             if net['source'][0] == 'xsrc':
-                x = next(b for a, b in edges if a == net['source'])
-                set_x(net['name'], x)
+                x = next((b for a, b in edges if a == net['source']), None)
+                if x is not None:
+                    set_x(net['name'], x)
+                else:
+                    retry = True
         overused = [n for n, o in occupancy.items() if o > 1]
         if not overused and not retry:
             return {'iterations': it, 'trees': trees, 'x': dict(xs)}
@@ -637,6 +673,12 @@ def emit(arch, prob, routed):
                 else:
                     put(sel_key(ipin, ctx), rrg.value(arrival(alt, f, target), ipin))
     sv = arch.c['encoding']['sink']
+    # A sink tied to a constant outside any mux: its selector, every context.
+    for i, c in enumerate(nl.consumers):
+        s = nl.signals[c['sig']]
+        if s['type'] == 'const':
+            for ctx in range(4):
+                put(sel_key(prob.ipin_of[i], ctx), sv['one'] if s['value'] else sv['zero'])
     for b, v in nl.blocks.items():
         if v['kind'] != 'fsm':
             continue
@@ -691,7 +733,8 @@ def tile_config(arch, nl, pl, binding):
             tiles[c] = tiles.get(c, 0) | (o << (10 * slot[b]))
         elif k == 'io_drv':
             c = binding[b]
-            tiles[c] = tiles.get(c, 0) | (1 << 43) | ((v['pin'] & 7) << 40)
+            f = 1 | ((v['pin'] & 7) << 1) | (int(v['push_pull']) << 4) | (int(v['invert']) << 5)
+            tiles[c] = tiles.get(c, 0) | (f << (40 + 6 * slot[b]))
         elif k == 'timer':
             tiles[binding[b]] = (v['first'] | (v['period'] << 16) | (v.get('mode', 0) << 32) |
                                  (v.get('phase', 0) << 48))
@@ -706,6 +749,25 @@ def tile_config(arch, nl, pl, binding):
                     int(str(v.get('burst', 0)), 0) | (ln(v.get('abort')) << 7),
                     int(str(v.get('coder5', 0)), 0), int(str(v.get('coder6', 0)), 0)]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
+        elif k == 'crc':
+            ck = arch.c['kinds']['crc']
+            ln = lambda name: ck['lines'][name] if name else 0
+            lv = lambda name: ck['levels'][name] - 32 if name else 0
+            poly, check = int(str(v['poly']), 0), int(str(v.get('check', 0)), 0)
+            linked = 0
+            if v.get('link'):
+                li = pl.link_index(binding, b, v['design'] + '/' + v['link'])
+                if li is None:
+                    raise MapError('routing', f'{b}: linked shifter is not beside it')
+                linked = (1 << 6) | (li << 7)
+            shape = (int(v['width']) - 1) | (int(bool(v.get('init_ones'))) << 5) | linked | \
+                (int(bool(v.get('additive'))) << 8) | (int(bool(v.get('twos'))) << 9)
+            gates = (lv(v.get('absorb_gate')) | (int(bool(v.get('absorb_gate'))) << 5) |
+                     (lv(v.get('emit_gate')) << 6) | (int(bool(v.get('emit_gate'))) << 11))
+            regs = [poly & 0xffff, poly >> 16, check & 0xffff, check >> 16,
+                    ln(v.get('absorb')) | (lv(v.get('data')) << 6),
+                    ln(v.get('emit')) | (ln(v.get('init')) << 6), shape, gates]
+            tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
     w = nl.words
     src = {'reader': 1, 'rx': 2, 'status': 3, 'capture': 4, 'escape': 5, 'compare': 6, 'gate': 7, 'split': 8,
            'interleave': 9}
@@ -717,9 +779,10 @@ def tile_config(arch, nl, pl, binding):
             if k in sink:
                 sel |= src[s] << (4 * sink[k])
         wn = sel | (int(str(w.get('cmp_value', 0)), 0) << 72) | (int(str(w.get('cmp_mask', 0)), 0) << 88) | \
-            (src.get(w.get('tap'), 0) << 105) | (binding[w['shifter']] << 109)
+            (src.get(w.get('tap'), 0) << 105) | ((binding[w['rx_shifter']] if w['rx_shifter'] else 15) << 109) | \
+            ((binding[w['tx_shifter']] if w['tx_shifter'] else 15) << 113)
     else:
-        wn = 15 << 109
+        wn = (15 << 109) | (15 << 113)
     return tiles, wn
 
 
@@ -803,37 +866,63 @@ def check(contract, nl, prob, bits):
 
 # ------------------------------------------------------------------- top
 
-def compile_designs(contract, designs, seeds=20, moves=4000):
-    """Place, route, emit and check. Returns a result dict; raises MapError
-    with its failure class."""
-    arch = RRG(contract)
-    nl = Netlist(designs)
-    pl = Placement(arch, nl)
-    last = None
-    tried = []
+def candidates(pl, seeds, moves, samples):
+    """Placements to try, best first: annealed ones (bounding-box cost),
+    then sampled legal ones ordered by the same cost. Wirelength alone
+    cannot see turn classes or mux feeding, so routing decides."""
+    seen = set()
     for seed in range(1, seeds + 1):
         binding, wl = pl.anneal(seed, moves)
         key = tuple(sorted(binding.items()))
-        if key in tried:
-            continue
-        tried.append(key)
+        if key not in seen:
+            seen.add(key)
+            yield binding, wl, f'anneal {seed}'
+    rng = random.Random(12345)
+    pool = []
+    for _ in range(samples):
+        try:
+            binding = pl.random_binding(rng)
+        except MapError:
+            break
+        key = tuple(sorted(binding.items()))
+        if key not in seen:
+            seen.add(key)
+            pool.append((pl.cost(binding), key, binding))
+    for wl, _, binding in sorted(pool, key=lambda x: (x[0], x[1])):
+        yield binding, wl, 'sampled'
+
+
+def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries=400):
+    """Place, route, emit and check. Returns a result dict; raises MapError
+    with its failure class (resources and rules are proven by the source
+    and the contract; routing failures here are heuristic)."""
+    arch = RRG(contract)
+    nl = Netlist(designs)
+    pl = Placement(arch, nl)
+    last, n = None, 0
+    for binding, wl, how in candidates(pl, seeds, moves, samples):
+        n += 1
+        if n > tries:
+            break
         try:
             prob = Problem(arch, nl, pl, binding)
             routed = route(arch, prob)
             fields = emit(arch, prob, routed)
+            tiles, wn = tile_config(arch, nl, pl, binding)
         except MapError as e:
+            if e.cls in ('resources',):
+                raise
             last = e
             continue
-        tiles, wn = tile_config(arch, nl, pl, binding)
         bits = pack(arch, fields, tiles, wn)
         problems = check(contract, nl, prob, bits)
         if problems:
             raise MapError('compiler', 'check failed: ' + '; '.join(problems[:5]))
         tracks = {b for edges in routed['trees'].values() for _, b in edges if b[0] == 'track'}
-        return {'binding': binding, 'wirelength': wl, 'seed': seed, 'iterations': routed['iterations'],
+        return {'binding': binding, 'wirelength': wl, 'seed': how, 'tried': n, 'iterations': routed['iterations'],
                 'tracks_used': len(tracks), 'bits': bits, 'prob': prob, 'routed': routed, 'netlist': nl,
                 'placement': pl, 'arch': arch}
-    raise last or MapError('routing', 'no placement routed')
+    raise MapError(last.cls if last else 'routing', f'no placement of {n - 1 if n > tries else n} tried routed; last: {last}')
 
 
 def hexfile(contract, bits):
@@ -851,7 +940,7 @@ if __name__ == '__main__':
     a = p.parse_args()
     c = json.loads(a.contract.read_text())
     r = compile_designs(c, [json.loads(d.read_text()) for d in a.designs])
-    print(f'placed (seed {r["seed"]}, wirelength {r["wirelength"]}), routed in {r["iterations"]} iterations, '
+    print(f'placed ({r["seed"]}, placement {r["tried"]} tried, wirelength {r["wirelength"]}), routed in {r["iterations"]} iterations, '
           f'{r["tracks_used"]} track segments; check passed')
     for b, cell in sorted(r['binding'].items()):
         print(f'  {b:28s} cell {cell}')

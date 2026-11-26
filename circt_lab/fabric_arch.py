@@ -24,12 +24,22 @@ OPPOSITE = {'north': 'south', 'south': 'north', 'west': 'east', 'east': 'west'}
 VERTICAL = {'north', 'south'}
 
 KINDS = {
-    'io': {'code': 0, 'locals': ['o0', 'o1', 'o2', 'o3'], 'sinks': ['drive_value', 'drive_enable']},
+    # io: two pads per cell (A: sinks 0/1, B: sinks 2/3), each open drain or
+    # push-pull with a polarity bit.
+    'io': {'code': 0, 'locals': ['o0', 'o1', 'o2', 'o3'],
+           'sinks': ['a_value', 'a_enable', 'b_value', 'b_enable'], 'pads': 2},
     'timer': {'code': 1, 'locals': ['tick', 'level', 'rise', 'fall'], 'sinks': ['start', 'stop', 'aux']},
-    'shifter': {'code': 2, 'locals': ['word', 'stop', 'match', 'mismatch'],
-                'sinks': ['start', 'shift', 'sample', 'abort', 'in', 'gate'],
+    'shifter': {'code': 2, 'locals': ['word', 'stop', 'out', 'active'],
+                'sinks': ['start', 'shift', 'sample', 'abort', 'in'],
                 # fabric_shifter lines driven by the sinks; `in` is level 33.
                 'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33},
+    # crc: fabric_crc; its direct link reaches the shifter west (link 0)
+    # and east (link 1) of it. The word-port cell's locals 1-3 and sink 5
+    # are the word network's bit port.
+    'crc': {'code': 3, 'locals': ['ok', 'avail', 'match', 'mismatch'],
+            'sinks': ['init', 'absorb', 'emit', 'data', 'level', 'gate'],
+            'lines': {'init': 1, 'absorb': 2, 'emit': 3}, 'levels': {'data': 33, 'level': 34},
+            'links': ['west', 'east']},
 }
 
 ENCODING = {
@@ -54,13 +64,13 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
     """kinds: list of kind names, row-major; contexts: list of 1 or 4."""
     if len(kinds) != rows * cols or len(contexts) != rows * cols:
         raise ValueError('one kind and one context count per cell')
-    if kinds[word_port] != 'shifter':
-        raise ValueError('the word port must be a shifter cell')
+    if kinds[word_port] != 'crc':
+        raise ValueError('the word port must be a crc cell')
     if any(c not in (1, 4) for c in contexts):
         raise ValueError('contexts are 1 or 4')
     return {'schema': 'reorg.mesh.v1', 'name': name or f'mesh_{rows}x{cols}', 'rows': rows, 'cols': cols,
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
-            'word_port': {'cell': word_port, 'locals': {'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
+            'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
             'kinds': KINDS, 'encoding': ENCODING, 'layout': LAYOUT, 'pins': 8}
 
 
@@ -274,11 +284,15 @@ def load(path):
     return json.loads(Path(path).read_text())
 
 
+def prototype():
+    k = ['io', 'io', 'shifter', 'timer', 'crc', 'shifter', 'io', 'shifter', 'timer']
+    return make_contract(3, 3, k, [1 if x == 'timer' else 4 for x in k], 4, 'mesh_3x3')
+
+
 if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser(description='write the default 3 x 3 prototype mesh contract')
     p.add_argument('output', type=Path)
     a = p.parse_args()
-    k = ['io', 'io', 'shifter', 'timer', 'timer', 'shifter', 'io', 'shifter', 'timer']
-    ctx = [1 if x == 'timer' else 4 for x in k]
-    a.output.write_text(json.dumps(make_contract(3, 3, k, ctx, 2, 'mesh_3x3'), indent=1) + '\n')
+    a.output.write_text(json.dumps(prototype(), indent=1) + '\n')
+

@@ -9,8 +9,12 @@
 3. Source rule violations are refused with their class: too many states,
    three transitions from one state, a constant-1 mux read off its cell,
    two designs on one pad, too few tiles.
-4. With RTL_ROOT set, the compiled vector runs on the RTL mesh (mesh.v)
-   under the I2C + UART pin stimulus (reorg/mesh_tb.sv).
+4. Step 4 L0 fixtures compile: UART TX from the word network's reader on
+   a push-pull pad, and a burst with the linked CRC cell's tail on a pad
+   pair (polarity).
+5. With RTL_ROOT set: the RTL repository's committed contract and vectors
+   are exactly this compiler's output, and each runs at the pins on the
+   RTL mesh (reorg/mesh_tb.sv).
 """
 import json
 import os
@@ -19,13 +23,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fabric_arch import DIRS, make_contract, verilog_params
+from fabric_arch import DIRS, prototype, verilog_params
 from fabric_map import MapError, Netlist, check, compile_designs, hexfile
 
 HERE = Path(__file__).resolve().parent
 DESIGNS = HERE / 'fabric_designs'
-K3 = ['io', 'io', 'shifter', 'timer', 'timer', 'shifter', 'io', 'shifter', 'timer']
-C3 = make_contract(3, 3, K3, [1 if k == 'timer' else 4 for k in K3], 2, 'mesh_3x3')
+C3 = prototype()
+K3 = [c['kind'] for c in C3['cells']]
 
 
 def design(name):
@@ -67,8 +71,9 @@ def main():
     else:
         # Force the case: drop a static selector of any routed track in a
         # contexted FSM cell in one context.
+        xs = set(r['routed']['x'].values())       # mux points vary by context by design
         edges = [b for edges in r['routed']['trees'].values() for _, b in edges
-                 if b[0] == 'track' and b[1] in fsm_cells]
+                 if b[0] == 'track' and b[1] in fsm_cells and b not in xs]
         cell, d, t = edges[0][1:]
         lsb = cell * lay['cell_bits'] + lay['track_lsb'] + 48 * 1 + 12 * DIRS.index(d) + 3 * t
         assert check(C3, nl, prob, flip_field(bits, lsb, 3, 0))
@@ -95,7 +100,7 @@ def main():
     dc = json.loads(json.dumps(d))
     dc['tiles']['t'] = {'kind': 'timer', 'first': 1, 'period': 1}
     dc['connect']['t.start'] = {'fsm': 'ack', 'cases': {'DRIVE': 1}}   # constant 1 needed in a timer cell (no contexts)
-    print('refused:', refused('rules', C3, [dc]))
+    print('refused:', refused('resources', C3, [dc]))
     u2 = design('uart_rx')
     u2['name'] = 'uart_rx2'
     print('refused:', refused('rules', C3, [design('uart_rx'), u2]))
@@ -105,6 +110,12 @@ def main():
     u3['pins'] = {'rx': 4}
     print('refused:', refused('resources', C3, [design('uart_rx'), u2, u3, design('i2c_target')]))
 
+    vectors = {'i2c_target+uart_rx': (bits, [[], ['+UART'], ['+UART', '+HALF=4', '+SETUP=1', '+HOLD=4']])}
+    for name, mode in (('uart_tx', '+TX'), ('crc_tx', '+CRCTX')):
+        r2 = compile_designs(C3, [design(name)])
+        vectors[name] = (r2['bits'], [[mode]])
+        print(f'compiled {name}: {r2["tracks_used"]} track segments, check passed')
+
     rtl = os.environ.get('RTL_ROOT')
     if rtl and not (Path(rtl) / 'experiments/grid_fabric/reorg/mesh.v').exists():
         print(f'{rtl} has no reorg mesh (older hardware pin): pin-level run skipped')
@@ -112,37 +123,39 @@ def main():
     if rtl:
         committed = Path(rtl) / 'experiments/grid_fabric/reorg/compiled'
         if committed.exists():
-            assert json.loads((committed / 'mesh_3x3.json').read_text()) == C3, 'RTL contract differs from make_contract'
-            assert (committed / 'i2c_target+uart_rx.3x3.hex').read_text() == hexfile(C3, bits), \
-                'RTL repository holds a stale compiled vector: rerun fabric_map.py --hex'
-            print('RTL repository contract and compiled vector match this compiler')
-        run_rtl(Path(rtl), C3, bits)
+            assert json.loads((committed / 'mesh_3x3.json').read_text()) == C3, 'RTL contract differs from prototype()'
+            for name, (b, _) in vectors.items():
+                assert (committed / f'{name}.3x3.hex').read_text() == hexfile(C3, b), \
+                    f'RTL repository holds a stale {name} vector: rerun fabric_map.py --hex'
+            print('RTL repository contract and compiled vectors match this compiler')
+        run_rtl(Path(rtl), C3, vectors)
     else:
         print('RTL_ROOT not set: pin-level run skipped')
     print('PASS fabric compiler')
 
 
-def run_rtl(rtl, contract, bits):
+def run_rtl(rtl, contract, vectors):
     reorg = rtl / 'experiments/grid_fabric/reorg'
     tools = rtl / '.tools/oss-cad-suite/bin'
     iverilog = tools / 'iverilog' if (tools / 'iverilog').exists() else 'iverilog'
     vvp = tools / 'vvp' if (tools / 'vvp').exists() else 'vvp'
     params = verilog_params(contract)
     with tempfile.TemporaryDirectory() as tmp:
-        hx = Path(tmp) / 'cfg.hex'
-        hx.write_text(hexfile(contract, bits))
         sim = Path(tmp) / 'sim'
         cmd = [str(iverilog), '-g2012', '-s', 'mesh_tb', '-o', str(sim)]
         cmd += [f'-Pmesh_tb.{k}={v}' for k, v in params.items()]
         cmd += [str(reorg / f) for f in ('mesh_tb.sv', 'mesh.v', 'ctx_switch.v', 'io_tile.v', 'wnet.v')]
-        cmd += [str(rtl / 'src' / f) for f in ('grid_timer.v', 'fabric_shifter.v', 'config_bank.v')]
+        cmd += [str(rtl / 'src' / f) for f in ('grid_timer.v', 'fabric_shifter.v', 'fabric_crc.v', 'config_bank.v')]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-        for extra in ([], ['+UART'], ['+UART', '+HALF=4', '+SETUP=1', '+HOLD=4']):
-            out = subprocess.run([str(vvp), '-N', str(sim), f'+CFG={hx}'] + extra, capture_output=True,
-                                 text=True, timeout=120).stdout
-            line = [l for l in out.splitlines() if l.startswith(('PASS', 'FAIL'))]
-            assert line and line[-1].startswith('PASS'), out[-2000:]
-            print(line[-1])
+        for name, (bits, runs) in vectors.items():
+            hx = Path(tmp) / f'{name}.hex'
+            hx.write_text(hexfile(contract, bits))
+            for extra in runs:
+                out = subprocess.run([str(vvp), '-N', str(sim), f'+CFG={hx}'] + extra, capture_output=True,
+                                     text=True, timeout=120).stdout
+                line = [l for l in out.splitlines() if l.startswith(('PASS', 'FAIL'))]
+                assert line and line[-1].startswith('PASS'), out[-2000:]
+                print(line[-1])
 
 
 if __name__ == '__main__':

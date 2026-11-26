@@ -1,0 +1,13 @@
+{
+ "name": "uart_tx",
+ "about": "Fixture (fabric IR): UART transmit, 8N1, 20 clocks per bit, bytes from the word network's reader; the timer runs while the shifter is active (the shipped uart-tx-lowered connections).",
+ "pins": {"tx": 3},
+ "drivers": {"tx_out": {"pin": "tx", "push_pull": true}},
+ "tiles": {
+  "bit": {"kind": "timer", "first": 19, "period": 20},
+  "tx": {"kind": "shifter", "tx_port": true, "frame": "0x8297", "step": {"shift": "shift"}, "io": {"auto_pull": true}}
+ },
+ "words": {"tx": "reader"},
+ "connect": {"bit.start": "tx.active", "bit.stop": "tx.stop", "tx.shift": "bit.tick",
+             "tx_out.value": "tx.out", "tx_out.enable": 1}
+}
