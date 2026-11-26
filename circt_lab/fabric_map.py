@@ -742,12 +742,13 @@ def tile_config(arch, nl, pl, binding):
             ln = lambda name: lines[name] if name else 0
             step = v.get('step', {})
             io = v.get('io', {})
-            regs = [int(str(v.get('frame', 0)), 0),
+            enc = lambda reg, val: field_word(arch.c['registers']['shifter'][reg], val)
+            regs = [enc('frame', v.get('frame', 0)),
                     ln(step.get('shift')) | (ln(step.get('sample')) << 6),
                     ln(io.get('start')) | ((arch.c['kinds']['shifter']['in_level'] - 32 if io.get('in') else 0) << 6) |
                     (int(bool(io.get('auto_pull'))) << 11) | (int(bool(io.get('auto_push'))) << 12),
-                    int(str(v.get('burst', 0)), 0) | (ln(v.get('abort')) << 7),
-                    int(str(v.get('coder5', 0)), 0), int(str(v.get('coder6', 0)), 0)]
+                    enc('burst', v.get('burst', 0)) | (ln(v.get('abort')) << 7),
+                    enc('coder', v.get('coder', v.get('coder5', 0))), enc('coder2', v.get('coder2', v.get('coder6', 0)))]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
         elif k == 'crc':
             ck = arch.c['kinds']['crc']
@@ -784,6 +785,25 @@ def tile_config(arch, nl, pl, binding):
     else:
         wn = (15 << 109) | (15 << 113)
     return tiles, wn
+
+
+def field_word(reg, val):
+    """A register word from a raw value (int or '0x..') or named fields
+    ({name: value}) through the contract's field map."""
+    if not isinstance(val, dict):
+        return int(str(val), 0)
+    word = 0
+    for name, x in val.items():
+        if name not in reg['fields']:
+            raise MapError('rules', f'register field {name} unknown (one of {sorted(reg["fields"])})')
+        if isinstance(x, str) and name in reg.get('parity', {}) or (name == 'parity' and isinstance(x, str)):
+            x = reg['parity'][x]
+        hi, lo = reg['fields'][name]
+        x = int(x)
+        if not 0 <= x < (1 << (hi - lo + 1)):
+            raise MapError('rules', f'register field {name} = {x} does not fit [{hi}:{lo}]')
+        word |= x << lo
+    return word
 
 
 def pack(arch, fields, tiles, wnet):

@@ -55,6 +55,39 @@ ENCODING = {
              'west_first': 14, 'east_first': 18, 'bits': 5},
 }
 
+# Tile register field maps ([hi, lo]); the same as the hardware's
+# (architecture/grid_5x3.json lane_core.registers, checked by
+# test_fabric_lower.py): fabric_shifter registers 1..6, fabric_crc 0..7.
+REGISTERS = {
+    'shifter': {
+        'frame': {'reg': 1, 'fields': {'length_minus_1': [3, 0], 'pre': [5, 4], 'pre_value': [6, 6], 'post': [8, 7],
+                                       'post_value': [9, 9], 'parity': [11, 10], 'msb_first': [12, 12],
+                                       'lead': [13, 13], 'end_on_sample': [14, 14], 'idle': [15, 15]},
+                  'parity': {'none': 0, 'even': 1, 'odd': 2}},
+        'step': {'reg': 2, 'fields': {'shift_line': [5, 0], 'sample_line': [11, 6]}},
+        'io': {'reg': 3, 'fields': {'start_line': [5, 0], 'in_level': [10, 6], 'auto_pull': [11, 11],
+                                    'auto_push': [12, 12]}},
+        'burst': {'reg': 4, 'fields': {'end_level': [4, 0], 'burst': [5, 5], 'eop_ends_burst': [6, 6],
+                                       'abort_line': [12, 7]}},
+        'coder': {'reg': 5, 'fields': {'stuff_run': [2, 0], 'runs_of_ones': [3, 3], 'nrzi': [4, 4], 'receive': [5, 5],
+                                       'arm_at_first_zero': [6, 6], 'tail_invert': [7, 7], 'bit_strobe': [8, 8],
+                                       'tail_length': [14, 9], 'manchester': [15, 15]}},
+        'coder2': {'reg': 6, 'fields': {'stuff_gate_level': [4, 0], 'stuff_gated': [5, 5], 'crc_skip': [12, 6],
+                                        'link_data_only': [13, 13]}},
+    },
+    'crc': {
+        'shape': {'reg': 6, 'fields': {'width_minus_1': [4, 0], 'init_ones': [5, 5], 'linked': [6, 6],
+                                       'link_select': [7, 7], 'additive': [8, 8], 'twos_complement': [9, 9]}},
+    },
+}
+
+# Pin-to-tile latencies (clocks), from the RTL (mesh_tb measures them):
+# a pin edge that starts a timer whose tick samples a pin samples it
+# edge_to_sample clocks after `first`; a transmit frame's first bit lasts
+# first + start_to_shift at the pad when the shifter's active starts the
+# timer that shifts it.
+LATENCY = {'edge_to_sample': 1, 'start_to_shift': 2}
+
 LAYOUT = {'cell_bits': 512, 'track_lsb': 0, 'sink_lsb': 192, 'sink_slots': 6, 'trans_lsb': 312,
           'tile_lsb': 368, 'tile_bits': 144, 'wnet_bits': 128, 'contexts': 4, 'tracks': 4,
           'transition_rows': 2}
@@ -71,7 +104,8 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
     return {'schema': 'reorg.mesh.v1', 'name': name or f'mesh_{rows}x{cols}', 'rows': rows, 'cols': cols,
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
             'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
-            'kinds': KINDS, 'encoding': ENCODING, 'layout': LAYOUT, 'pins': 8}
+            'kinds': KINDS, 'encoding': ENCODING, 'layout': LAYOUT, 'registers': REGISTERS,
+            'latency': LATENCY, 'pins': 8}
 
 
 def verilog_params(contract):
