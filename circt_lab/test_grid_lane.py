@@ -102,5 +102,24 @@ with tempfile.TemporaryDirectory() as tmp:
             raise AssertionError(f'design may not set word {word}')
         del design['words'][str(word)]
 
+# 5. Timer modes encode from the contract fields into the timer's own words.
+from grid_lane import timer_mode_words
+cfg = contract['configuration']
+words = timer_mode_words(contract, {'timer0': {'function': 'capture'},
+                                    'timer3': {'function': 'resync', 'phase': 10, 'resync_limit': 3}})
+m0, p0 = contract['resources']['timer0']['mode_words']; m3, p3 = contract['resources']['timer3']['mode_words']
+assert words == {m0: cfg['timer_functions']['capture'], p0: 0,
+                 m3: cfg['timer_functions']['resync'] | 3 << cfg['timer_mode_fields']['resync_limit'][1], p3: 10}, words
+for bad, why in [({'shifter0': {'function': 'capture'}}, 'not a timer'), ({'timer0': {'function': 'pwm'}}, 'unknown function'),
+                 ({'timer0': {'function': 'count', 'phase': 3}}, 'resync only'), ({'timer0': {'function': 'resync'}}, 'phase'),
+                 ({'timer0': {'function': 'resync', 'phase': 4, 'resync_limit': 256}}, 'out of range'),
+                 ({'timer0': {'mode': 1}}, 'unknown keys')]:
+    try:
+        timer_mode_words(contract, bad)
+    except ValueError as e:
+        assert why in str(e), (bad, str(e))
+    else:
+        raise AssertionError(f'accepted: {bad}')
+
 print('PASS: lane assembler matches the RTL test assembler, names come from the contract, '
-      'bad programs are refused, lane images route like temporal images')
+      'bad programs are refused, lane images route like temporal images, timer modes encode from the contract')

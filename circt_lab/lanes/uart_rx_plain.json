@@ -1,0 +1,92 @@
+{
+  "schema": "spatial.lane-design.v1",
+  "name": "uart_rx_plain",
+  "description": "The same UART receiver without resynchronization (timer0 in hold mode, nothing on its third input): the baseline that a drifting sender breaks.",
+  "nets": [
+    {
+      "name": "frame_start",
+      "source": {
+        "resource": "sram0",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 3,
+          "context": 0
+        },
+        {
+          "resource": "timer0",
+          "port": 0,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "bit_tick",
+      "source": {
+        "resource": "timer0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 4,
+          "context": 0
+        },
+        {
+          "resource": "shifter0",
+          "port": 5,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "frame_done",
+      "source": {
+        "resource": "shifter0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "timer0",
+          "port": 1,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "rx_line",
+      "source": {
+        "resource": "input_io",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 6,
+          "context": 0
+        }
+      ]
+    }
+  ],
+  "words": {
+    "0": 27,
+    "1": 20,
+    "2": 9,
+    "4": 0,
+    "53": 1,
+    "54": 1,
+    "55": 1,
+    "63": 10,
+    "68": 3
+  },
+  "word_notes": {
+    "0-1": "timer0: first sample 27 clocks after the start (about 1.5 bits after the start edge, less the edge-to-start latency), then every 20 clocks",
+    "2": "shifter0: 9 bits (8 data + stop), LSB first",
+    "4": "pin 0 edge events on fall; no outputs enabled"
+  },
+  "idle_actions": 0,
+  "program": "uart_rx.lane",
+  "program_base": 768
+}

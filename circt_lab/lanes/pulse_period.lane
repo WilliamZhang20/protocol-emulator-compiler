@@ -1,0 +1,20 @@
+# Pulse-period meter. timer0 (capture mode) latches the clocks between
+# consecutive rising edges on pin 0; the first edge only restarts its count.
+# After each later edge: push the 16-bit period, low byte first.
+        SETC 4
+        CLEAR
+        WAIT event:input0_edge      # first edge: the capture count restarts
+next:   WAIT event:input0_edge
+        RD readback:timer0_capture
+        PUSH                        # low byte
+        SHR
+        SHR
+        SHR
+        SHR
+        SHR
+        SHR
+        SHR
+        SHR
+        PUSH                        # high byte
+        LOOP next
+        HALT

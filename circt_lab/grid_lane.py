@@ -134,6 +134,39 @@ class Lane:
         return image
 
 
+def timer_mode_words(contract, modes):
+    """Encode a design's `timer_modes` ({timer: {function, phase,
+    resync_limit}}) into the timer mode/phase words, from the contract's
+    field layout. Returns {word: value} for words beyond the base image."""
+    cfg = contract['configuration']
+    fields, functions = cfg['timer_mode_fields'], cfg['timer_functions']
+    out = {}
+    for name, spec in modes.items():
+        resource = contract['resources'].get(name)
+        if not resource or resource['kind'] != 'timer':
+            raise ValueError(f'timer_modes: {name} is not a timer')
+        unknown = set(spec) - {'function', 'phase', 'resync_limit'}
+        if unknown:
+            raise ValueError(f'timer_modes: {name}: unknown keys {sorted(unknown)}')
+        function = spec.get('function', 'hold')
+        if function not in functions:
+            raise ValueError(f'timer_modes: {name}: unknown function {function}')
+        limit, phase = spec.get('resync_limit', 0), spec.get('phase', 0)
+        if function != 'resync' and (limit or phase):
+            raise ValueError(f'timer_modes: {name}: phase and resync_limit apply to resync only')
+        hi, lo = fields['resync_limit']
+        if not 0 <= limit < 1 << (hi - lo + 1):
+            raise ValueError(f'timer_modes: {name}: resync_limit out of range')
+        if function == 'resync' and not 1 <= phase <= 0xffff:
+            raise ValueError(f'timer_modes: {name}: resync needs a phase of 1-65535 clocks')
+        mode_word, phase_word = resource['mode_words']
+        out[mode_word] = functions[function] << fields['function'][1] | limit << lo
+        out[phase_word] = phase
+    first, last = cfg['timer_mode_words']
+    assert all(first <= w <= last for w in out)
+    return out
+
+
 def build(contract, design_path):
     design = json.loads(Path(design_path).read_text())
     if design.get('schema') != 'spatial.lane-design.v1':
@@ -147,6 +180,10 @@ def build(contract, design_path):
     program = {'schema': 'spatial.lane-program.v1', 'name': design['name'], 'base': design['program_base'],
                'words': words, 'bytes': [b for w in words for b in (w & 255, w >> 8)],
                'routes': routes['route_count'], 'max_hops': routes['max_hops']}
+    extended = timer_mode_words(contract, design.get('timer_modes', {}))
+    if extended:
+        # Words past the base image (timer modes, 208-215): written after it.
+        program['extended_words'] = {str(k): v for k, v in sorted(extended.items())}
     return image, program
 
 
