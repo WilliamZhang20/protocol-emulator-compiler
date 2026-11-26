@@ -1,0 +1,28 @@
+{
+  "schema": "spatial.lane-design.v1",
+  "name": "spi_target",
+  "description": "SPI target, mode 0, no chip select: pin 0 is SCLK (uio5), pin 1 is MOSI (uio6), output 2 is MISO (uo[0] while the host opcode is 7). shifter0 samples on SCLK rises and shifts its reply out after each rise; the lane supplies replies from the source stream and stores received bytes.",
+  "nets": [
+    {"name": "byte_start", "source": {"resource": "sram0", "port": 3}, "sinks": [{"resource": "shifter0", "port": 3, "context": 0}]},
+    {"name": "sclk_rise", "source": {"resource": "input_io", "port": 2}, "sinks": [
+      {"resource": "shifter0", "port": 4, "context": 0}, {"resource": "shifter0", "port": 5, "context": 0}]},
+    {"name": "mosi", "source": {"resource": "input_io", "port": 1}, "sinks": [{"resource": "shifter0", "port": 6, "context": 0}]},
+    {"name": "miso", "source": {"resource": "shifter0", "port": 2}, "sinks": [{"resource": "output_io", "port": 9, "context": 0}]}
+  ],
+  "words": {
+    "0": 250, "1": 250,
+    "2": 40,
+    "4": 68,
+    "53": 1, "54": 1, "55": 1,
+    "63": 10,
+    "68": 3
+  },
+  "word_notes": {
+    "2": "shifter0: 8 bits, MSB first",
+    "4": "only output 2 enabled, push-pull; pin 0 (SCLK) edges on rise",
+    "68": "pins 0 and 1 read their own pads"
+  },
+  "idle_actions": 0,
+  "program": "spi_target.lane",
+  "program_base": 768
+}

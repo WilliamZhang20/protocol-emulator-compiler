@@ -3,24 +3,96 @@
   "name": "i2c_target",
   "description": "I2C target, write transactions to address 0x48: shifter0 samples SDA on SCL rises, the lane matches the address, ACKs each byte and streams it to SRAM. Pin 0 is SCL (uio5), pin 1 is SDA (uio6); both outputs are open drain.",
   "nets": [
-    {"name": "sda_drive", "source": {"resource": "sram0", "port": 0}, "sinks": [{"resource": "output_io", "port": 7, "context": 0}]},
-    {"name": "scl_drive", "source": {"resource": "sram0", "port": 1}, "sinks": [{"resource": "output_io", "port": 8, "context": 0}]},
-    {"name": "byte_start", "source": {"resource": "sram0", "port": 3}, "sinks": [{"resource": "shifter0", "port": 3, "context": 0}]},
-    {"name": "scl_rise", "source": {"resource": "input_io", "port": 2}, "sinks": [
-      {"resource": "shifter0", "port": 4, "context": 0}, {"resource": "shifter0", "port": 5, "context": 0}]},
-    {"name": "sda_in", "source": {"resource": "input_io", "port": 1}, "sinks": [{"resource": "shifter0", "port": 6, "context": 0}]}
+    {
+      "name": "sda_drive",
+      "source": {
+        "resource": "sram0",
+        "port": 0
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 7,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "scl_drive",
+      "source": {
+        "resource": "sram0",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "output_io",
+          "port": 8,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "byte_start",
+      "source": {
+        "resource": "sram0",
+        "port": 3
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 3,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "scl_rise",
+      "source": {
+        "resource": "input_io",
+        "port": 2
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 4,
+          "context": 0
+        },
+        {
+          "resource": "shifter0",
+          "port": 5,
+          "context": 0
+        }
+      ]
+    },
+    {
+      "name": "sda_in",
+      "source": {
+        "resource": "input_io",
+        "port": 1
+      },
+      "sinks": [
+        {
+          "resource": "shifter0",
+          "port": 6,
+          "context": 0
+        }
+      ]
+    }
   ],
   "words": {
-    "0": 250, "1": 250,
-    "2": 40,
+    "0": 250,
+    "1": 250,
+    "2": 104,
     "4": 219,
-    "53": 1, "54": 1, "55": 1,
+    "53": 1,
+    "54": 1,
+    "55": 1,
     "63": 10,
     "68": 3
   },
   "word_notes": {
     "0-1": "timer0 period, unused but must be valid",
-    "2": "shifter0: 8 bits, MSB first",
+    "2": "shifter0: 8 bits, MSB first, restart (a STOP right after the next byte was armed leaves it mid-word; the next start resynchronizes it)",
     "4": "outputs 0 and 1 enabled and open drain; pin 0 (SCL) and pin 1 (SDA) edges on rise",
     "53-55": "timer1 and shifter1 settings, unused but must be valid",
     "63": "frame word as in the I2C controller image",
