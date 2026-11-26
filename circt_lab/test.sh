@@ -5,6 +5,7 @@ set -eu
 : "${SPATIAL_DIALECT:?Set SPATIAL_DIALECT to the built dialect plugin}"
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 python3 "$HERE/investigations/test_stream_credit_bound.py"
+RTL_ROOT=${RTL_ROOT:-"$HERE/../../protocol-emulator"} python3 "$HERE/test_grid_lane.py"
 SPATIAL_FRONTEND=${SPATIAL_FRONTEND:-"$HERE/../target/debug/spatial"}
 TEST_TMP=$(mktemp -d)
 trap 'rm -rf "$TEST_TMP"' EXIT HUP INT TERM

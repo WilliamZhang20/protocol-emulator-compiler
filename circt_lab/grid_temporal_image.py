@@ -8,17 +8,16 @@ from grid_contract import DEFAULT
 from grid_coded_image import switch_address
 
 
-def encode(contract, routes, program):
-    net = contract['bit_network']; cfg = contract['configuration']; temporal = contract['temporal']
+def route_words(contract, routes, base_words, length):
+    """Base words, switch words, sink selections and alternate-context
+    overrides for a routed bit-net workload (shared by every control mode)."""
+    net = contract['bit_network']; cfg = contract['configuration']
     if routes['status'] != 'routed' or routes['track_count'] != net['tracks_per_direction'] or routes['registered_hops'] or routes['direct_links']:
         raise ValueError('requires the current unregistered grid routes')
     if any(routes['layout'][name] != resource['cell'] for name, resource in contract['resources'].items()):
         raise ValueError('route placement does not match RTL contract')
-    rows = program['rows']
-    if len(rows) != temporal['rows'] or any(not isinstance(x, int) or not 0 <= x <= 0xffff for x in rows):
-        raise ValueError('temporal table must have sixteen 16-bit rows')
-    words = [0] * (cfg['alternate_context_words'][1] + 1)
-    for key, value in program['base_words'].items():
+    words = [0] * length
+    for key, value in base_words.items():
         address = int(key)
         if address >= len(words) or not 0 <= value <= 0xffff:
             raise ValueError('invalid base configuration')
@@ -52,10 +51,19 @@ def encode(contract, routes, program):
         words[addr] = base
         if alternate != base:
             overrides.append(0x400 | (alternate << 5) | sink)
-    if len(overrides) > temporal['alternate_context_slots']:
+    if len(overrides) > contract['temporal']['alternate_context_slots']:
         raise ValueError('too many alternate-context sink selections')
     for i, word in enumerate(overrides):
         words[cfg['alternate_context_words'][0] + i] = word
+    return words
+
+
+def encode(contract, routes, program):
+    cfg = contract['configuration']; temporal = contract['temporal']
+    rows = program['rows']
+    if len(rows) != temporal['rows'] or any(not isinstance(x, int) or not 0 <= x <= 0xffff for x in rows):
+        raise ValueError('temporal table must have sixteen 16-bit rows')
+    words = route_words(contract, routes, program['base_words'], cfg['alternate_context_words'][1] + 1)
     words[cfg['temporal_mode_word']] = 1
     words[cfg['temporal_entry_idle_word']] = program['entry'] | (program['idle_actions'] << 4)
     for i, row in enumerate(rows):
