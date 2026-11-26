@@ -106,6 +106,9 @@ def main():
     print('refused:', refused('resources', C3, [design('uart_rx'), u2, u3, design('i2c_target')]))
 
     rtl = os.environ.get('RTL_ROOT')
+    if rtl and not (Path(rtl) / 'experiments/grid_fabric/reorg/mesh.v').exists():
+        print(f'{rtl} has no reorg mesh (older hardware pin): pin-level run skipped')
+        rtl = None
     if rtl:
         committed = Path(rtl) / 'experiments/grid_fabric/reorg/compiled'
         if committed.exists():
