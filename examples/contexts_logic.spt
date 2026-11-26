@@ -10,7 +10,7 @@ flag use_two_cells = 0
 
 reg inverted init 0 = !sender.out
 reg tx_drive init 1 = sender.out
-timer bit { every: BIT, first: BIT - 2 cycles, pulse, run: sender.busy until sender.done }
+timer bit { every: BIT, first: BIT, pulse, run: sender.busy until sender.done }
 shifter sender { frame: [0, data(8), 1], idle: 1, shift: bit.tick }
 contexts(use_two_cells) {
     context 0 { reg tx_drive = sender.out }

@@ -158,7 +158,7 @@ initializer makes the starting selection explicit:
 ```spatial
 flag phase = 0
 pin tx: out = sender.out
-timer bit { every: 64 cycles, first: 62 cycles, pulse, run: sender.busy until sender.done }
+timer bit { every: 64 cycles, first: 64 cycles, pulse, run: sender.busy until sender.done }
 contexts(phase) {
     context 0 {
         shifter sender { frame: [0, data(8), 1], idle: 1, shift: bit.tick }

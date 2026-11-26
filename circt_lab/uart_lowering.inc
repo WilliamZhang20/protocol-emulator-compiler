@@ -110,7 +110,18 @@ static int lowerUart(ModuleOp module, llvm::raw_ostream &output=llvm::outs()) {
       else if (*key=="first" && !gotFirst) {firsts[i]=value;gotFirst=true;}
       else return fail("unsupported UART timing");
     }
-    if (!gotPeriod || !gotFirst || firsts[i]<1 || firsts[i]>periods[i] || periods[i]>1000000) return fail("invalid UART timing range");
+    if (!gotPeriod || !gotFirst || periods[i]>1000000) return fail("invalid UART timing range");
+    // Source times are measured at the pins (PLACE_ROUTE.md, "R7 decision").
+    // The bindings matched above fix each timer's path class: the TX timer
+    // starts on sender.busy and shifts the sender onto tx (start-to-shift,
+    // 2 cycles on the v2 and grid fabrics, as hardware.rs
+    // SHIFT_START_TO_SHIFT); the RX timer starts on rx.fall and samples rx
+    // (edge-to-sample, 1 cycle, as PIN_EDGE_TO_SAMPLE). The workload graph
+    // carries the register count that remains.
+    const int64_t pinLatency = i ? 1 : 2;
+    if (firsts[i]<=pinLatency) return fail("UART `first` is measured at the pins and must exceed this fabric's path latency");
+    firsts[i]-=pinLatency;
+    if (firsts[i]>periods[i]) return fail("invalid UART timing range");
   }
   if (periods[0]!=periods[1] || !named.count(constant) || named[constant]->getString("kind")!="constant") return fail("invalid UART period constant");
   auto txname=txstream->getString("name"), rxname=rxstream->getString("name");

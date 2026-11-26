@@ -189,6 +189,18 @@ sed 's/const BIT = 64 cycles/const BIT = 80 cycles/' "$HERE/../examples/uart.spt
 "$CIRCT_MAP" --compile-v2-uart-stream "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-uart-stream-80.mem" > /dev/null
 "$CIRCT_MAP" --compile-v2-unified-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/v2-unified-uart-80.mem" > /dev/null
 "$CIRCT_MAP" --compile-grid-uart "$TEST_TMP/uart-80.mlir" "$TEST_TMP/grid-uart-80.mem" > "$TEST_TMP/grid-uart-80.json"
+# Pin-referenced UART times: TX `first` is measured at tx, and the fabric's
+# 2-cycle start-to-shift path is taken off; a time inside it is refused.
+sed 's/first: BIT, pulse, run: sender/first: 2 cycles, pulse, run: sender/' "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-tx2.spt"
+sed 's/first: BIT, pulse, run: sender/first: 3 cycles, pulse, run: sender/' "$HERE/../examples/uart.spt" > "$TEST_TMP/uart-tx3.spt"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-tx2.spt" > "$TEST_TMP/uart-tx2.mlir"
+"$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/uart-tx3.spt" > "$TEST_TMP/uart-tx3.mlir"
+if "$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-tx2.mlir" "$TEST_TMP/v2-uart-tx2.mem" > /dev/null 2> "$TEST_TMP/error"; then
+  echo 'v2 accepted a UART first inside the pin path latency' >&2; exit 1
+fi
+grep -q 'measured at the pins' "$TEST_TMP/error"
+"$CIRCT_MAP" --compile-v2-uart "$TEST_TMP/uart-tx3.mlir" "$TEST_TMP/v2-uart-tx3.mem" > /dev/null
+test "$(head -1 "$TEST_TMP/v2-uart-tx3.mem")" = 0001
 sed 's/data(12, msb_first)/data(9, msb_first)/' "$HERE/examples/memory_spi.spt" > "$TEST_TMP/spi-9.spt"
 "$SPATIAL_FRONTEND" frontend-mlir "$TEST_TMP/spi-9.spt" > "$TEST_TMP/spi-9.mlir"
 "$CIRCT_MAP" --compile-v2-spi "$TEST_TMP/spi-9.mlir" "$TEST_TMP/v2-spi-9.mem" > /dev/null

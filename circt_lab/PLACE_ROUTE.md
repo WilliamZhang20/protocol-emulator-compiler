@@ -183,7 +183,7 @@ they can start as soon as step 2 is done; R6 must precede step 4.2.
   succeed. Compensation (`adjust_by`) is the preferred answer; the router
   reports which sinks lacked it.
 
-## R7 design question: what source times mean (decision needed)
+## R7 decision: pin-referenced source timing
 
 `.spt` timer counts are raw hardware counts tuned to one chip: the UART
 example's transmit timer is `first: BIT - 2 cycles` "to cover the pulse and
@@ -192,7 +192,7 @@ synchronizer". A source written that way is correct only on the chip whose
 latencies it absorbed, so it cannot pass the held-out check of the finish
 line (protocols written from specifications compile with zero edits).
 
-Recommendation: source times are **pin-referenced** — `first` is the time
+**Decision:** source times are **pin-referenced** — `first` is the time
 from the starting event at the pins to the action at the pins (`sample:
 rx at rx_bit.tick` samples the pin then) — and the compiler subtracts the
 target's latencies, which the contract states and RTL tests measure
@@ -203,9 +203,25 @@ timing constants change by 1-2 clocks, and the older backends (the
 `arch/spatial` actor fabric) must apply their own latencies the same way,
 or keep a legacy flag until they are retired.
 
-Until this is decided, R7 lowers lane designs from the frontend IR
-(`spatial model-ir`: resources, fields, resolved inputs) with the source
-counts taken as raw, which reproduces today's hand designs.
+**Implemented (2026-11-26).** Reference points, by the class of path
+between a timer's start and its tick's effect:
+
+| start | tick's effect | taken off | where stated |
+|---|---|---|---|
+| input pin edge | samples that pin into a shifter | old chip 1, lane core `edge_to_sample_cycles` (1) | `hardware.rs` `PIN_EDGE_TO_SAMPLE`; contract, measured by `sample_latency_matches_contract` |
+| shifter busy | shifts that shifter onto a pin | old chip 2; lane core: refused, not measured yet | `hardware.rs` `SHIFT_START_TO_SHIFT` |
+| anything internal at either end | | 0: the count as written | |
+
+A `first` no larger than the latency is refused ("measured at the pins").
+The examples were migrated (`BIT - 2` -> `BIT`, `BIT / 2 - 1` -> `BIT / 2`,
+and the same on every other pin-started timer); all 35 example images are
+byte-identical to before, so no compensation is applied twice. Tests:
+`tests/pin_timing.rs` (both boundaries, the internal case, one pin cycle
+moves the encoded count by one) and `test_grid_lower.py` (the lowering
+emits `sample_first`; its image equals the hand-offset count's; a time
+inside the offset and an unmeasured transmit path are refused). Next: the
+lane core's start-to-shift latency, measured by an RTL pin test and stated
+in the contract like the edge-to-sample offset.
 
 ## R7 coverage (2026-11-26): what lowers to one lane core, and why not
 

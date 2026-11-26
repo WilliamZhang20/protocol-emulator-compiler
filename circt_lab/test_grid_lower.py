@@ -40,6 +40,60 @@ with tempfile.TemporaryDirectory() as tmp:
     assert design['coder']['frame'] == {'length': 8, 'pre': 1, 'pre_value': 0, 'post': 1, 'post_value': 1,
                                         'parity': 'odd'}
 
+# Pin-referenced source times: a receive timer started by the input's
+# edge and sampling it is written at the pins; the lane design carries it
+# as sample_first, and the image equals one built with the edge-to-sample
+# offset taken off by hand.
+RX = '''clock 50 MHz pin rx: in
+timer bit {{ every: 64 cycles, first: {first}, pulse, run: rx.fall until r.done }}
+shifter r {{ frame: [0, data(8), 1], start: rx.fall, shift: bit.tick, sample: rx at bit.tick }}
+export stream recv: r -> host
+'''
+TX = '''clock 50 MHz pin tx: out = s.out
+timer bit { every: 64 cycles, first: 64 cycles, pulse, run: s.busy until s.done }
+shifter s { frame: [0, data(8), 1], idle: 1, shift: bit.tick }
+export stream send: host -> s
+'''
+
+
+def ir_of(text):
+    with tempfile.NamedTemporaryFile('w', suffix='.spt', delete=False) as f:
+        f.write(text)
+    try:
+        out = subprocess.run([spatial, 'model-ir', f.name], check=True, capture_output=True, text=True).stdout
+    finally:
+        os.unlink(f.name)
+    return json.loads(out)
+
+
+def image_of(design, program, tmp):
+    (Path(tmp) / 'p.lane').write_text(program)
+    design = dict(design, program='p.lane')
+    (Path(tmp) / 'p.json').write_text(json.dumps(design))
+    return build(contract, Path(tmp) / 'p.json')[0]
+
+
+off = contract['lane_core']['edge_to_sample_cycles']
+with tempfile.TemporaryDirectory() as tmp:
+    design, program = Lowering(ir_of(RX.format(first='32 cycles')), count=1).lower()
+    assert design['timers']['timer0'] == {'period': 64, 'sample_first': 32}, design['timers']
+    by_hand = json.loads(json.dumps(design))
+    by_hand['timers']['timer0'] = {'period': 64, 'first': 32 - off}
+    assert image_of(design, program, tmp) == image_of(by_hand, program, tmp)
+    design, program = Lowering(ir_of(RX.format(first=f'{off} cycle')), count=1).lower()
+    try:
+        image_of(design, program, tmp)
+    except ValueError as e:
+        assert 'edge-to-sample' in str(e), str(e)
+    else:
+        raise AssertionError('a pin time inside the edge-to-sample offset was accepted')
+try:
+    Lowering(ir_of(TX)).lower()
+except LowerError as e:
+    assert 'start-to-shift' in str(e), str(e)
+else:
+    raise AssertionError('a transmit timer lowered without a measured start-to-shift latency')
+
 for name, why in [('uart', '2 shifters'), ('i2c', '2 shifters'), ('usb', 'counter'), ('spi', 'counter')]:
     try:
         Lowering(ir(name), count=3).lower()
@@ -53,5 +107,7 @@ except LowerError as e:
     assert 'word count' in str(e)
 else:
     raise AssertionError('receive program without a count')
-print('PASS: examples/ps2.spt lowers by rule to the image the RTL pin test runs; uart and i2c (two shifters), '
-      'usb and spi (counters) are refused with the reason')
+print('PASS: examples/ps2.spt lowers by rule to the image the RTL pin test runs; a pin-measured receive '
+      'timer lowers to sample_first and builds the image of the hand-offset count, a time inside the offset '
+      'and an unmeasured transmit path are refused; uart and i2c (two shifters), usb and spi (counters) are '
+      'refused with the reason')

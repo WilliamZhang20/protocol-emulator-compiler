@@ -8,14 +8,14 @@ const BIT = 64 cycles
 pin out_wire: out = sender.out
 pin in_wire: in
 
-timer send_clock { every: BIT, first: BIT - 2 cycles, pulse, run: sender.busy until sender.done }
+timer send_clock { every: BIT, first: BIT, pulse, run: sender.busy until sender.done }
 shifter sender {
     frame: [0, data(8), 1],
     idle: 1,
     shift: send_clock.tick,
 }
 
-timer read_clock { every: BIT, first: BIT / 2 - 1 cycles, pulse, run: in_wire.fall until receiver.done }
+timer read_clock { every: BIT, first: BIT / 2, pulse, run: in_wire.fall until receiver.done }
 shifter receiver {
     frame: [0, data(8), 1],
     start: in_wire.fall,

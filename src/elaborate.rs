@@ -1905,19 +1905,35 @@ impl Chip<'_> {
             hardware::MAX_TIMER_CYCLES - 1,
             "`every` minus one cycle",
         )?;
+        // `first` is measured at the pins; subtract what this chip adds on
+        // the path from the timer's start to its tick's effect.
+        let latency = f
+            .get("run")
+            .and_then(|run| run.value.as_ref())
+            .map_or(0, |run| self.timer_pin_latency(&name.text, run));
         let phase = match f.get("first") {
             Some(first) => {
                 let first = value(first)?;
+                let at_pins = self.env.cycles(
+                    first,
+                    &format!("timer `{}`'s first tick would come after {{}}", name.text),
+                    false,
+                )?;
+                if at_pins <= latency as i128 {
+                    return Err(Error::new(
+                        first.span,
+                        format!(
+                            "`first` is measured at the pins, and this chip's path from the timer's start \
+                             to its tick's effect takes {latency} cycle(s); `first` must be more than that"
+                        ),
+                    ));
+                }
                 Self::ranged(
                     first,
-                    self.env.cycles(
-                        first,
-                        &format!("timer `{}`'s first tick would come after {{}}", name.text),
-                        false,
-                    )? - 1,
+                    at_pins - latency as i128 - 1,
                     0,
                     hardware::MAX_TIMER_CYCLES - 1,
-                    "`first` minus one cycle",
+                    "`first` less the pin latency, minus one cycle",
                 )?
             }
             None => reload,
@@ -1965,6 +1981,51 @@ impl Chip<'_> {
                 u16::from(start.0) | u16::from(stop.0) << 6 | idle << 12 | pulse << 13,
             ),
         ])
+    }
+
+    /// Cycles this chip adds between a timer's start and its first tick's
+    /// effect when both are at the pins (`hardware::PIN_EDGE_TO_SAMPLE`,
+    /// `hardware::SHIFT_START_TO_SHIFT`); 0 when either end is internal.
+    pub(crate) fn timer_pin_latency(&self, timer: &str, run: &Expr) -> usize {
+        let start = match &run.kind {
+            ExprKind::Binary("until", start, _) => start.as_ref(),
+            _ => run,
+        };
+        let ExprKind::Field(object, output) = &start.kind else {
+            return 0;
+        };
+        let ExprKind::Name(source) = &object.kind else {
+            return 0;
+        };
+        let ticks = |e: &Expr| {
+            matches!(&e.kind, ExprKind::Field(o, f)
+                if f.text == "tick" && matches!(&o.kind, ExprKind::Name(n) if n == timer))
+        };
+        let field_is = |fields: &[Field], key: &str, test: &dyn Fn(&Expr) -> bool| {
+            fields
+                .iter()
+                .any(|f| f.name.text == key && f.value.as_ref().is_some_and(test))
+        };
+        let samples = |v: &Expr| matches!(&v.kind, ExprKind::Binary("at", _, at) if ticks(at));
+        match (self.decls.get(source).map(|d| d.kind), output.text.as_str()) {
+            (Some(Kind::Pin), "rise" | "fall")
+                if self
+                    .tiles
+                    .values()
+                    .any(|fields| field_is(fields, "sample", &samples)) =>
+            {
+                hardware::PIN_EDGE_TO_SAMPLE
+            }
+            (Some(Kind::Shifter), "busy")
+                if self
+                    .tiles
+                    .get(source)
+                    .is_some_and(|fields| field_is(fields, "shift", &ticks)) =>
+            {
+                hardware::SHIFT_START_TO_SHIFT
+            }
+            _ => 0,
+        }
     }
 
     /// `frame: [0, data(8, msb_first), even, 1]`: framing bits, data bits, optional parity, framing bits.

@@ -6,8 +6,8 @@ pin tx_a: out = sender_a.out
 pin tx_b: out = sender_b.out
 pin rx_a: in
 pin rx_b: in
-timer bit_a { every: BIT, first: BIT - 2 cycles, pulse, run: sender_a.busy until sender_a.done }
-timer bit_b { every: BIT, first: BIT - 2 cycles, pulse, run: sender_b.busy until sender_b.done }
+timer bit_a { every: BIT, first: BIT, pulse, run: sender_a.busy until sender_a.done }
+timer bit_b { every: BIT, first: BIT, pulse, run: sender_b.busy until sender_b.done }
 shifter sender_a { frame: [0, data(8), 1], idle: 1, shift: bit_a.tick }
 shifter sender_b { frame: [0, data(8), 1], idle: 1, shift: bit_b.tick }
 export stream send_a: host -> sender_a

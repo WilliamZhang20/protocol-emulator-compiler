@@ -4,7 +4,7 @@ const BIT = 64 cycles
 pin tx_unused: out = 1
 pin rx: in
 reg last_word = 1
-timer sample { every: BIT, first: BIT / 2 - 1 cycles, pulse, run: rx.fall until receiver.done }
+timer sample { every: BIT, first: BIT / 2, pulse, run: rx.fall until receiver.done }
 shifter receiver {
     frame: [0, data(8), even, 1],
     start: rx.fall,

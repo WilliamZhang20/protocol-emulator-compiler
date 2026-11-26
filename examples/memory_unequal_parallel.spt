@@ -6,8 +6,8 @@ pin tx1: out = sender1.out
 pin unused0: in
 pin unused1: in
 flag start0 = 0
-timer bit0 { every: BIT, first: BIT - 2 cycles, pulse, run: sender0.busy until sender0.done }
-timer bit1 { every: BIT, first: BIT - 2 cycles, pulse, run: sender1.busy until sender1.done }
+timer bit0 { every: BIT, first: BIT, pulse, run: sender0.busy until sender0.done }
+timer bit1 { every: BIT, first: BIT, pulse, run: sender1.busy until sender1.done }
 shifter sender0 { frame: [0, data(8), 1], idle: 1, start: start0, shift: bit0.tick }
 shifter sender1 { frame: [0, data(8), 1], idle: 1, shift: bit1.tick }
 export fn send_left_long() {

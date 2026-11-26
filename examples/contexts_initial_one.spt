@@ -5,7 +5,7 @@ pin tx: out = sender.out
 pin unused_rx: in
 flag use_even = 1
 
-timer bit { every: BIT, first: BIT - 2 cycles, pulse, run: sender.busy until sender.done }
+timer bit { every: BIT, first: BIT, pulse, run: sender.busy until sender.done }
 contexts(use_even) {
     context 0 {
         pin left: out = 0

@@ -3,7 +3,7 @@ clock 50 MHz
 const BIT = 64 cycles
 pin tx: out = 1
 pin rx: in
-timer rx_bit { every: BIT, first: BIT / 2 - 1 cycles, pulse, run: rx.fall until receiver.done }
+timer rx_bit { every: BIT, first: BIT / 2, pulse, run: rx.fall until receiver.done }
 shifter receiver { frame: [0, data(8), 1], start: rx.fall, shift: rx_bit.tick, sample: rx at rx_bit.tick }
 
 export packets recv: receiver -> host {

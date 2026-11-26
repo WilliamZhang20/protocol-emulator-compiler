@@ -18,6 +18,20 @@ pub(crate) const FLAGS: usize = 2;
 pub(crate) const CRCS: usize = 2;
 /// Widest CRC register.
 pub(crate) const MAX_CRC_BITS: i128 = 32;
+
+/// Source times are measured at the pins: a timer's `first` is the time
+/// from its start to its first tick's effect as seen at the pins. On the
+/// two paths whose both ends are pins, this chip adds a latency that the
+/// compiler subtracts (`Chip::timer_pin_latency`); every other timer is
+/// internal at one end, so its counts are taken as written.
+///
+/// An input pin's edge starts the timer and its tick samples a pin: the
+/// sample lands this many cycles after the count (the pin synchronizer).
+pub(crate) const PIN_EDGE_TO_SAMPLE: usize = 1;
+/// A shifter's `busy` starts the timer and its tick shifts that shifter: the
+/// first bit at the pin lasts this many cycles longer than the count (the
+/// start pulse and the pin register).
+pub(crate) const SHIFT_START_TO_SHIFT: usize = 2;
 pub(crate) const BYTE_STAGES: usize = 2;
 pub(crate) const BYTE_TILES: usize = 8;
 pub(crate) const SRAM_BYTES: usize = 1024;

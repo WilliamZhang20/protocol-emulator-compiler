@@ -13,9 +13,13 @@ Rules:
   `fall` and level map to the core's lines; out pins -> outputs out0-2,
   driven by the expression the pin names, enable high.
 - timers (at most two) -> timer0, timer1: `every` -> period, `first` ->
-  first (source counts are taken as raw counts for now: see
-  PLACE_ROUTE.md, "R7 design question"); `run: A until B` -> start A,
-  stop B.
+  first; `run: A until B` -> start A, stop B. Source times are measured at
+  the pins (PLACE_ROUTE.md, "R7: source times"): a timer started by an
+  input pin's edge whose tick samples the shifter gets `sample_first`, and
+  grid_lane.py subtracts the contract's edge_to_sample_cycles; a timer
+  started by the shifter's busy that shifts it is refused until the lane
+  core's start-to-shift latency is measured and in the contract; any
+  other start is internal at one end and takes the count as written.
 - one shifter -> the coded shifter: the frame list `[bits.., data(n),
   odd|even, bits..]` -> pre bits, length, parity, post bits; `idle`,
   `start`, `shift`, `sample: X at E` -> start, shift, in X, sample E.
@@ -143,6 +147,7 @@ class Lowering:
                 raise LowerError(f'output pin {pin} is not driven')
             connect[f'out{k}.value'] = self.line(drive)
             connect[f'out{k}.enable'] = 'high'
+        self.pin_reference(connect, timers)
         program = self.program()
         design = {'schema': 'spatial.lane-design.v2', 'name': self.name,
                   'description': f'Lowered from {self.ir.get("source", "source")} by grid_lower.py.',
@@ -153,6 +158,23 @@ class Lowering:
         if not coder:
             del design['coder']
         return design, program
+
+    def pin_reference(self, connect, timers):
+        """Turn each timer's pin-measured `first` into what the core needs,
+        by the class of path between its start and its tick's effect."""
+        for t in self.timers:
+            slot = self.timer_slot[t['name']]
+            start, tick = connect.get(f'{slot}.start', ''), f'{slot}.tick'
+            spec = timers[slot]
+            if 'first' not in spec:
+                continue
+            pin_edge = start.startswith('in') and start.endswith(('.rise', '.fall'))
+            if pin_edge and connect.get('coder.sample') == tick:
+                spec['sample_first'] = spec.pop('first')
+            elif start == 'coder.active' and connect.get('coder.shift') == tick:
+                raise LowerError(f'{t["name"]}: started by the shifter and shifting it; the lane core\'s '
+                                 'start-to-shift latency is not measured in the contract yet, so a '
+                                 'pin-measured `first` cannot be lowered')
 
     def frame(self, name, fields):
         f = fields.get('frame')

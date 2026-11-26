@@ -6,9 +6,9 @@ const BIT = 64 cycles   // 781 250 baud
 pin tx: out = sender.out
 pin rx: in
 
-// Transmit. The bit clock runs only while a frame is on the wire; the first
-// tick lands two cycles early to cover the pulse and pin registers.
-timer tx_bit { every: BIT, first: BIT - 2 cycles, pulse, run: sender.busy until sender.done }
+// Transmit. The bit clock runs only while a frame is on the wire; times are
+// at the pins (each bit lasts BIT at tx), the compiler removes path latency.
+timer tx_bit { every: BIT, first: BIT, pulse, run: sender.busy until sender.done }
 shifter sender {
     frame: [0, data(8), 1],
     idle: 1,
@@ -16,8 +16,8 @@ shifter sender {
 }
 
 // Receive. A falling edge (the start bit) starts the bit clock, which then
-// samples the middle of every bit, net of the input synchronizer.
-timer rx_bit { every: BIT, first: BIT / 2 - 1 cycles, pulse, run: rx.fall until receiver.done }
+// samples the middle of every bit: BIT / 2 after the edge, at the rx pin.
+timer rx_bit { every: BIT, first: BIT / 2, pulse, run: rx.fall until receiver.done }
 shifter receiver {
     frame: [0, data(8), 1],
     start: rx.fall,
