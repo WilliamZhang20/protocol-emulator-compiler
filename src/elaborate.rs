@@ -154,6 +154,27 @@ pub(crate) struct Chip<'a> {
     /// Action signal lines selected by the protocol mapper. Controller-backed
     /// graphs expose the two PX8 FIRE outputs instead of actor outputs.
     pub protocol_action_lines: HashMap<String, [Option<Line>; 3]>,
+    /// `machine` and `compare` names: they compile only for the reorganised
+    /// fabric (circt_lab/fabric_build.py). With `plan_only` (a test plan,
+    /// which needs no image) anything reading them is left unconnected;
+    /// otherwise it is refused.
+    pub fabric_only: HashMap<String, &'static str>,
+    pub plan_only: bool,
+}
+
+fn mentions_any(expr: &Expr, names: &HashMap<String, &'static str>) -> Option<String> {
+    match &expr.kind {
+        ExprKind::Name(n) => names.contains_key(n).then(|| n.clone()),
+        ExprKind::Field(object, _) | ExprKind::Unary(_, object) => mentions_any(object, names),
+        ExprKind::Binary(_, a, b) => mentions_any(a, names).or_else(|| mentions_any(b, names)),
+        ExprKind::If(c, a, b) => mentions_any(c, names)
+            .or_else(|| mentions_any(a, names))
+            .or_else(|| mentions_any(b, names)),
+        ExprKind::Call(callee, args) => mentions_any(callee, names)
+            .or_else(|| args.iter().find_map(|a| mentions_any(&a.value, names))),
+        ExprKind::List(items) => items.iter().find_map(|e| mentions_any(e, names)),
+        _ => None,
+    }
 }
 
 /// Score actor-to-shifter locality for both possible physical actor orders.
@@ -344,6 +365,24 @@ pub(crate) fn elaborate_with_resource_indices<'a>(
     resource_index_overrides: &BTreeMap<String, usize>,
     logical_protocols: &[crate::LogicalProtocol],
 ) -> Result<Design<'a>> {
+    elaborate_inner(items, resource_index_overrides, logical_protocols, false)
+}
+
+/// Elaborate only as far as a test plan needs: `machine`/`compare` readers
+/// are left unconnected (see `Chip::fabric_only`).
+pub(crate) fn elaborate_for_plan<'a>(
+    items: &'a [Item],
+    logical_protocols: &[crate::LogicalProtocol],
+) -> Result<Design<'a>> {
+    elaborate_inner(items, &BTreeMap::new(), logical_protocols, true)
+}
+
+fn elaborate_inner<'a>(
+    items: &'a [Item],
+    resource_index_overrides: &BTreeMap<String, usize>,
+    logical_protocols: &[crate::LogicalProtocol],
+    plan_only: bool,
+) -> Result<Design<'a>> {
     let clock_hz = match items.iter().find_map(|item| match item {
         Item::Clock(expr) => Some(expr),
         _ => None,
@@ -364,6 +403,8 @@ pub(crate) fn elaborate_with_resource_indices<'a>(
         pin_decls: HashMap::new(),
         edges: HashMap::new(),
         protocol_action_lines: HashMap::new(),
+        fabric_only: HashMap::new(),
+        plan_only,
     };
     let mut names: HashMap<String, Span> = HashMap::new();
     let mut counts = [0usize; 9];
@@ -492,6 +533,24 @@ pub(crate) fn elaborate_with_resource_indices<'a>(
                 step_timeout,
             } => tests.push((name, body.as_slice(), step_timeout.as_ref())),
             Item::Always { name, condition } => invariants.push((name, condition)),
+            Item::Machine { name, .. } | Item::Compare { name, .. } => {
+                if !plan_only {
+                    return Err(Error::new(
+                        name.span,
+                        format!(
+                            "`{}` is a {}: it compiles only for the reorganised fabric \
+                             (protocol-emulator-compiler circt_lab/fabric_build.py), not this chip",
+                            name.text,
+                            if matches!(item, Item::Machine { .. }) { "machine" } else { "compare" }
+                        ),
+                    ));
+                }
+                declare(name, None, &mut chip)?;
+                chip.fabric_only.insert(
+                    name.text.clone(),
+                    if matches!(item, Item::Machine { .. }) { "machine" } else { "compare" },
+                );
+            }
         }
     }
     for resource_name in resource_index_overrides.keys() {
@@ -1583,6 +1642,20 @@ fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>)
             }
         }
         Item::Event(_) | Item::Flag(_) | Item::Test { .. } | Item::Always { .. } => {}
+        Item::Machine { states, .. } => {
+            for state in states {
+                for (event, _) in &state.on {
+                    collect_expr_edges(event, uses);
+                }
+            }
+        }
+        Item::Compare { fields, .. } => {
+            for field in fields {
+                if let Some(expr) = &field.value {
+                    collect_expr_edges(expr, uses);
+                }
+            }
+        }
     }
 }
 
@@ -1679,6 +1752,9 @@ impl Chip<'_> {
 
     /// Resolve a signal reference to its line.
     pub(crate) fn signal(&self, expr: &Expr) -> Result<Line> {
+        if let Some(name) = mentions_any(expr, &self.fabric_only) {
+            return self.fabric_only_line(expr, &name);
+        }
         match &expr.kind {
             ExprKind::Int(0) => Ok(Line::ZERO),
             ExprKind::Int(1) => Ok(Line::ONE),
@@ -1759,7 +1835,21 @@ impl Chip<'_> {
         }
     }
 
+    fn fabric_only_line(&self, expr: &Expr, name: &str) -> Result<Line> {
+        if self.plan_only {
+            Ok(Line::ZERO)
+        } else {
+            Err(Error::new(
+                expr.span,
+                format!("`{name}` compiles only for the reorganised fabric"),
+            ))
+        }
+    }
+
     fn level(&self, expr: &Expr) -> Result<Line> {
+        if let Some(name) = mentions_any(expr, &self.fabric_only) {
+            return self.fabric_only_line(expr, &name);
+        }
         let line = self.signal(expr)?;
         if !line.is_level() {
             return Err(Error::new(
@@ -1771,6 +1861,9 @@ impl Chip<'_> {
     }
 
     fn pulse(&self, expr: &Expr) -> Result<Line> {
+        if let Some(name) = mentions_any(expr, &self.fabric_only) {
+            return self.fabric_only_line(expr, &name);
+        }
         let line = self.signal(expr)?;
         if line.is_level() {
             return Err(Error::new(
@@ -1846,10 +1939,12 @@ impl Chip<'_> {
             }
             (_, Some(source)) => source,
         };
-        if matches!(
-            source.kind,
-            ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::If(..)
-        ) {
+        if mentions_any(source, &self.fabric_only).is_none()
+            && matches!(
+                source.kind,
+                ExprKind::Unary(..) | ExprKind::Binary(..) | ExprKind::If(..)
+            )
+        {
             return Err(Error::new(
                 source.span,
                 "a pin copies one signal; compute this in a `reg` (adds one cycle)",

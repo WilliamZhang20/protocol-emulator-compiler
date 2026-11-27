@@ -1,7 +1,7 @@
 //! Recursive-descent parser. Newlines are insignificant; every construct is
 //! self-delimiting, and commas between fields and statements are optional.
 use super::ast::{
-    Arg, ByteStage, Expr, ExprKind, Field, Item, Name, Param, ProtocolTransition, Stmt, StmtKind,
+    Arg, ByteStage, MachineState, Expr, ExprKind, Field, Item, Name, Param, ProtocolTransition, Stmt, StmtKind,
     Type,
 };
 use super::lexer::{Kind, Token};
@@ -366,6 +366,38 @@ impl Parser {
                     stages,
                 }
             }
+            "machine" => {
+                let name = self.name()?;
+                self.expect("{")?;
+                let mut states = Vec::new();
+                while !self.eat("}") {
+                    self.expect("state")?;
+                    let state = self.name()?;
+                    self.expect("{")?;
+                    let mut on = Vec::new();
+                    while !self.eat("}") {
+                        self.expect("on")?;
+                        let event = self.expr()?;
+                        self.expect("->")?;
+                        on.push((event, self.name()?));
+                    }
+                    states.push(MachineState { name: state, on });
+                }
+                if states.is_empty() {
+                    return Err(Error::new(name.span, "a machine needs at least one state"));
+                }
+                Item::Machine { name, states }
+            }
+            "compare" => {
+                let name = self.name()?;
+                self.expect("on")?;
+                let shifter = self.name()?;
+                Item::Compare {
+                    name,
+                    shifter,
+                    fields: self.fields()?,
+                }
+            }
             "export" if self.eat("fn") => self.function(true)?,
             "fn" => self.function(false)?,
             "test" => {
@@ -393,7 +425,7 @@ impl Parser {
                     keyword.span,
                     format!(
                         "expected a declaration (clock, const, pin, timer, shifter, counter, crc, \
-                         reg, event, flag, protocol, contexts, context, fn, export, test or always), found `{}`",
+                         reg, event, flag, protocol, machine, compare, contexts, context, fn, export, test or always), found `{}`",
                         keyword.text
                     ),
                 ));

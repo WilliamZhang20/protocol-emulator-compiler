@@ -1351,12 +1351,12 @@ fn run() -> AppResult<bool> {
         }
         Command::TestPlan { file } => {
             let source = fs::read_to_string(&file)?;
-            let build = spatial::compile(&source).map_err(|error| {
+            let full = spatial::test_plan(&source).map_err(|error| {
                 Reported(error.render(&file.display().to_string(), &source, false))
             })?;
             let mut plan = serde_json::Map::new();
             for key in ["clock_hz", "pins", "calls", "tests", "invariants"] {
-                plan.insert(key.into(), build.plan[key].clone());
+                plan.insert(key.into(), full[key].clone());
             }
             println!(
                 "{}",

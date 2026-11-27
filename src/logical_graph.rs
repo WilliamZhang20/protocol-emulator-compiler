@@ -156,6 +156,8 @@ impl LogicalProgram {
                     }
                 }
                 LogicalItem::Protocol { name } => declare(name, "protocol"),
+                LogicalItem::Machine { name, .. } => declare(name, "machine"),
+                LogicalItem::Compare { name, .. } => declare(name, "compare"),
                 LogicalItem::Constant { name, .. } => declare(name, "constant"),
                 _ => {}
             }
@@ -239,6 +241,9 @@ fn signal_kind(class: &str, output: Option<&str>) -> LogicalSignalKind {
         ("counter", Some("at_least")) => Level,
         ("crc", Some("out" | "ok")) => Level,
         ("protocol", Some("action1" | "action2" | "action3")) => Pulse,
+        // `bus.STATE` (whether STATE exists is checked by the lowering).
+        ("machine", Some(_)) => Level,
+        ("compare", Some("match" | "mismatch")) => Pulse,
         _ => NotSignal,
     }
 }
@@ -267,8 +272,86 @@ fn named_operand(name: &str, output: Option<&str>, symbols: &BTreeMap<String, St
     }
 }
 
+/// `a.rise && b`, `a.fall && !b`, `a && b`: a pin edge or level qualified by
+/// another pin's level is one signal (an I/O tile output on the reorganised
+/// fabric).
+fn pin_qualifier(expr: &LogicalExpr, symbols: &BTreeMap<String, String>) -> Option<Operand> {
+    let LogicalExprKind::Binary { op, left, right } = &expr.expression else {
+        return None;
+    };
+    if *op != "&&" {
+        return None;
+    }
+    let is_pin = |n: &str| symbols.get(n).map(String::as_str) == Some("pin");
+    let level = |e: &LogicalExpr| match &e.expression {
+        LogicalExprKind::Name { name } => is_pin(name).then(|| name.clone()),
+        LogicalExprKind::Unary { op, value } if *op == "!" => match &value.expression {
+            LogicalExprKind::Name { name } if is_pin(name) => Some(name.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    let term = |e: &LogicalExpr| match &e.expression {
+        LogicalExprKind::Field { object, field } if matches!(field.as_str(), "rise" | "fall") => {
+            match &object.expression {
+                LogicalExprKind::Name { name } if is_pin(name) => {
+                    Some((name.clone(), LogicalSignalKind::Pulse))
+                }
+                _ => None,
+            }
+        }
+        LogicalExprKind::Name { name } if is_pin(name) => Some((name.clone(), LogicalSignalKind::Level)),
+        _ => None,
+    };
+    for (a, b) in [(left, right), (right, left)] {
+        if let (Some((pin, kind)), Some(other)) = (term(a), level(b))
+            && pin != other
+        {
+            return Some(Operand::Signal(kind, format!("{pin} qualified by {other}")));
+        }
+    }
+    None
+}
+
 fn operand(expr: &LogicalExpr, symbols: &BTreeMap<String, String>) -> Operand {
+    if let Some(op) = pin_qualifier(expr, symbols) {
+        return op;
+    }
     match &expr.expression {
+        // A selection by machine state (README, State machines) is one signal.
+        LogicalExprKind::If {
+            condition,
+            yes: then,
+            no: otherwise,
+        } => {
+            let state = matches!(&condition.expression, LogicalExprKind::Field { object, .. }
+                if matches!(&object.expression, LogicalExprKind::Name { name }
+                    if symbols.get(name).map(String::as_str) == Some("machine")));
+            if !state {
+                return Operand::Invalid(
+                    "an `if` signal must select by a machine state (`if m.STATE { a } else { b }`)".into(),
+                );
+            }
+            let arms = [operand(then, symbols), operand(otherwise, symbols)];
+            let mut kind = None;
+            for arm in arms {
+                match arm {
+                    Operand::Constant => {}
+                    // A selection of a pulse and a level is a level where
+                    // either arm is one (it can stay high).
+                    Operand::Signal(k, _) => {
+                        if kind != Some(LogicalSignalKind::Level) {
+                            kind = Some(k);
+                        }
+                    }
+                    other => return other,
+                }
+            }
+            match kind {
+                Some(k) => Operand::Signal(k, "a machine-state selection".into()),
+                None => Operand::Constant,
+            }
+        }
         LogicalExprKind::Integer { value } if value == "0" || value == "1" => Operand::Constant,
         LogicalExprKind::Name { name } => named_operand(name, None, symbols),
         LogicalExprKind::Field { object, field } => match &object.expression {
@@ -323,6 +406,8 @@ fn contract(port: &str) -> Option<Contract> {
         "pin.drive" => PinDrive,
         "context.select" => Level,
         "stage.end" | "stage.error" => Any,
+        "stage.open" => Level,
+        "machine.on" => Any,
         port if port.starts_with("protocol.input") => Any,
         _ => return None,
     })
@@ -650,6 +735,13 @@ fn collect_item(
         }
         LogicalItem::ContextSelector { signal } => {
             add("$context", "context.select", None, signal, symbols, graph)
+        }
+        LogicalItem::Machine { name, states } => {
+            for state in states {
+                for line in &state.on {
+                    add(name, "machine.on", context, &line.event, symbols, graph);
+                }
+            }
         }
         LogicalItem::Context { index, body } => {
             for nested in body {

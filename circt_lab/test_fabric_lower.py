@@ -25,7 +25,7 @@ from fabric_map import MapError
 HERE = Path(__file__).resolve().parent
 EXAMPLES = HERE.parent / 'examples'
 # Programs that must compile today; the rest of the table may only grow.
-MUST_COMPILE = {'loopback', 'ps2', 'spi', 'uart'}
+MUST_COMPILE = {'i2c_target', 'loopback', 'ps2', 'spi', 'uart'}
 
 
 def check_registers(rtl):
@@ -54,7 +54,7 @@ def main():
         check_registers(rtl)
     contract = test_mesh()
     compiled, refused = set(), {'hardware': 0, 'compiler': 0}
-    for src in sorted(EXAMPLES.glob('*.spt')):
+    for src in sorted(EXAMPLES.glob('*.spt')) + sorted(EXAMPLES.glob('fabric/*.spt')):
         try:
             r = build(contract, src, frontend)[3]
             compiled.add(src.stem)
@@ -81,7 +81,8 @@ def main():
             for p in plans:
                 name = p.name.split('.')[0]
                 stem = f'{name}.{contract["name"]}'
-                write(contract, EXAMPLES / f'{name}.spt', Path(tmp) / stem, frontend)
+                src = next(p for p in (EXAMPLES / f'{name}.spt', EXAMPLES / 'fabric' / f'{name}.spt') if p.exists())
+                write(contract, src, Path(tmp) / stem, frontend)
                 for suffix in ('.hex', '.plan.json', '.mesh.json'):
                     assert (Path(tmp) / (stem + suffix)).read_text() == (committed / (stem + suffix)).read_text(), \
                         f'RTL repository holds a stale {stem}{suffix}: rerun fabric_build.py'

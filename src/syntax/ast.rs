@@ -73,6 +73,26 @@ pub(crate) enum Item {
     },
     /// `always "cs idles high" { expr }`
     Always { name: Name, condition: Expr },
+    /// `machine bus { state IDLE { on start -> ADDRESS } ... }`: a state
+    /// machine described by behaviour (README, State machines).
+    Machine {
+        name: Name,
+        states: Vec<MachineState>,
+    },
+    /// `compare addressed on rx { value: 0x90, mask: 0xFE }`: each word the
+    /// shifter receives pulses `.match` or `.mismatch`.
+    Compare {
+        name: Name,
+        shifter: Name,
+        fields: Vec<Field>,
+    },
+}
+
+/// One state of a `machine`: its `on EVENT -> STATE` lines in priority order.
+#[derive(Clone, Debug)]
+pub(crate) struct MachineState {
+    pub name: Name,
+    pub on: Vec<(Expr, Name)>,
 }
 
 /// A state/input row in a protocol actor's transition table.

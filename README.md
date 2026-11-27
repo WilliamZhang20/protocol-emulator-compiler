@@ -150,6 +150,74 @@ Editor highlighting for VS Code, Vim, Neovim, Emacs, Helix and Zed: [`editors/`]
 - `examples/`: example programs, which are also the end-to-end tests.
 - `editors/`: syntax highlighting for `.spt` in common editors.
 
+## State machines and word compares
+
+These describe protocol behaviour; how the compiler implements them is
+the target's business (the reorganised fabric uses contexted switches and
+the word network's compare, see `circt_lab/fabric_lower.py`). They compile
+only for the reorganised fabric: `spatial build` and `spatial check`
+refuse them, and `spatial test-plan` and `spatial model-ir` accept them.
+
+```spatial
+compare addressed on rx { value: 0x90, mask: 0xFE }
+
+machine bus {
+    state IDLE { on start -> ADDRESS }
+    state ADDRESS {
+        on addressed.match -> SELECTED
+        on addressed.mismatch -> IDLE
+    }
+    state SELECTED {
+        on start -> ADDRESS     // a repeated START
+        on stop -> IDLE
+    }
+}
+shifter rx { start: if bus.ADDRESS { scl.fall } else { 0 }, ... }
+```
+
+`compare NAME on SHIFTER { value, mask }`:
+- every word the shifter receives is compared once: `(word & mask) ==
+  (value & mask)`. Exactly one of `NAME.match` or `NAME.mismatch` pulses
+  for it;
+- the pulse comes after the shifter's `word` event for that word and
+  before its next `word`. The delay is a property of the target, reported
+  by the compiler (`compare_latency` clocks on the reorganised fabric); a
+  program whose timing needs a shorter delay must be refused, not
+  shortened.
+
+`machine NAME { state S { on EVENT -> T ... } ... }`:
+- the first state is the state at reset and whenever the fabric starts;
+- the machine is in exactly one state in every clock. An `on` names a
+  pulse or a level (any single signal; `NAME2.STATE` of another machine is
+  a level). In a clock where the machine is in S, S's `on` lines are
+  checked in source order and the first whose signal is high is taken;
+  the others are ignored in that clock, not remembered. Signals not named
+  by S's `on` lines are ignored while in S. A level keeps acting in every
+  clock it is high;
+- a transition taken in clock t takes effect at the end of t: `NAME.S`
+  is a level that is 1 in exactly the clocks the machine is in S, from
+  the clock after entering S to the clock it leaves it (the same timing
+  as a `reg`);
+- `if NAME.S1 { a } else if NAME.S2 { b } else { c }` selects a signal by
+  state: in each clock it is the arm of the machine's current state. It
+  may be used wherever a single signal is (tile inputs, pins, `on`
+  lines), and its arms may be selections of other machines;
+- self-loops and unreachable states are allowed; a state with no `on`
+  lines is final;
+- a target may bound states per machine and `on` lines per state (the
+  reorganised fabric: 4 states, 2 `on` lines each). A machine beyond a
+  bound is refused with that limitation; the compiler never merges,
+  drops or reorders `on` lines to make it fit.
+
+A receive stream can carry only the words received while a level is high:
+
+```spatial
+export stream data: rx -> host { gate { open: bus.SELECTED } }
+```
+
+A word passes if the level is high when the shifter's `word` event for it
+occurs; otherwise it is dropped.
+
 ## Configuration contexts
 
 `contexts(level)` groups both configurations in one place. The flag's

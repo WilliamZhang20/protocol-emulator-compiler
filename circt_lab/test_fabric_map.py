@@ -110,6 +110,12 @@ def main():
     u3['pins'] = {'rx': 4}
     print('refused:', refused('resources', C3, [design('uart_rx'), u2, u3, design('i2c_target')]))
 
+    lp = design('uart_tx')
+    lp['name'] = 'loop'
+    lp['connect']['tx.start'] = 'tx.stop'           # a shifter's combinational stop into its own start
+    lp['tiles']['tx'].setdefault('io', {})['start'] = 'start'
+    print('refused:', refused('rules', C3, [lp]))
+
     vectors = {'i2c_target+uart_rx': (bits, [[], ['+UART'], ['+UART', '+HALF=4', '+SETUP=1', '+HOLD=4']])}
     for name, mode in (('uart_tx', '+TX'), ('crc_tx', '+CRCTX')):
         r2 = compile_designs(C3, [design(name)])

@@ -71,6 +71,7 @@ class Netlist:
         for d in designs:
             self._add(d)
         self._flatten()
+        self._replicate()
         self._check()
 
     def _add(self, d):
@@ -168,11 +169,15 @@ class Netlist:
                 if target not in self.blocks:
                     raise MapError('rules', f'{dn}: unknown consumer {cons}')
             self.consumers.append({'block': target, 'sink': sink, 'sig': ref(r)})
-        # resolve anonymous muxes created by ref() after the first pass
-        for n, s in list(self.signals.items()):
-            if s['type'] == 'mux' and 'cases_src' in s:
-                s['cases'] = {k: ref(r) for k, r in s.pop('cases_src').items()}
-                s['default'] = ref(s.pop('default_src'))
+        # resolve anonymous muxes created by ref(), nested ones included
+        pending = True
+        while pending:
+            pending = False
+            for n, s in list(self.signals.items()):
+                if s['type'] == 'mux' and 'cases_src' in s:
+                    s['cases'] = {k: ref(r) for k, r in s.pop('cases_src').items()}
+                    s['default'] = ref(s.pop('default_src'))
+                    pending = True
 
     def case(self, sig, state):
         s = self.signals[sig]
@@ -194,6 +199,46 @@ class Netlist:
                 s['cases'][st] = v
             s['default'] = '#0' if all(st in s['cases'] for st in range(len(self.blocks[s['fsm']]['states']))) else s['default']
 
+    def _replicate(self):
+        """A machine whose constant-1 selections pin it to the cells that read
+        them, while its other selections are read elsewhere, gets one copy
+        per pinned site; the original stays free to sit where its other
+        readers are. The copies have the same reset state and transition
+        rows and routes are combinational, so every copy sees every event in
+        the same clock and they are always in the same state: the program's
+        behaviour is unchanged. Each copy costs one contexted switch
+        (reported as `replicas`)."""
+        self.replicas = {}
+        uses = {}            # fsm -> {'const': {site: [consumer index]}, 'other': set(site)}
+        for i, c in enumerate(self.consumers):
+            s = self.signals[c['sig']]
+            if s['type'] != 'mux':
+                continue
+            u = uses.setdefault(s['fsm'], {'const': {}, 'other': set()})
+            if '#1' in self.mux_alts(c['sig']):
+                u['const'].setdefault(c['block'], []).append(i)
+            else:
+                u['other'].add(c['block'])
+        for b, v in self.blocks.items():
+            if v['kind'] == 'fsm':
+                for _, sig, _ in v['on']:
+                    if self.signals[sig]['type'] == 'mux':
+                        uses.setdefault(self.signals[sig]['fsm'], {'const': {}, 'other': set()})['other'].add(b)
+        for f, u in uses.items():
+            sites = u['const']
+            if not sites or (len(sites) == 1 and not (u['other'] - set(sites))):
+                continue
+            for k, (site, idx) in enumerate(sorted(sites.items())):
+                copy = f'{f}~{k + 1}'
+                self.blocks[copy] = dict(self.blocks[f], replica_of=f)
+                self.replicas[copy] = f
+                for i in idx:
+                    sig = self.consumers[i]['sig']
+                    clone = f'{sig}@{copy}'
+                    if clone not in self.signals:
+                        self.signals[clone] = dict(self.signals[sig], fsm=copy)
+                    self.consumers[i] = dict(self.consumers[i], sig=clone)
+
     def _check(self):
         for b, v in self.blocks.items():
             if v['kind'] == 'fsm':
@@ -206,6 +251,54 @@ class Netlist:
         # Mux dependency must be acyclic (no loop through switches).
         order = self.mux_order()
         self.mux_rank = {m: i for i, m in enumerate(order)}
+        self._no_comb_loop()
+
+    def _no_comb_loop(self):
+        """Refuse a combinational loop through tiles. Tracks cannot form one
+        (the turn classes), context state is a register, but some tile
+        outputs are combinational in their inputs (KINDS[kind]['comb'],
+        e.g. a shifter's word and stop): a configuration that routes such an
+        output back into its own inputs, directly or through other tiles,
+        would be a loop. The word network's gate (word-port sink) is taken
+        to reach the shifters bound to the network, conservatively."""
+        def sources(sig, seen=()):
+            s = self.signals[sig]
+            if s['type'] == 'base':
+                return {sig}
+            if s['type'] == 'mux' and sig not in seen:
+                out = set()
+                for a in self.mux_alts(sig):
+                    out |= sources(a, seen + (sig,))
+                return out
+            return set()
+        edges = {}
+        for c in self.consumers:
+            blk = c['block']
+            if blk == '#wp':
+                if c['sink'] != 'gate' or not self.words:
+                    continue
+                outs = [f'{sh}.{loc}' for sh in (self.words['rx_shifter'], self.words['tx_shifter']) if sh
+                        for loc in KINDS['shifter']['comb']]
+            else:
+                kind = self.blocks[blk]['kind']
+                comb = KINDS.get(kind, {}).get('comb', {})
+                outs = [f'{blk}.{loc}' for loc, ins in comb.items() if c['sink'] in ins]
+            for src in sources(c['sig']):
+                edges.setdefault(src, set()).update(o for o in outs if o in self.signals)
+        state = {}
+
+        def visit(n, path):
+            if state.get(n) == 1:
+                cyc = path[path.index(n):] + [n]
+                raise MapError('rules', 'combinational loop through tiles: ' + ' -> '.join(cyc))
+            if state.get(n) == 2:
+                return
+            state[n] = 1
+            for m in edges.get(n, ()):
+                visit(m, path + [n])
+            state[n] = 2
+        for n in list(edges):
+            visit(n, [])
 
     def mux_alts(self, m):
         s = self.signals[m]
@@ -339,6 +432,9 @@ class Placement:
         return {'io_out': 4, 'io_drv': 2}.get(self.nl.blocks[b]['kind'], 1)
 
     def legal(self, binding):
+        for f, b in self.colocate:
+            if binding[f] != self.cell(binding, b):
+                return False
         use = {}
         for b, c in binding.items():
             key = (self.group(b), c)
@@ -355,8 +451,11 @@ class Placement:
         for _ in range(1000):
             binding, use = {}, {}
             ok = True
-            for b in sorted(self.nl.blocks, key=lambda b: len(self.domain(b))):
+            partner = {f: blk for f, blk in self.colocate}
+            for b in sorted(self.nl.blocks, key=lambda b: (b in partner, len(self.domain(b)))):
                 opts = [c for c in self.domain(b) if use.get((self.group(b), c), 0) < self.capacity(b)]
+                if b in partner:          # placed after its partner: share its cell
+                    opts = [c for c in opts if c == self.cell(binding, partner[b])]
                 if not opts:
                     ok = False
                     break
@@ -380,6 +479,8 @@ class Placement:
                 continue
             new = dict(binding)
             c = rng.choice(dom)
+            # a colocated FSM moves with the block it must share a cell with
+            mates = [f for f, blk in self.colocate if blk == b and c in self.domain(f)]
             # swap with a block of the same group in the target cell if full
             others = [o for o in blocks if o != b and self.group(o) == self.group(b) and new[o] == c]
             if len(others) >= self.capacity(b):
@@ -388,6 +489,11 @@ class Placement:
                     continue
                 new[o] = new[b]
             new[b] = c
+            for f in mates:
+                for o in blocks:
+                    if o != f and self.group(o) == 'fsm' and new[o] == c:
+                        new[o] = new[f]
+                new[f] = c
             if not self.legal(new):
                 continue
             nc = self.cost(new)

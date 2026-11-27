@@ -1,0 +1,98 @@
+// I2C target (peripheral) at address 0x48, clocked by an external controller.
+//
+// It acknowledges its address and every byte written to it, passes the data
+// bytes to the host, and leaves other addresses (and reads) unacknowledged.
+// A repeated START begins a new address phase; a STOP ends the transaction.
+// Everything here reacts on the bus's own clock: the host only reads bytes.
+
+clock 50 MHz
+const ADDRESS = 0x48
+
+pin scl: in
+pin sda: open_drain = if ack.DRIVE { 0 } else { 1 }
+
+// The address byte: 7-bit address and the write bit (a read is not answered).
+compare addressed on rx { value: ADDRESS << 1, mask: 0xFF }
+
+// START is SDA falling while SCL is high, STOP is SDA rising while SCL is high.
+machine bus {
+    state IDLE { on sda.fall && scl -> STARTED }
+    state STARTED {                         // after a START, before the first bit
+        on scl.fall -> ADDRESS
+        on sda.rise && scl -> IDLE
+    }
+    state ADDRESS {
+        on addressed.match -> SELECTED
+        on addressed.mismatch -> IDLE
+    }
+    state SELECTED {
+        on sda.fall && scl -> STARTED       // a repeated START
+        on sda.rise && scl -> IDLE          // STOP
+    }
+}
+
+// Drive SDA low for the acknowledge bit: from the SCL fall after the byte to
+// the next SCL fall.
+machine ack {
+    state RELEASED {
+        on if bus.ADDRESS { addressed.match } else { if bus.SELECTED { rx.word } else { 0 } } -> WAIT
+    }
+    state WAIT { on scl.fall -> DRIVE }
+    state DRIVE { on scl.fall -> RELEASED }
+}
+
+// A byte starts at the first SCL fall after a START, or as the acknowledge
+// bit ends. Outside a transaction (bus idle, SCL high) the shifter is held
+// idle; a repeated START abandons the byte that was starting.
+shifter rx {
+    frame: [data(8, msb_first)],
+    start: if bus.STARTED { scl.fall } else { if bus.SELECTED { if ack.DRIVE { scl.fall } else { 0 } } else { 0 } },
+    shift: scl.rise,
+    sample: sda at scl.rise,
+    abort: if bus.IDLE { scl } else { if bus.SELECTED { sda.fall && scl } else { 0 } },
+}
+
+// Only bytes received while addressed reach the host.
+export stream data: rx -> host { gate { open: bus.SELECTED } }
+
+// ─── tests ───────────────────────────────────────────────
+
+test "acknowledges its address and passes the data bytes" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    ctl.write([0x90, 0x11, 0x22])
+    expect ctl.read(3) == [0, 0, 0]
+    expect data.read(2) == [0x11, 0x22]
+}
+
+test "another address is not acknowledged and nothing is stored" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    ctl.write([0x92, 0x33])
+    expect ctl.read(1) == [1]
+    ctl.write([0x91, 0x34])
+    expect ctl.read(1) == [1]
+    ctl.write([0x90, 0x44])
+    expect ctl.read(2) == [0, 0]
+    expect data.read(1) == [0x44]
+}
+
+test "a repeated START readdresses within one transaction" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    ctl.write([0x90, 0x01])
+    ctl.write([0x90, 0x02, 0x03])
+    ctl.write([0x92, 0x04])
+    ctl.write([0x90, 0x05])
+    expect ctl.read(8) == [0, 0, 0, 0, 0, 1, 0, 0]
+    expect data.read(4) == [0x01, 0x02, 0x03, 0x05]
+}
+
+// The fastest bus measured to work on the reorganised fabric: 10 clocks per
+// SCL period (5 MHz at 50 MHz). At 8 the acknowledge of a data byte, raised
+// by the shifter's word event after the synchronised SCL rise, comes after
+// SCL has fallen (FABRIC_REORG.md, I2C target timing envelope).
+test "a fast bus: 10 clocks per SCL period" {
+    attach i2c_controller(scl: scl, sda: sda, half: 5, hold: 1) as ctl
+    ctl.write([0x90, 0xA5, 0x5A])
+    ctl.write([0x90, 0xFF])
+    expect ctl.read(5) == [0, 0, 0, 0, 0]
+    expect data.read(3) == [0xA5, 0x5A, 0xFF]
+}

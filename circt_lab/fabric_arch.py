@@ -32,7 +32,11 @@ KINDS = {
     'shifter': {'code': 2, 'locals': ['word', 'stop', 'out', 'active'],
                 'sinks': ['start', 'shift', 'sample', 'abort', 'in'],
                 # fabric_shifter lines driven by the sinks; `in` is level 33.
-                'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33},
+                'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33,
+                # combinational paths sink -> local (fabric_shifter word_pulse,
+                # stop_pulse); every other local output is a register
+                'comb': {'word': ['start', 'shift', 'sample', 'abort', 'in'],
+                         'stop': ['start', 'shift', 'sample', 'abort', 'in']}},
     # crc: fabric_crc; its direct link reaches the shifter west (link 0)
     # and east (link 1) of it. The word-port cell's locals 1-3 and sink 5
     # are the word network's bit port.
@@ -46,7 +50,8 @@ KINDS = {
     # (mesh.v param port, register 0). Not one of KINDS' 2-bit codes: mesh.v
     # marks counter cells with the CNT parameter.
     'counter': {'code': 4, 'locals': ['at_least', 'reached', 'unused2', 'unused3'],
-                'sinks': ['step', 'data', 'clear'], 'lines': {'step': 1, 'clear': 2}, 'levels': {'data': 33}},
+                'sinks': ['step', 'data', 'clear'], 'lines': {'step': 1, 'clear': 2}, 'levels': {'data': 33},
+                'comb': {'reached': ['step', 'data', 'clear']}},
 }
 
 ENCODING = {

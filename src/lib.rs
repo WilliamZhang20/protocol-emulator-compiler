@@ -240,6 +240,25 @@ pub struct ProtocolPlacementSearch {
     pub selected: Option<usize>,
 }
 
+/// The program's tests and invariants as a hardware-independent plan
+/// (`spatial test-plan`). Constructs that compile only for the reorganised
+/// fabric (`machine`, `compare`, a stream's `gate` stage) are accepted: a
+/// plan needs no image, so whatever reads them is left unconnected.
+///
+/// # Errors
+/// Returns the first problem found, with the source range it concerns.
+pub fn test_plan(source: &str) -> Result<serde_json::Value, Error> {
+    let mut items = syntax::parse(source)?;
+    let logical_program = program_ir::extract(&items)?;
+    for item in &mut items {
+        if let syntax::ast::Item::Stream { stages, .. } = item {
+            stages.retain(|stage| stage.kind.text != "gate");
+        }
+    }
+    let design = elaborate::elaborate_for_plan(&items, &logical_program.protocols)?;
+    plan::plan(&design, source)
+}
+
 /// Parse, check and compile a program.
 ///
 /// # Errors

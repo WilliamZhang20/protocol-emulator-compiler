@@ -60,6 +60,16 @@ Rules (L1, L2):
   tolerates host latency is measured by the runner (it replays every call
   with added delays); a step that needs wire-timed reaction belongs in the
   fabric, never in the host plan.
+- Machines (README, State machines) -> FSMs, one per machine, states in
+  source order (the first is the reset state), `on` lines in priority
+  order. `m.S` is a mux of m's FSM (1 in S); `if m.S { a } else { b }` is a
+  mux of m's FSM (nested selections of other machines nest). A machine
+  over the fabric's bounds (4 states, 2 `on` lines per state) is refused
+  ('hardware'), never reshaped.
+- `compare C on S` -> the word network's compare tap on S's receive
+  channel (S must be the receive stream's shifter); `C.match` and
+  `C.mismatch` are its pulses. A stream's `gate { open: L }` stage is the
+  word network's gate on that channel.
 - Streams go through SRAM: host -> shifter is the word network's reader
   (SRAM) into the shifter's transmit FIFO; the first shifter -> host
   stream is the shifter's receive FIFO into the writer (SRAM). A second
@@ -87,9 +97,10 @@ def _int(expr, env):
         return int(expr['value'])
     if k == 'name' and expr['name'] in env:
         return env[expr['name']]
-    if k == 'binary' and expr['op'] in ('/', '*', '+', '-'):
+    if k == 'binary' and expr['op'] in ('/', '*', '+', '-', '<<', '>>', '|', '&'):
         a, b = _int(expr['left'], env), _int(expr['right'], env)
-        return {'/': lambda: a // b, '*': lambda: a * b, '+': lambda: a + b, '-': lambda: a - b}[expr['op']]()
+        return {'/': lambda: a // b, '*': lambda: a * b, '+': lambda: a + b, '-': lambda: a - b,
+                '<<': lambda: a << b, '>>': lambda: a >> b, '|': lambda: a | b, '&': lambda: a & b}[expr['op']]()
     raise LowerError('compiler', f'not a constant: {json.dumps(expr)[:120]}')
 
 
@@ -113,6 +124,8 @@ class Lowering:
         self.host_events, self.fired_in_fabric = [], []
         self.fsms, self.signals, self.reg_sig = {}, {}, {}
         self.plans = {}
+        self.machines = {i['name']: i for i in self.items if i['kind'] == 'machine'}
+        self.compares = {i['name']: i for i in self.items if i['kind'] == 'compare'}
 
     # ---- signals
     def event(self, pin, edge, qual=None):
@@ -140,12 +153,11 @@ class Lowering:
             if v not in (0, 1):
                 raise LowerError('hardware', f'{where}: constant {v} on a 1-bit input')
             return v
-        if len(refs) == 1:
+        if len(refs) == 1 and expr['kind'] in ('name', 'field'):
             return self.ref(refs[0], where)
-        # Two pin signals combined: an I/O qualifier, if it has that shape.
-        q = self.qualifier(expr)
-        if q:
-            return self.event(*q)
+        v = self.expr_signal(expr, where)
+        if v is not None:
+            return v
         names = ', '.join(f'{r["name"]}.{r["output"]}' if r['output'] else r['name'] for r in refs)
         raise LowerError('hardware', f'{where}: logic on {len(refs)} signals ({names}); the fabric has no logic '
                          'cells (only I/O qualifiers and context muxes, L3/L4)')
@@ -200,6 +212,10 @@ class Lowering:
             return f'{name}.{out}'
         if kind == 'register':
             return self.register(name)
+        if kind == 'machine':
+            return self.state_level(name, out, where)
+        if kind == 'compare':
+            return self.compare_out(name, out, where)
         if kind == 'event':
             return self.declared_event(name, where)
         raise LowerError('compiler', f'{where}: a {kind} signal is not lowered yet (L3/L4)')
@@ -214,6 +230,82 @@ class Lowering:
                     raise LowerError('compiler', f'{consumer}.{c["port"]}: frontend check {c["check"]["status"]}')
                 out[c['port']] = c
         return out
+
+    # ---- machines and compares
+    def machine(self, name):
+        """The FSM of a machine (built once)."""
+        if name in self.fsms:
+            return name
+        m = self.machines[name]
+        states = [st['name'] for st in m['states']]
+        if len(set(states)) != len(states):
+            raise LowerError('compiler', f'machine {name}: a state is declared twice')
+        self.fsms[name] = {'states': states, 'on': []}      # placeholder: breaks reference loops
+        for st in m['states']:
+            if len(st['on']) > self.limits['transitions']:
+                raise LowerError('hardware', f'machine {name}: state {st["name"]} has {len(st["on"])} `on` lines; '
+                                 f'this fabric\'s state machines take {self.limits["transitions"]} per state')
+        if len(states) > self.limits['states']:
+            raise LowerError('hardware', f'machine {name}: {len(states)} states; this fabric\'s state machines '
+                             f'hold {self.limits["states"]}')
+        rows = []
+        for st in m['states']:
+            for line in st['on']:
+                if line['to'] not in states:
+                    raise LowerError('compiler', f'machine {name}: {line["to"]} is not a state')
+                sig = self.expr_signal(line['event'], f'machine {name} state {st["name"]}')
+                if sig is None:
+                    raise LowerError('hardware', f'machine {name} state {st["name"]}: the `on` signal needs logic')
+                if sig == 0:
+                    continue
+                rows.append([st['name'], sig, line['to']])
+        self.fsms[name]['on'] = rows
+        return name
+
+    def state_level(self, name, state, where):
+        if name not in self.machines:
+            raise LowerError('compiler', f'{where}: {name} is not a machine')
+        if state not in [st['name'] for st in self.machines[name]['states']]:
+            raise LowerError('compiler', f'{where}: {name} has no state {state}')
+        self.machine(name)
+        return {'fsm': name, 'cases': {state: 1}, 'default': 0}
+
+    def compare_out(self, name, out, where):
+        if out not in ('match', 'mismatch'):
+            raise LowerError('compiler', f'{where}: a compare has `.match` and `.mismatch`, not `.{out}`')
+        c = self.compares[name]
+        self.compare_used = c
+        return f'words.{out}'
+
+    def expr_signal(self, e, where):
+        """One signal from an expression: a leaf, a pin qualifier, or a
+        selection by machine state. None if it needs logic."""
+        k = e['kind']
+        if k == 'integer':
+            v = _int(e, self.env)
+            if v not in (0, 1):
+                raise LowerError('hardware', f'{where}: constant {v} on a 1-bit signal')
+            return v
+        if k in ('name', 'field'):
+            return self.leaf(e, where)
+        q = self.qualifier(e)
+        if q:
+            return self.event(*q)
+        if k == 'if':
+            c = e['condition']
+            if not (c['kind'] == 'field' and c['object'].get('kind') == 'name' and c['object']['name'] in self.machines):
+                return None
+            m, st = c['object']['name'], c['field']
+            self.state_level(m, st, where)
+            yes, no = self.expr_signal(e['yes'], where), self.expr_signal(e['no'], where)
+            if yes is None or no is None:
+                return None
+            if isinstance(no, dict) and no.get('fsm') == m:
+                cases = dict(no['cases'])
+                cases[st] = yes
+                return {'fsm': m, 'cases': cases, 'default': no.get('default', 0)}
+            return {'fsm': m, 'cases': {st: yes}, 'default': no}
+        return None
 
     # ---- events, registers (L4)
     def declared_event(self, name, where):
@@ -236,6 +328,10 @@ class Lowering:
                 return self.event(n, 'level')
         if e['kind'] == 'field' and e['object'].get('kind') == 'name':
             n, out = e['object']['name'], e['field']
+            if n in self.machines:
+                return self.state_level(n, out, where)
+            if n in self.compares:
+                return self.compare_out(n, out, where)
             if n in self.pins and out in ('rise', 'fall'):
                 return self.event(n, out)
             if n in self.res:
@@ -428,6 +524,8 @@ class Lowering:
         tiles, connect, drivers = {}, {}, {}
         self.tiles, self.connect = tiles, connect
         self.functions()
+        for m in self.machines:
+            self.machine(m)
         for name, r in self.res.items():
             kind = r['resource_kind']
             fields = {f['name']: f['value'] for f in r['fields']}
@@ -614,8 +712,17 @@ class Lowering:
         streams = [i for i in self.items if i['kind'] == 'stream']
         tx = [s for s in streams if s['from'].get('name') == 'host']
         rx = [s for s in streams if s['to'].get('name') == 'host']
+        gate = None
         for s in streams:
-            if s.get('stages'):
+            stages = s.get('stages') or []
+            if [st['operation'] for st in stages] == ['gate'] and s in rx:
+                f = {x['name']: x['value'] for x in stages[0]['fields']}
+                if set(f) != {'open'}:
+                    raise LowerError('compiler', f'stream {s["name"]}: gate takes `open: <level>`')
+                gate = (s, self.expr_signal(f['open'], f'stream {s["name"]} gate'))
+                if gate[1] is None:
+                    raise LowerError('hardware', f'stream {s["name"]}: the gate level needs logic')
+            elif stages:
                 raise LowerError('compiler', f'stream {s["name"]}: stages not lowered yet (L5)')
             if s not in tx and s not in rx:
                 raise LowerError('compiler', f'stream {s["name"]}: neither end is the host')
@@ -631,11 +738,29 @@ class Lowering:
             if k == 0:                       # the writer: into SRAM
                 tiles[sh]['rx_port'] = True
                 words['writer'] = 'rx'
+                if gate and gate[0]['from'].get('name') == sh:
+                    words['gate'], words['writer'] = 'rx', 'gate'
+                    self.connect['words.gate'] = gate[1]
+            elif gate and gate[0]['from'].get('name') == sh:
+                raise LowerError('hardware', f'stream {gate[0]["name"]}: a gate only on the stream into the writer')
         if tx_sh:
             sh = tx_sh[0]
             tiles[sh]['io']['auto_pull'] = True
             tiles[sh]['tx_port'] = True
             words['tx'] = 'reader'
+        for name, c in self.compares.items():
+            if not rx_sh or c['shifter'] != rx_sh[0]:
+                raise LowerError('hardware', f'compare {name}: the fabric compares words on the receive channel '
+                                 f'into the writer; {c["shifter"]} is not that shifter')
+            if len(self.compares) > 1:
+                raise LowerError('hardware', f'{len(self.compares)} compares; the word network has one')
+            f = {x['name']: x['value'] for x in c['fields']}
+            if set(f) - {'value', 'mask'} or 'value' not in f:
+                raise LowerError('compiler', f'compare {name}: fields are value and mask')
+            value, mask = _int(f['value'], self.env), _int(f['mask'], self.env) if 'mask' in f else 0xFF
+            if not (0 <= value < 256 and 0 <= mask < 256):
+                raise LowerError('hardware', f'compare {name}: value and mask are bytes')
+            words.update(tap='rx', cmp_value=value, cmp_mask=mask)
         return words or None
 
     def pin_reference(self, tiles, connect):
@@ -672,6 +797,7 @@ def model_ir(frontend, source):
 def lower(ir, name, pads, contract):
     lw = Lowering(ir, name, pads)
     lw.latency = contract['latency']
+    lw.limits = {'states': contract['layout']['contexts'], 'transitions': contract['layout']['transition_rows']}
     return lw.lower()
 
 

@@ -421,6 +421,24 @@ pub enum LogicalOperationKind {
     },
 }
 
+/// One state of a machine.
+#[derive(Clone, Debug, Serialize)]
+pub struct LogicalMachineState {
+    /// State name.
+    pub name: String,
+    /// `on EVENT -> STATE` lines, first has priority.
+    pub on: Vec<LogicalMachineTransition>,
+}
+
+/// `on EVENT -> STATE`.
+#[derive(Clone, Debug, Serialize)]
+pub struct LogicalMachineTransition {
+    /// The signal that takes the transition.
+    pub event: LogicalExpr,
+    /// Destination state.
+    pub to: String,
+}
+
 /// Ordered program declarations. No physical resource indices are included.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -485,6 +503,18 @@ pub enum LogicalItem {
     Invariant {
         name: String,
         condition: LogicalExpr,
+    },
+    /// A state machine by behaviour (README, State machines): the first
+    /// state is the reset state; each state's `on` lines in priority order.
+    Machine {
+        name: String,
+        states: Vec<LogicalMachineState>,
+    },
+    /// Each word `shifter` receives pulses `.match` or `.mismatch`.
+    Compare {
+        name: String,
+        shifter: String,
+        fields: Vec<LogicalField>,
     },
     ContextSelector {
         signal: LogicalExpr,
@@ -831,6 +861,32 @@ fn item(source: &Item, env: &Env, is_context_override: bool) -> LogicalItem {
         Item::Always { name, condition } => LogicalItem::Invariant {
             name: name.text.clone(),
             condition: expr(condition),
+        },
+        Item::Machine { name, states } => LogicalItem::Machine {
+            name: name.text.clone(),
+            states: states
+                .iter()
+                .map(|st| LogicalMachineState {
+                    name: st.name.text.clone(),
+                    on: st
+                        .on
+                        .iter()
+                        .map(|(event, to)| LogicalMachineTransition {
+                            event: expr(event),
+                            to: to.text.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        },
+        Item::Compare {
+            name,
+            shifter,
+            fields: f,
+        } => LogicalItem::Compare {
+            name: name.text.clone(),
+            shifter: shifter.text.clone(),
+            fields: fields(f),
         },
         Item::Contexts(signal) => LogicalItem::ContextSelector {
             signal: expr(signal),
