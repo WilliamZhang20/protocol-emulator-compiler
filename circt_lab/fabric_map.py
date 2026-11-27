@@ -7,13 +7,15 @@ Source (one JSON per design; nothing in it names a cell, track or
 context number):
 
   pins     {name: pad index}
-  events   {name: {pin, edge: level|rise|fall, when?: {pin, level}}}   I/O tile outputs
+  events   {name: {pin, edge: level|rise|fall, when?: {pin, level}}    I/O tile outputs
+            | {host: true}}  a host event (io output mode 3; at most 4 on the mesh)
   drivers  {name: {pin, push_pull?, invert?}}  consumers name.value, name.enable (default open drain)
   tiles    {name: {kind: timer, first, period, mode?, phase?}
                  | {kind: shifter, frame, step: {shift, sample}, io: {start?, in?, auto_push?,
                     auto_pull?}, abort?, burst?, coder5?, coder6?, rx_port?, tx_port?}
                  | {kind: crc, width, poly, check?, init_ones?, link?: shifter, additive?, twos?,
-                    absorb?, emit?, init?, data?, absorb_gate?, emit_gate?}}
+                    absorb?, emit?, init?, data?, absorb_gate?, emit_gate?}
+                 | {kind: counter, limit?, mode?: count|ones|zeros|equal}}   sinks step, data, clear
            shifter / crc line fields name the tile's own sinks; rx_port / tx_port bind
            the shifter's receive / transmit FIFO to the word network
   words    {writer, gate, ... (word-network sinks <- sources), cmp_value, cmp_mask, tap}
@@ -65,6 +67,7 @@ class Netlist:
         self.consumers = []    # {block, sink, sig}
         self.pins = {}         # pad -> design
         self.words = None
+        self.host_events = []  # host event index -> block
         for d in designs:
             self._add(d)
         self._flatten()
@@ -80,6 +83,13 @@ class Netlist:
             self.pins[pad] = dn
         for name, e in d.get('events', {}).items():
             b = q(name)
+            if e.get('host'):
+                if len(self.host_events) == 4:
+                    raise MapError('resources', f'{b}: more than 4 host events')
+                self.blocks[b] = {'kind': 'io_out', 'design': dn, 'pin': len(self.host_events), 'edge': 3, 'qual': None}
+                self.host_events.append(b)
+                self.signals[b] = {'type': 'base', 'block': b, 'local': None}
+                continue
             when = e.get('when')
             self.blocks[b] = {'kind': 'io_out', 'design': dn, 'pin': pins[e['pin']], 'edge': EDGE[e['edge']],
                               'qual': (pins[when['pin']], when['level']) if when else None}
@@ -90,7 +100,7 @@ class Netlist:
         for name, t in d.get('tiles', {}).items():
             b = q(name)
             self.blocks[b] = dict(t, design=dn)
-            if t['kind'] not in ('timer', 'shifter', 'crc'):
+            if t['kind'] not in ('timer', 'shifter', 'crc', 'counter'):
                 raise MapError('rules', f'{dn}: {name}: unknown tile kind {t["kind"]}')
             locals_ = ['ok'] if t['kind'] == 'crc' else KINDS[t['kind']]['locals']
             for k, local in enumerate(locals_):
@@ -229,15 +239,15 @@ class Placement:
     def __init__(self, arch, nl):
         self.arch, self.nl = arch, nl
         a = arch
-        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k] for k in ('io', 'timer', 'shifter', 'crc')}
+        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k] for k in ('io', 'timer', 'shifter', 'crc', 'counter')}
         self.ctx_cells = [c for c in range(a.n) if a.contexts(c) == 4]
         self.wp = a.c['word_port']['cell']
-        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'fsm': 0}
+        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'counter': 0, 'fsm': 0}
         for v in nl.blocks.values():
             need[v['kind']] += 1
         have = {'io_out': 4 * len(self.cells_of['io']), 'io_drv': 2 * len(self.cells_of['io']),
                 'timer': len(self.cells_of['timer']), 'shifter': len(self.cells_of['shifter']),
-                'crc': len(self.cells_of['crc']), 'fsm': len(self.ctx_cells)}
+                'crc': len(self.cells_of['crc']), 'counter': len(self.cells_of['counter']), 'fsm': len(self.ctx_cells)}
         short = [f'{k} {need[k]} > {have[k]}' for k in need if need[k] > have[k]]
         if short:
             raise MapError('resources', 'not enough ' + ', '.join(short))
@@ -339,7 +349,7 @@ class Placement:
 
     def group(self, b):
         k = self.nl.blocks[b]['kind']
-        return 'tile' if k in ('timer', 'shifter') else k
+        return 'tile' if k in ('timer', 'shifter', 'counter') else k
 
     def random_binding(self, rng):
         for _ in range(1000):
@@ -749,6 +759,14 @@ def tile_config(arch, nl, pl, binding):
                     (int(bool(io.get('auto_pull'))) << 11) | (int(bool(io.get('auto_push'))) << 12),
                     enc('burst', v.get('burst', 0)) | (ln(v.get('abort')) << 7),
                     enc('coder', v.get('coder', v.get('coder5', 0))), enc('coder2', v.get('coder2', v.get('coder6', 0)))]
+            tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
+        elif k == 'counter':
+            ck, reg = arch.c['kinds']['counter'], arch.c['registers']['counter']
+            mode = reg['step']['mode'][v.get('mode', 'count')]
+            regs = [field_word(reg['limit'], {'limit': int(v.get('limit', 0))}),
+                    field_word(reg['step'], {'step_line': ck['lines']['step'],
+                                             'data_level': ck['levels']['data'] - 32, 'mode': mode}),
+                    field_word(reg['clear'], {'clear_line': ck['lines']['clear']})]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
         elif k == 'crc':
             ck = arch.c['kinds']['crc']

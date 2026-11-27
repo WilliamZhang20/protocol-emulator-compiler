@@ -30,6 +30,36 @@ Rules (L1, L2):
   -> the tile's sinks; `sample` at the shift signal shares the shift line.
 - CRCs: width, poly, check, init (ones), link -> registers; `restart` ->
   the init line.
+- Counters -> counter tiles (count, clear, a constant `limit`, `streak`
+  modes); `.at_least` and `.reached` are its outputs.
+- Registers (L4) -> FSMs on contexted switches, by rule:
+  - `r = A || (r && !B)` (set wins over clear) is a 2-state FSM
+    OFF -A-> ON -B-> OFF; `init 1` makes ON the reset state;
+  - `r = A || (r && !(X && Y))` where X can only rise between two A's (a
+    counter's `at_least` cleared by A) is OFF -A-> ON -X-> ARMED -Y-> OFF
+    (A from any state back to ON): exact because X stays high once risen;
+  - `r = s` or `r = !s` for an FSM register s is a mux of s's FSM (the
+    register's one-clock lag behind s is not kept: the mux follows s's
+    context directly);
+  the register's level is a mux of its FSM (1 in ON states). Anything else
+  is refused ('hardware': it needs logic).
+- Exported functions (L3) -> a host plan (FABRIC_REORG.md step 4: the host
+  acts before, between and at quiescent points of a transaction; the
+  fabric reacts locally while it runs):
+  - `T.limit = expr` before the first fire: a parameter write to the idle
+    counter tile;
+  - an argument `via S`: the reader stream into S's transmit FIFO; a
+    result `via S`: S's receive FIFO through the writer;
+  - `fire E`: a host event (an io output in host-event mode);
+  - `wait X` on a tile output: the host polls X's sticky flag (cleared at
+    the call's start; a second wait on the same output in one call is
+    refused, a sticky flag does not count);
+  - `repeat N { wait S.word }` where S's received words are the result:
+    wait until N result bytes have arrived;
+  everything else is refused for now ('compiler'). Whether a host step
+  tolerates host latency is measured by the runner (it replays every call
+  with added delays); a step that needs wire-timed reaction belongs in the
+  fabric, never in the host plan.
 - Streams go through SRAM: host -> shifter is the word network's reader
   (SRAM) into the shifter's transmit FIFO; the first shifter -> host
   stream is the shifter's receive FIFO into the writer (SRAM). A second
@@ -78,6 +108,11 @@ class Lowering:
             if p not in self.pads:
                 raise LowerError('compiler', f'pin {p} has no pad assignment')
         self.events, self.design = {}, None
+        self.regs = {i['name']: i for i in self.items if i['kind'] == 'register'}
+        self.declared = [n for i in self.items if i['kind'] == 'events' for n in i['names']]
+        self.host_events, self.fired_in_fabric = [], []
+        self.fsms, self.signals, self.reg_sig = {}, {}, {}
+        self.plans = {}
 
     # ---- signals
     def event(self, pin, edge, qual=None):
@@ -145,6 +180,8 @@ class Lowering:
         if kind == 'pin':
             return self.event(name, out or 'level')
         if kind == 'timer':
+            if out == 'out':
+                out = 'level'          # the timer's square wave (idle 0)
             if out not in ('tick', 'level', 'rise', 'fall'):
                 raise LowerError('compiler', f'{where}: timer output {out}')
             return f'{name}.{out}'
@@ -157,6 +194,14 @@ class Lowering:
             if out != 'ok':
                 raise LowerError('compiler', f'{where}: crc output {out}')
             return f'{name}.ok'
+        if kind == 'counter':
+            if out not in ('at_least', 'reached'):
+                raise LowerError('compiler', f'{where}: counter output {out}')
+            return f'{name}.{out}'
+        if kind == 'register':
+            return self.register(name)
+        if kind == 'event':
+            return self.declared_event(name, where)
         raise LowerError('compiler', f'{where}: a {kind} signal is not lowered yet (L3/L4)')
 
     def conns(self, consumer):
@@ -170,11 +215,219 @@ class Lowering:
                 out[c['port']] = c
         return out
 
+    # ---- events, registers (L4)
+    def declared_event(self, name, where):
+        if name not in self.declared:
+            raise LowerError('compiler', f'{where}: unknown event {name}')
+        if name in self.host_events:
+            return name
+        raise LowerError('compiler', f'{where}: event {name} is not fired by a host plan; '
+                         'an event fired inside the fabric is not lowered yet (L3)')
+
+    def leaf(self, e, where):
+        """A single signal in a register expression."""
+        if e['kind'] == 'name':
+            n = e['name']
+            if n in self.regs:
+                return self.register(n)
+            if n in self.declared:
+                return self.declared_event(n, where)
+            if n in self.pins:
+                return self.event(n, 'level')
+        if e['kind'] == 'field' and e['object'].get('kind') == 'name':
+            n, out = e['object']['name'], e['field']
+            if n in self.pins and out in ('rise', 'fall'):
+                return self.event(n, out)
+            if n in self.res:
+                return self.ref({'resolution': self.res[n]['resource_kind'], 'name': n, 'output': out}, where)
+        return None
+
+    def register(self, name):
+        if name in self.reg_sig:
+            if self.reg_sig[name] is None:
+                raise LowerError('hardware', f'register {name}: a loop through registers')
+            return self.reg_sig[name]
+        self.reg_sig[name] = None
+        r = self.regs[name]
+        where = f'register {name}'
+        init = _int(r['initial'], self.env) if r.get('initial') else 0
+        if r.get('clock_enable'):
+            raise LowerError('compiler', f'{where}: a clock enable is not lowered yet')
+        v = r['value']
+        # r = s / r = !s for an FSM register s: a mux of s's FSM.
+        inv = v['kind'] == 'unary' and v['op'] == '!'
+        base = v['value'] if inv else v
+        if base['kind'] == 'name' and base['name'] in self.regs:
+            s_sig = self.register(base['name'])
+            m = self.signals[s_sig]
+            cases = {st: (1 - c if inv else c) for st, c in m['cases'].items()}
+            states = self.fsms[m['fsm']]['states']
+            if cases[states[0]] != init:
+                raise LowerError('hardware', f'{where}: init {init} differs from its source register at reset')
+            self.signals[name] = {'fsm': m['fsm'], 'cases': cases}
+            self.reg_sig[name] = name
+            return name
+        sc = self.set_clear(name, v)
+        if sc is None:
+            raise LowerError('hardware', f'{where}: needs logic (not a set/clear register or a copy of one)')
+        a_e, clear = sc
+        a = self.leaf(a_e, where)
+        if a is None:
+            raise LowerError('hardware', f'{where}: the set term needs logic')
+        on, off = 'ON', 'OFF'
+        if clear['kind'] == 'binary' and clear['op'] == '&&':
+            x_e, y_e = clear['left'], clear['right']
+            x, y = self.leaf(x_e, where), self.leaf(y_e, where)
+            if self.monotone(y, a) and not self.monotone(x, a):
+                x, y = y, x
+            if x is None or y is None or not self.monotone(x, a):
+                raise LowerError('hardware', f'{where}: a clear on two signals, neither held between sets; needs logic')
+            states = [off, on, 'ARMED']
+            on_rows = [[off, a, on], [on, a, on], [on, x, 'ARMED'], ['ARMED', a, on], ['ARMED', y, off]]
+        else:
+            b = self.leaf(clear, where)
+            if b is None:
+                raise LowerError('hardware', f'{where}: the clear term needs logic')
+            states = [off, on]
+            on_rows = [[off, a, on], [on, a, on], [on, b, off]]
+        if init:
+            states.remove(on)
+            states.insert(0, on)
+        f = f'{name}_fsm'
+        self.fsms[f] = {'states': states, 'on': on_rows}
+        self.signals[name] = {'fsm': f, 'cases': {st: int(st != off) for st in states}}
+        self.reg_sig[name] = name
+        return name
+
+    @staticmethod
+    def set_clear(name, v):
+        """`A || (r && !C)` (either operand order) -> (A, C)."""
+        if v['kind'] != 'binary' or v['op'] != '||':
+            return None
+        for a, hold in ((v['left'], v['right']), (v['right'], v['left'])):
+            if hold['kind'] == 'binary' and hold['op'] == '&&':
+                for me, nc in ((hold['left'], hold['right']), (hold['right'], hold['left'])):
+                    if me['kind'] == 'name' and me['name'] == name and nc['kind'] == 'unary' and nc['op'] == '!':
+                        return a, nc['value']
+        return None
+
+    def monotone(self, sig, set_sig):
+        """True if `sig` can only rise between two occurrences of `set_sig`:
+        a counter's at_least whose clear is `set_sig`."""
+        if not isinstance(sig, str) or not sig.endswith('.at_least'):
+            return False
+        c = sig[:-len('.at_least')]
+        clr = self.conns(c).get('counter.clear')
+        return clr is not None and self.signal(clr) == set_sig
+
+    def counter(self, name, f, ports, connect):
+        spec = {'kind': 'counter'}
+        if 'limit' in f:
+            spec['limit'] = _int(f['limit'], self.env)
+        elif name not in self.param_tiles:
+            raise LowerError('compiler', f'{name}: no limit, and no host plan sets one')
+        if 'streak' in f:
+            e = f['streak']
+            if e['kind'] != 'call' or e['callee'].get('name') not in ('ones', 'zeros', 'equal'):
+                raise LowerError('compiler', f'{name}: streak {e["kind"]}')
+            spec['mode'] = e['callee']['name']
+        for port, sink in (('counter.count', 'step'), ('counter.clear', 'clear'), ('counter.streak', 'data')):
+            if port in ports:
+                connect[f'{name}.{sink}'] = self.signal(ports[port])
+        extra = set(ports) - {'counter.count', 'counter.clear', 'counter.streak'}
+        if extra:
+            raise LowerError('compiler', f'{name}: inputs {sorted(extra)} not lowered yet')
+        if 'limit' in spec and not 0 <= spec['limit'] < 256:
+            raise LowerError('hardware', f'{name}: limit {spec["limit"]}; the counter has 8 bits')
+        return spec
+
+    # ---- exported functions (L3): host plans
+    def host_expr(self, e, params):
+        k = e['kind']
+        if k in ('integer', 'quantity') or (k == 'name' and e['name'] in self.env):
+            return _int(e, self.env)
+        if k == 'name' and e['name'] in params:
+            return {'arg': e['name']}
+        if k == 'field' and e['field'] == 'len' and e['object'].get('kind') == 'name' and e['object']['name'] in params:
+            return {'len': e['object']['name']}
+        if k == 'binary' and e['op'] in ('+', '-', '*', '<<', '>>', '|', '&'):
+            return {'op': e['op'], 'a': self.host_expr(e['left'], params), 'b': self.host_expr(e['right'], params)}
+        raise LowerError('compiler', f'host expression {k} {e.get("op", "")}')
+
+    def functions(self):
+        self.tx_via, self.rx_via, self.param_tiles = [], [], set()
+        for fn in self.items:
+            if fn['kind'] != 'function':
+                continue
+            name = fn['name']
+            if not fn.get('exported'):
+                raise LowerError('compiler', f'function {name}: helper functions (inlining) are not lowered yet (L3)')
+            params = {p: t for p, t in fn['params']}
+            plan = {'args': {}, 'steps': [{'op': 'clear'}]}
+            ret = fn.get('returns')
+            rx = ret.get('via') if ret else None
+            if ret and not rx:
+                raise LowerError('compiler', f'{name}: a result not `via` a shifter is not lowered yet')
+            if rx:
+                self.rx_via.append(rx)
+                plan['returns'] = 'writer'
+            for p, t in params.items():
+                if t.get('via'):
+                    self.tx_via.append(t['via'])
+                    plan['args'][p] = 'reader'
+                    plan['steps'].append({'op': 'send', 'arg': p})
+                else:
+                    plan['args'][p] = 'value'
+            fired, waited = False, set()
+            for st in fn['body']:
+                op = st['op']
+                if op == 'assign':
+                    t = st['target']
+                    if not (t['kind'] == 'field' and t['object'].get('kind') == 'name'
+                            and t['object']['name'] in self.res
+                            and self.res[t['object']['name']]['resource_kind'] == 'counter' and t['field'] == 'limit'):
+                        raise LowerError('compiler', f'{name}: assignment to {json.dumps(t)[:80]} not lowered yet')
+                    if fired:
+                        raise LowerError('compiler', f'{name}: a parameter write after the transaction started '
+                                         '(the tile is not idle; a context or synchronized update is not lowered yet)')
+                    tile = t['object']['name']
+                    self.param_tiles.add(tile)
+                    plan['steps'].append({'op': 'param', 'tile': tile, 'reg': 'limit',
+                                          'value': self.host_expr(st['value'], params)})
+                elif op == 'fire':
+                    e = st['event']
+                    if e not in self.declared:
+                        raise LowerError('compiler', f'{name}: fire of unknown event {e}')
+                    if e not in self.host_events:
+                        self.host_events.append(e)
+                    fired = True
+                    plan['steps'].append({'op': 'fire', 'event': e})
+                elif op == 'wait' and not st.get('next'):
+                    sig = self.leaf(st['signal'], f'{name}: wait')
+                    if not isinstance(sig, str) or '.' not in sig:
+                        raise LowerError('compiler', f'{name}: wait on {sig}: only a tile output has a host flag')
+                    if sig in waited:
+                        raise LowerError('compiler', f'{name}: a second wait on {sig} in one call (a sticky flag '
+                                         'does not count; an FSM or counter is not lowered yet)')
+                    waited.add(sig)
+                    plan['steps'].append({'op': 'wait', 'signal': sig})
+                elif op == 'repeat' and len(st['body']) == 1 and st['body'][0]['op'] == 'wait':
+                    w = st['body'][0]['signal']
+                    if not (w['kind'] == 'field' and w['field'] == 'word' and w['object'].get('name') == rx):
+                        raise LowerError('compiler', f'{name}: repeat of a wait other than the result shifter\'s word')
+                    plan['steps'].append({'op': 'wait_bytes', 'count': self.host_expr(st['count'], params)})
+                else:
+                    raise LowerError('compiler', f'{name}: `{op}` in a function is not lowered yet (L3)')
+            if rx:
+                plan['steps'].append({'op': 'reply'})
+            self.plans[name] = plan
+
     # ---- resources
     def lower(self):
-        unsupported = [i for i in self.items if i['kind'] in ('function', 'register', 'flags', 'context',
-                                                                'context_selector', 'events')]
+        unsupported = [i for i in self.items if i['kind'] in ('flags', 'context', 'context_selector')]
         tiles, connect, drivers = {}, {}, {}
+        self.tiles, self.connect = tiles, connect
+        self.functions()
         for name, r in self.res.items():
             kind = r['resource_kind']
             fields = {f['name']: f['value'] for f in r['fields']}
@@ -185,6 +438,8 @@ class Lowering:
                 tiles[name] = self.shifter(name, fields, ports, connect)
             elif kind == 'crc':
                 tiles[name] = self.crc(name, fields, ports, connect)
+            elif kind == 'counter':
+                tiles[name] = self.counter(name, fields, ports, connect)
             else:
                 raise LowerError('hardware', f'{name}: a {kind} resource has no fabric tile')
         for name, p in self.pins.items():
@@ -198,10 +453,20 @@ class Lowering:
                 connect[f'{d}.enable'] = 1
         words = self.streams(tiles)
         self.pin_reference(tiles, connect)
+        for e in self.declared:
+            if e not in self.host_events and e not in self.fired_in_fabric:
+                raise LowerError('compiler', f'event {e} is never fired')
+        events = {n: e for n, e in self.events.values()}
+        events.update({e: {'host': True} for e in self.host_events})
         design = {'name': self.name, 'about': f'Lowered from {self.ir.get("source", "source")} by fabric_lower.py.',
                   'pins': {p: self.pads[p] for p in self.pins},
-                  'events': {n: e for n, e in self.events.values()},
+                  'events': events,
                   'drivers': drivers, 'tiles': tiles, 'connect': connect}
+        if self.fsms:
+            design['fsms'] = self.fsms
+            design['signals'] = self.signals
+        if self.plans:
+            design['functions'] = self.plans
         if words:
             design['words'] = words
         if unsupported:
@@ -238,11 +503,17 @@ class Lowering:
         if fr['kind'] != 'list':
             raise LowerError('compiler', f'{name}: frame is not a list')
         pre, post, length, parity, seen = [], [], None, None, False
+        msb = False
         for v in fr['values']:
             if v['kind'] == 'integer':
                 (post if seen else pre).append(int(v['value']))
             elif v['kind'] == 'call' and v['callee'].get('name') == 'data':
                 seen, length = True, _int(v['args'][0]['value'], self.env)
+                for arg in v['args'][1:]:
+                    if arg['value'].get('kind') == 'name' and arg['value']['name'] == 'msb_first':
+                        msb = True
+                    else:
+                        raise LowerError('compiler', f'{name}: data() argument {json.dumps(arg)[:60]}')
             elif v['kind'] == 'name' and v['name'] in ('odd', 'even'):
                 parity = v['name']
             else:
@@ -268,7 +539,7 @@ class Lowering:
                 out[flag] = 1 if f[flag] is None else _int(f[flag], self.env)
         if 'idle' in f:
             out['idle'] = _int(f['idle'], self.env)
-        if 'msb_first' in f:
+        if 'msb_first' in f or msb:
             out['msb_first'] = 1
         return out
 
@@ -348,17 +619,20 @@ class Lowering:
                 raise LowerError('compiler', f'stream {s["name"]}: stages not lowered yet (L5)')
             if s not in tx and s not in rx:
                 raise LowerError('compiler', f'stream {s["name"]}: neither end is the host')
-        if len(tx) > 1:
-            raise LowerError('hardware', f'{len(tx)} transmit streams; the word network has one reader into a shifter')
+        tx_sh = [s['to']['name'] for s in tx] + [v for v in dict.fromkeys(self.tx_via)]
+        rx_sh = [s['from']['name'] for s in rx] + [v for v in dict.fromkeys(self.rx_via)]
+        if len(tx_sh) > 1:
+            raise LowerError('hardware', f'{len(tx_sh)} transmit streams; the word network has one reader into a shifter')
+        if len(rx_sh) > 1 and rx_sh[1] in self.rx_via:
+            raise LowerError('hardware', 'a function result and another receive stream; one writer')
         words = {}
-        for k, s in enumerate(rx):
-            sh = s['from']['name']
+        for k, sh in enumerate(rx_sh):
             tiles[sh].setdefault('io', {})['auto_push'] = True
             if k == 0:                       # the writer: into SRAM
                 tiles[sh]['rx_port'] = True
                 words['writer'] = 'rx'
-        if tx:
-            sh = tx[0]['to']['name']
+        if tx_sh:
+            sh = tx_sh[0]
             tiles[sh]['io']['auto_pull'] = True
             tiles[sh]['tx_port'] = True
             words['tx'] = 'reader'

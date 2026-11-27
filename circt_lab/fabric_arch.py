@@ -40,6 +40,13 @@ KINDS = {
             'sinks': ['init', 'absorb', 'emit', 'data', 'level', 'gate'],
             'lines': {'init': 1, 'absorb': 2, 'emit': 3}, 'levels': {'data': 33, 'level': 34},
             'links': ['west', 'east']},
+    # counter: fabric_counter (an 8-bit counter with a limit; `at_least` is
+    # count >= limit, `reached` pulses on the step that first reaches it).
+    # Its limit can be rewritten by the host while the counter is idle
+    # (mesh.v param port, register 0). Not one of KINDS' 2-bit codes: mesh.v
+    # marks counter cells with the CNT parameter.
+    'counter': {'code': 4, 'locals': ['at_least', 'reached', 'unused2', 'unused3'],
+                'sinks': ['step', 'data', 'clear'], 'lines': {'step': 1, 'clear': 2}, 'levels': {'data': 33}},
 }
 
 ENCODING = {
@@ -74,6 +81,12 @@ REGISTERS = {
                                        'tail_length': [14, 9], 'manchester': [15, 15]}},
         'coder2': {'reg': 6, 'fields': {'stuff_gate_level': [4, 0], 'stuff_gated': [5, 5], 'crc_skip': [12, 6],
                                         'link_data_only': [13, 13]}},
+    },
+    'counter': {
+        'limit': {'reg': 0, 'fields': {'limit': [7, 0]}},
+        'step': {'reg': 1, 'fields': {'step_line': [5, 0], 'data_level': [10, 6], 'mode': [12, 11]},
+                 'mode': {'count': 0, 'ones': 1, 'zeros': 2, 'equal': 3}},
+        'clear': {'reg': 2, 'fields': {'clear_line': [4, 0]}},
     },
     'crc': {
         'shape': {'reg': 6, 'fields': {'width_minus_1': [4, 0], 'init_ones': [5, 5], 'linked': [6, 6],
@@ -110,10 +123,15 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
 
 def verilog_params(contract):
     n = contract['rows'] * contract['cols']
-    kinds = sum(contract['kinds'][c['kind']]['code'] << (2 * i) for i, c in enumerate(contract['cells']))
+    code = lambda c: contract['kinds'][c['kind']]['code'] & 3 if c['kind'] != 'counter' else 1
+    kinds = sum(code(c) << (2 * i) for i, c in enumerate(contract['cells']))
     ctx4 = sum((c['contexts'] == 4) << i for i, c in enumerate(contract['cells']))
-    return {'ROWS': contract['rows'], 'COLS': contract['cols'], 'WORD_PORT': contract['word_port']['cell'],
-            'KINDS': f"{2 * n}'d{kinds}", 'CTX4': f"{n}'d{ctx4}"}
+    cnt = sum((c['kind'] == 'counter') << i for i, c in enumerate(contract['cells']))
+    p = {'ROWS': contract['rows'], 'COLS': contract['cols'], 'WORD_PORT': contract['word_port']['cell'],
+         'KINDS': f"{2 * n}'d{kinds}", 'CTX4': f"{n}'d{ctx4}"}
+    if cnt:
+        p['CNT'] = f"{n}'d{cnt}"
+    return p
 
 
 def config_bits(contract):
@@ -321,11 +339,14 @@ def load(path):
 def test_mesh():
     """The test configuration (a 3 x 5 candidate: 3 rows, 5 columns, wide
     like the 8 x 4 Tiny Tapeout die). Not the chosen fabric: the grid-size
-    study decides the size and mix. Contexts on the io and crc cells."""
+    study decides the size and mix. test_3x5c (step 4 L3): the bottom-centre
+    timer of test_3x5b is a counter, and the shifter cells have contexts
+    (an FSM whose mux has a constant-1 case must sit at the cell it drives,
+    e.g. a shifter's start level). Contexts on io, shifter and crc cells."""
     k = ['timer', 'io', 'timer', 'io', 'timer',
          'shifter', 'crc', 'shifter', 'crc', 'shifter',
-         'timer', 'io', 'timer', 'io', 'timer']
-    return make_contract(3, 5, k, [4 if x in ('io', 'crc') else 1 for x in k], 6, 'test_3x5b')
+         'timer', 'io', 'counter', 'io', 'timer']
+    return make_contract(3, 5, k, [4 if x in ('io', 'crc', 'shifter') else 1 for x in k], 6, 'test_3x5c')
 
 
 if __name__ == '__main__':

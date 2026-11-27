@@ -25,7 +25,7 @@ from fabric_map import MapError
 HERE = Path(__file__).resolve().parent
 EXAMPLES = HERE.parent / 'examples'
 # Programs that must compile today; the rest of the table may only grow.
-MUST_COMPILE = {'loopback', 'ps2', 'uart'}
+MUST_COMPILE = {'loopback', 'ps2', 'spi', 'uart'}
 
 
 def check_registers(rtl):

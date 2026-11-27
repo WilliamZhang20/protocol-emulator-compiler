@@ -123,9 +123,9 @@ def main():
     if rtl:
         committed = Path(rtl) / 'experiments/grid_fabric/reorg/compiled'
         if committed.exists():
-            assert json.loads((committed / 'test_3x5b.json').read_text()) == C3, 'RTL contract differs from test_mesh()'
+            assert json.loads((committed / f'{C3["name"]}.json').read_text()) == C3, 'RTL contract differs from test_mesh()'
             for name, (b, _) in vectors.items():
-                assert (committed / f'{name}.test_3x5b.hex').read_text() == hexfile(C3, b), \
+                assert (committed / f'{name}.{C3["name"]}.hex').read_text() == hexfile(C3, b), \
                     f'RTL repository holds a stale {name} vector: rerun fabric_map.py --hex'
             print('RTL repository contract and compiled vectors match this compiler')
         run_rtl(Path(rtl), C3, vectors)
@@ -145,7 +145,7 @@ def run_rtl(rtl, contract, vectors):
         cmd = [str(iverilog), '-g2012', '-s', 'mesh_tb', '-o', str(sim)]
         cmd += [f'-Pmesh_tb.{k}={v}' for k, v in params.items()]
         cmd += [str(reorg / f) for f in ('mesh_tb.sv', 'mesh.v', 'ctx_switch.v', 'io_tile.v', 'wnet.v')]
-        cmd += [str(rtl / 'src' / f) for f in ('grid_timer.v', 'fabric_shifter.v', 'fabric_crc.v', 'config_bank.v')]
+        cmd += [str(rtl / 'src' / f) for f in ('grid_timer.v', 'fabric_shifter.v', 'fabric_crc.v', 'fabric_counter.v', 'config_bank.v')]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         for name, (bits, runs) in vectors.items():
             hx = Path(tmp) / f'{name}.hex'

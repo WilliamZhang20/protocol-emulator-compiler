@@ -30,6 +30,33 @@ def plan(frontend, source):
     return json.loads(out.stdout)
 
 
+def host_plans(contract, design, r):
+    """Resolve each function's host plan against the placement: a host
+    event becomes its index (mesh.v host_ev), a waited tile output its
+    sticky flag (cell, local), a parameter write its cell and register."""
+    nl, binding, name = r['netlist'], r['binding'], design['name']
+    out = {}
+    for fn, plan in design['functions'].items():
+        steps = []
+        for st in plan['steps']:
+            st = dict(st)
+            if st['op'] == 'fire':
+                st['index'] = nl.host_events.index(f'{name}/{st["event"]}')
+            elif st['op'] == 'wait':
+                tile, local = st['signal'].rsplit('.', 1)
+                cell = binding[f'{name}/{tile}']
+                kind = contract['cells'][cell]['kind']
+                st['flag'] = 4 * cell + contract['kinds'][kind]['locals'].index(local)
+            elif st['op'] == 'param':
+                cell = binding[f'{name}/{st["tile"]}']
+                kind = contract['cells'][cell]['kind']
+                st['cell'] = cell
+                st['addr'] = contract['registers'][kind][st['reg']]['reg']
+            steps.append(st)
+        out[fn] = dict(plan, steps=steps)
+    return out
+
+
 def build(contract, source, frontend=FRONTEND):
     """Returns (vector bits, plan, interface, compile result)."""
     p = plan(frontend, source)
@@ -52,6 +79,8 @@ def build(contract, source, frontend=FRONTEND):
                 streams[i['name']] = {'port': 'host', 'cell': r['binding'][sh]}
     interface = {'contract': contract['name'], 'params': verilog_params(contract), 'streams': streams,
                  'clock_hz': p['clock_hz']}
+    if design.get('functions'):
+        interface['functions'] = host_plans(contract, design, r)
     return r['bits'], p, interface, r
 
 
