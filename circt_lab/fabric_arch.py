@@ -154,9 +154,23 @@ LAYOUT = {'cell_bits': 512, 'track_lsb': 0, 'sink_lsb': 192, 'sink_slots': 6, 't
           'tile_lsb': 368, 'tile_bits': 144, 'wnet_bits': 128, 'contexts': 4, 'tracks': 4,
           'transition_rows': 2}
 
+# Static/dynamic split (FABRIC_REORG.md O3, single-protocol study): with
+# `dyn_slots` D > 0 a contexted cell stores each selector once (context 0's
+# track and sink fields) and D dynamic slots in the bits of contexts 1-3's
+# tracks, slot s at track_lsb + 48 + 20 s: index [4:0] (0 none, 1-16 track
+# 4 x dir + t + 1, 17-22 sink k + 17), the selector's value in context k
+# at [5 k +: 5] (k = 1..3). Contexts 1-3 read the static value except where
+# a slot names the selector. Transition rows are as before.
+SLOT = {'bits': 20, 'lsb': 48, 'track_first': 1, 'sink_first': 17}
+# The fixed split (dyn_slots 0): `ctx_tracks`, a mask of the track indices
+# whose selectors are held per context (0b1111 every track, the baseline);
+# the others read context 0's selector in every context. Sinks per context.
 
-def make_contract(rows, cols, kinds, contexts, word_port, name=None):
-    """kinds: list of kind names, row-major; contexts: list of 1 or 4."""
+
+def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0, ctx_tracks=0b1111):
+    """kinds: list of kind names, row-major; contexts: list of 1 or 4;
+    dyn_slots: 0 (every selector per context) or D dynamic slots per
+    contexted cell (SLOT)."""
     if len(kinds) != rows * cols or len(contexts) != rows * cols:
         raise ValueError('one kind and one context count per cell')
     if kinds[word_port] != 'crc':
@@ -165,10 +179,17 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
         raise ValueError('contexts are 1 or 4')
     if any(k == 'logic' and c != 1 for k, c in zip(kinds, contexts)):
         raise ValueError('a logic cell has one context (its LUTs use the other contexts\' bits)')
+    if not 0 <= dyn_slots <= (192 - SLOT['lsb']) // SLOT['bits']:
+        raise ValueError(f'dyn_slots {dyn_slots}: 0-{(192 - SLOT["lsb"]) // SLOT["bits"]}')
+    layout = dict(LAYOUT, dyn_slots=dyn_slots, slot=SLOT) if dyn_slots else LAYOUT
+    if ctx_tracks != 0b1111:
+        if dyn_slots:
+            raise ValueError('ctx_tracks is the fixed split; dyn_slots the indexed one: not both')
+        layout = dict(LAYOUT, ctx_tracks=ctx_tracks)
     return {'schema': 'reorg.mesh.v1', 'name': name or f'mesh_{rows}x{cols}', 'rows': rows, 'cols': cols,
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
             'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
-            'kinds': KINDS, 'encoding': ENCODING, 'layout': LAYOUT, 'registers': REGISTERS,
+            'kinds': KINDS, 'encoding': ENCODING, 'layout': layout, 'registers': REGISTERS,
             'latency': LATENCY, 'timing': TIMING, 'pins': 8}
 
 
@@ -185,6 +206,10 @@ def verilog_params(contract):
     logic = sum((c['kind'] == 'logic') << i for i, c in enumerate(contract['cells']))
     if logic:
         p['LOGIC'] = f"{n}'d{logic}"
+    if contract['layout'].get('dyn_slots'):
+        p['DSLOTS'] = contract['layout']['dyn_slots']
+    if contract['layout'].get('ctx_tracks', 0b1111) != 0b1111:
+        p['CTX_TRACKS'] = f"4'd{contract['layout']['ctx_tracks']}"
     return p
 
 
@@ -329,12 +354,37 @@ class ConfigSim(Grid):
     def field(self, lsb, width):
         return (self.bits >> lsb) & ((1 << width) - 1)
 
+    def slot(self, cell, ctx, index):
+        """A dynamic slot's value for selector `index` in context ctx > 0,
+        or None (the static value applies). The first matching slot wins."""
+        lay = self.lay
+        if not lay.get('dyn_slots') or ctx == 0 or self.contexts(cell) == 1:
+            return None
+        sl = lay['slot']
+        for s in range(lay['dyn_slots']):
+            base = cell * lay['cell_bits'] + lay['track_lsb'] + sl['lsb'] + sl['bits'] * s
+            if self.field(base, 5) == index:
+                return self.field(base + 5 * ctx, 5)
+        return None
+
     def track_sel(self, cell, ctx, d, t):
         lay = self.lay
+        if lay.get('dyn_slots') and self.contexts(cell) > 1:
+            v = self.slot(cell, ctx, lay['slot']['track_first'] + 4 * DIRS.index(d) + t)
+            if v is not None:
+                return v & 7
+            ctx = 0
+        if not (lay.get('ctx_tracks', 0b1111) >> t) & 1:
+            ctx = 0
         return self.field(cell * lay['cell_bits'] + lay['track_lsb'] + 48 * ctx + 12 * DIRS.index(d) + 3 * t, 3)
 
     def sink_sel(self, cell, ctx, k):
         lay = self.lay
+        if lay.get('dyn_slots') and self.contexts(cell) > 1:
+            v = self.slot(cell, ctx, lay['slot']['sink_first'] + k)
+            if v is not None:
+                return v
+            ctx = 0
         return self.field(cell * lay['cell_bits'] + lay['sink_lsb'] + 5 * lay['sink_slots'] * ctx + 5 * k, 5)
 
     def trans(self, cell, ctx):

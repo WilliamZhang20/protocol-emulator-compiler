@@ -992,13 +992,57 @@ def field_word(reg, val):
     return word
 
 
+def dynamic_slots(arch, fields):
+    """With a static/dynamic split (layout dyn_slots), the selectors of a
+    contexted cell whose value differs between contexts, as slots {cell:
+    [(index, [value in contexts 1-3])]}; a cell needing more slots than the
+    contract has is refused (a hardware limit of this placement)."""
+    lay = arch.c['layout']
+    sl = lay['slot']
+    per = {}
+    for key, v in fields.items():
+        cell, what, ctx = key[:3]
+        if what == 'trans' or arch.contexts(cell) == 1:
+            continue
+        if what == 'track':
+            d, t = key[3:]
+            idx = sl['track_first'] + 4 * DIRS.index(d) + t
+        else:
+            idx = sl['sink_first'] + key[3]
+        per.setdefault(cell, {}).setdefault(idx, [0, 0, 0, 0])[ctx] = v
+    slots = {}
+    for cell, sels in per.items():
+        dyn = [(idx, vals[1:]) for idx, vals in sorted(sels.items()) if len(set(vals)) > 1]
+        if len(dyn) > lay['dyn_slots']:
+            raise MapError('hardware', f'cell {cell}: {len(dyn)} selectors change between contexts, '
+                           f'the contract has {lay["dyn_slots"]} dynamic slots')
+        if dyn:
+            slots[cell] = dyn
+    return slots
+
+
 def pack(arch, fields, tiles, wnet):
     lay = arch.c['layout']
     bits = 0
+    split = lay.get('dyn_slots', 0)
+    if split:
+        sl = lay['slot']
+        for cell, dyn in dynamic_slots(arch, fields).items():
+            for s, (idx, vals) in enumerate(dyn):
+                word = idx | sum(v << (5 * (k + 1)) for k, v in enumerate(vals))
+                bits |= word << (cell * lay['cell_bits'] + lay['track_lsb'] + sl['lsb'] + sl['bits'] * s)
     for key, v in fields.items():
         cell, what, ctx = key[:3]
         if ctx and arch.kind(cell) == 'logic':
             continue           # one context: contexts 1-3's bits are the LUT field
+        if ctx and split and what != 'trans':
+            continue           # split: contexts 1-3 differ only through the slots
+        if ctx and what == 'track' and not (lay.get('ctx_tracks', 0b1111) >> key[4]) & 1:
+            # fixed split: this track index is held once
+            if fields.get(key[:2] + (0,) + key[3:], 0) != v:
+                raise MapError('routing', f'cell {cell}: track {key[3]}{key[4]} changes with the context; '
+                               f'only tracks {lay["ctx_tracks"]:04b} (mask) are held per context')
+            continue
         base = cell * lay['cell_bits']
         if what == 'track':
             d, t = key[3:]
@@ -1114,6 +1158,26 @@ def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries
     and the contract; routing failures here are heuristic)."""
     arch = RRG(contract)
     nl = Netlist(designs)
+    slots = contract['layout'].get('dyn_slots')
+    if slots:
+        # Proven by counting: a muxed signal changes at a selector of its
+        # FSM's switch, one selector carries one signal, so an FSM with M
+        # muxes needs M dynamic selectors in its cell, wherever it is placed.
+        # (Only muxes something reads: a consumer, or another FSM's
+        # transition row; an FSM's own rows are resolved per context. A
+        # replicated FSM's copies are FSMs of their own.)
+        read = {c['sig'] for c in nl.consumers}
+        read |= {sig for b, v in nl.blocks.items() if v['kind'] == 'fsm' for _, sig, _ in v['on']
+                 if nl.signals[sig]['type'] == 'mux' and nl.signals[sig]['fsm'] != b}
+        per = {}
+        for m in nl.mux_order():
+            if m in read:
+                per[nl.signals[m]['fsm']] = per.get(nl.signals[m]['fsm'], 0) + 1
+        over = {f: n for f, n in per.items() if n > slots}
+        if over:
+            f, n = max(over.items(), key=lambda x: x[1])
+            raise MapError('resources', f'{f}: {n} muxed signals need {n} dynamic selectors in its switch; '
+                           f'the contract has {slots} dynamic slots')
     pl = Placement(arch, nl)
     last, too_long, n = None, None, 0
     for binding, wl, how in candidates(pl, seeds, moves, samples):
@@ -1129,6 +1193,7 @@ def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries
                 raise MapError('timing', f'{longest}: {hops} hops, the contract allows {bound}')
             fields = emit(arch, prob, routed)
             tiles, wn = tile_config(arch, nl, pl, binding)
+            bits = pack(arch, fields, tiles, wn)
         except MapError as e:
             if e.cls in ('resources',):
                 raise
@@ -1136,7 +1201,6 @@ def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries
             if e.cls == 'timing' and (too_long is None or _hops(e) < _hops(too_long)):
                 too_long = e
             continue
-        bits = pack(arch, fields, tiles, wn)
         problems = check(contract, nl, prob, bits)
         if problems:
             raise MapError('compiler', 'check failed: ' + '; '.join(problems[:5]))

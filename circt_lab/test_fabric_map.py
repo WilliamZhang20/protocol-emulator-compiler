@@ -131,6 +131,34 @@ def main():
     tight['timing']['max_route_hops'] = 1
     print('refused:', refused('timing', tight, [design('i2c_target')]))
 
+    # Static/dynamic split (FABRIC_REORG.md O3). Indexed slots: three slots
+    # compile and pass the check; one slot is refused by counting (an FSM
+    # here muxes two signals: resources), and a slot changed in one context
+    # is caught. The fixed split: one track of each turn class per context
+    # (tracks 0 and 2: tracks 0-1 turn onto vertical outputs only, 2-3 onto
+    # horizontal; with track 0 alone, or 0 and 1, this fixture does not
+    # route in 400 placements), every other track once.
+    from fabric_arch import make_contract
+    split3 = make_contract(C3['rows'], C3['cols'], K3, [c['contexts'] for c in C3['cells']],
+                           C3['word_port']['cell'], 'test_3x5c_d3', dyn_slots=3)
+    rs = compile_designs(split3, [design('i2c_target')], seeds=3, moves=500)
+    sl = split3['layout']['slot']
+    cells = [c for c in range(len(K3)) if split3['cells'][c]['contexts'] > 1 and
+             (rs['bits'] >> (512 * c + sl['lsb'])) & 31]
+    assert cells, 'no dynamic slot used'
+    print(f'compiled I2C target with 3 dynamic slots: slots in cells {cells}, check passed')
+    print('refused:', refused('resources', dict(split3, layout=dict(split3['layout'], dyn_slots=1)),
+                              [design('i2c_target')]))
+    c = cells[0]
+    lsb = 512 * c + sl['lsb'] + 5                      # slot 0's context-1 value
+    old = (rs['bits'] >> lsb) & 31
+    bad = flip_field(rs['bits'], lsb, 5, old ^ 1)
+    assert check(split3, rs['netlist'], rs['prob'], bad), 'a changed slot value passed the check'
+    fixed = make_contract(C3['rows'], C3['cols'], K3, [c['contexts'] for c in C3['cells']],
+                          C3['word_port']['cell'], 'test_3x5c_t5', ctx_tracks=0b0101)
+    rf = compile_designs(fixed, [design('i2c_target')], seeds=3, moves=500)
+    print(f'compiled I2C target with tracks 0 and 2 per context: {rf["tracks_used"]} track segments, check passed')
+
     vectors = {'i2c_target+uart_rx': (bits, [[], ['+UART'], ['+UART', '+HALF=4', '+SETUP=1', '+HOLD=4']])}
     for name, mode in (('uart_tx', '+TX'), ('crc_tx', '+CRCTX')):
         r2 = compile_designs(C3, [design(name)])
