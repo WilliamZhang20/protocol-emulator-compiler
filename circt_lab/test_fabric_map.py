@@ -138,7 +138,7 @@ def main():
         print(f'compiled {name}: {r2["tracks_used"]} track segments, check passed')
 
     rtl = os.environ.get('RTL_ROOT')
-    if rtl and not (Path(rtl) / 'experiments/grid_fabric/reorg/mesh.v').exists():
+    if rtl and not mesh_dir(Path(rtl)):
         print(f'{rtl} has no reorg mesh (older hardware pin): pin-level run skipped')
         rtl = None
     if rtl:
@@ -155,8 +155,18 @@ def main():
     print('PASS fabric compiler')
 
 
+def mesh_dir(rtl):
+    """Where the RTL repository keeps the mesh: src/ since the mesh chip,
+    experiments/grid_fabric/reorg/ before; None for an older pin."""
+    for d in (rtl / 'src', rtl / 'experiments/grid_fabric/reorg'):
+        if (d / 'mesh.v').exists():
+            return d
+    return None
+
+
 def run_rtl(rtl, contract, vectors):
     reorg = rtl / 'experiments/grid_fabric/reorg'
+    mesh = mesh_dir(rtl)
     tools = rtl / '.tools/oss-cad-suite/bin'
     iverilog = tools / 'iverilog' if (tools / 'iverilog').exists() else 'iverilog'
     vvp = tools / 'vvp' if (tools / 'vvp').exists() else 'vvp'
@@ -165,7 +175,7 @@ def run_rtl(rtl, contract, vectors):
         sim = Path(tmp) / 'sim'
         cmd = [str(iverilog), '-g2012', '-s', 'mesh_tb', '-o', str(sim)]
         cmd += [f'-Pmesh_tb.{k}={v}' for k, v in params.items()]
-        cmd += [str(reorg / f) for f in ('mesh_tb.sv', 'mesh.v', 'ctx_switch.v', 'io_tile.v', 'wnet.v')]
+        cmd += [str(reorg / 'mesh_tb.sv')] + [str(mesh / f) for f in ('mesh.v', 'ctx_switch.v', 'io_tile.v', 'wnet.v')]
         cmd += [str(rtl / 'src' / f) for f in ('grid_timer.v', 'fabric_shifter.v', 'fabric_crc.v', 'fabric_counter.v', 'config_bank.v')]
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         for name, (bits, runs) in vectors.items():

@@ -87,6 +87,28 @@ class LowerError(ValueError):
         self.cls = cls
 
 
+def _strip(e):
+    """An IR expression without source spans (to compare two by value)."""
+    if isinstance(e, dict):
+        return {k: _strip(v) for k, v in e.items() if k != 'source_span'}
+    if isinstance(e, list):
+        return [_strip(v) for v in e]
+    return e
+
+
+def _field_word(reg, fields):
+    """A register word from named fields through the contract's field map."""
+    word = 0
+    for name, x in fields.items():
+        if name == 'parity' and isinstance(x, str):
+            x = reg['parity'][x]
+        hi, lo = reg['fields'][name]
+        if not 0 <= int(x) < (1 << (hi - lo + 1)):
+            raise LowerError('hardware', f'register field {name} = {x} does not fit [{hi}:{lo}]')
+        word |= int(x) << lo
+    return word
+
+
 def _int(expr, env):
     k = expr['kind']
     if k == 'integer':
@@ -109,10 +131,12 @@ class Lowering:
         self.ir, self.name, self.pads = ir, name, dict(pads)
         self.items = ir['items']
         self.inputs = ir['connections']['inputs']
-        self.env = {}
+        self.env, self.lists = {}, {}
         for i in self.items:
             if i['kind'] == 'constant' and i['value']['kind'] in ('integer', 'quantity'):
                 self.env[i['name']] = _int(i['value'], {})
+            elif i['kind'] == 'constant' and i['value']['kind'] == 'list':
+                self.lists[i['name']] = i['value']
         self.pins = {i['name']: i for i in self.items if i['kind'] == 'pin'}
         self.res = {i['name']: i for i in self.items if i['kind'] == 'resource'}
         for p in self.pins:
@@ -125,13 +149,14 @@ class Lowering:
         self.fsms, self.signals, self.reg_sig = {}, {}, {}
         self.plans = {}
         self.machines = {i['name']: i for i in self.items if i['kind'] == 'machine'}
+        self.bidirectional = set()
         self.compares = {i['name']: i for i in self.items if i['kind'] == 'compare'}
 
     # ---- signals
     def event(self, pin, edge, qual=None):
         """The I/O output for a pin's level/rise/fall, optionally qualified."""
         if pin not in self.pins or self.pins[pin]['mode'] not in ('in', 'inout', 'open_drain'):
-            if pin in self.pins and self.pins[pin]['mode'] == 'out':
+            if pin in self.pins and self.pins[pin]['mode'] == 'out' and pin not in self.bidirectional:
                 raise LowerError('hardware', f'{pin} is an output pin; its level is not an input')
         key = (pin, edge, qual)
         if key not in self.events:
@@ -452,6 +477,14 @@ class Lowering:
 
     def functions(self):
         self.tx_via, self.rx_via, self.param_tiles = [], [], set()
+        self.fn_modes, self.fn_runs, self.loaded = {}, {}, set()
+        # Output pins a call releases and drives again are bidirectional: the
+        # pad's level (driven or not) is an input, as on every io cell.
+        self.bidirectional = {e['callee']['object']['name'] for fn in self.items if fn['kind'] == 'function'
+                              for st in fn['body'] if st['op'] == 'evaluate'
+                              for e in [st['expression']] if e['kind'] == 'call'
+                              and e['callee'].get('kind') == 'field' and e['callee']['field'] in ('drive', 'release')
+                              and e['callee']['object'].get('kind') == 'name'}
         for fn in self.items:
             if fn['kind'] != 'function':
                 continue
@@ -462,8 +495,14 @@ class Lowering:
             plan = {'args': {}, 'steps': [{'op': 'clear'}]}
             ret = fn.get('returns')
             rx = ret.get('via') if ret else None
+            replies = [st for st in fn['body'] if st['op'] == 'reply']
+            mask = None
             if ret and not rx:
-                raise LowerError('compiler', f'{name}: a result not `via` a shifter is not lowered yet')
+                # `reply X.received` (optionally `& mask`): the result is the
+                # word shifter X receives, through the writer.
+                rx, mask = self.reply_shifter(name, replies)
+            elif replies:
+                raise LowerError('compiler', f'{name}: `reply` beside a `via` result')
             if rx:
                 self.rx_via.append(rx)
                 plan['returns'] = 'writer'
@@ -474,9 +513,71 @@ class Lowering:
                     plan['steps'].append({'op': 'send', 'arg': p})
                 else:
                     plan['args'][p] = 'value'
-            fired, waited = False, set()
+            fired, waited, changed, mode, waited_src = False, set(), set(), {}, set()
+
+            def before_fire(what):
+                if fired:
+                    raise LowerError('compiler', f'{name}: {what} after the transaction started: a host step is '
+                                     'safe only before the first `fire` (no transaction in flight); during a '
+                                     'transaction it must run on the fabric (an FSM), not lowered yet')
             for st in fn['body']:
                 op = st['op']
+                if op == 'reply':
+                    continue
+                if op == 'set':
+                    t = st['target']
+                    x = t.get('name') if t.get('kind') == 'name' else None
+                    if x not in self.res or self.res[x]['resource_kind'] != 'shifter':
+                        raise LowerError('compiler', f'{name}: `set` on {x or t.get("kind")} not lowered yet (shifters)')
+                    before_fire(f'`{x}.set`')
+                    fields = {f['name']: f['value'] for f in st['fields']}
+                    other = set(fields) - {'frame', 'idle', 'msb_first', 'sample'}
+                    if other:
+                        raise LowerError('compiler', f'{name}: `{x}.set` of {sorted(other)} not lowered yet')
+                    if 'sample' in fields:
+                        v = fields.pop('sample')
+                        if not (v['kind'] == 'binary' and v['op'] == 'at'):
+                            raise LowerError('compiler', f'{name}: `{x}.set` sample must be `<data> at <event>`')
+                        mode[('sample', x)] = v          # a route: selected by the mode machine
+                    if fields:                           # tile registers: a parameter write into the idle tile
+                        declared = {f['name']: f['value'] for f in self.res[x]['fields']}
+                        word = _field_word(self.registers['shifter']['frame'],
+                                           self.frame(x, {**declared, **fields}))
+                        plan['steps'].append({'op': 'param', 'tile': x, 'reg': 'frame', 'value': word})
+                        self.param_tiles.add(x)
+                    changed.add(x)
+                    continue
+                if op == 'evaluate':
+                    e = st['expression']
+                    c = e.get('callee', {})
+                    obj = c.get('object', {}).get('name') if e['kind'] == 'call' and c.get('kind') == 'field' else None
+                    meth = c.get('field')
+                    if obj in self.pins and meth in ('drive', 'release') and not e['args']:
+                        before_fire(f'`{obj}.{meth}()`')
+                        mode[('drive', obj)] = int(meth == 'drive')
+                        continue
+                    if obj in self.res and self.res[obj]['resource_kind'] == 'shifter' and meth == 'load' \
+                            and len(e['args']) == 1:
+                        # A loaded value is a tile-local write (the shifter's holding
+                        # register), not a stream: the reader stays free for streams.
+                        before_fire(f'`{obj}.load`')
+                        self.loaded.add(obj)
+                        self.param_tiles.add(obj)
+                        plan['steps'].append({'op': 'param', 'tile': obj, 'reg': 'load',
+                                              'value': self.host_expr(e['args'][0]['value'], params)})
+                        changed.add(obj)
+                        continue
+                    if obj in self.res and self.res[obj]['resource_kind'] == 'shifter' and meth == 'send' \
+                            and len(e['args']) == 1:
+                        # Stored bytes: into SRAM by the host, streamed by the reader
+                        # (the same path as a `via` argument, with constant data).
+                        before_fire(f'`{obj}.send`')
+                        self.tx_via.append(obj)
+                        plan['steps'].append({'op': 'send', 'bytes': self.const_bytes(e['args'][0]['value'],
+                                                                                    f'{name}: {obj}.send')})
+                        continue
+                    what = f'{obj}.{meth}()' if obj else (c.get('name') or e['kind'])
+                    raise LowerError('compiler', f'{name}: `{what}` in a function is not lowered yet (L3)')
                 if op == 'assign':
                     t = st['target']
                     if not (t['kind'] == 'field' and t['object'].get('kind') == 'name'
@@ -499,6 +600,9 @@ class Lowering:
                     fired = True
                     plan['steps'].append({'op': 'fire', 'event': e})
                 elif op == 'wait' and not st.get('next'):
+                    w = st['signal']
+                    if w['kind'] == 'field' and w['object'].get('kind') == 'name':
+                        waited_src.add(f"{w['object']['name']}.{w['field']}")
                     sig = self.leaf(st['signal'], f'{name}: wait')
                     if not isinstance(sig, str) or '.' not in sig:
                         raise LowerError('compiler', f'{name}: wait on {sig}: only a tile output has a host flag')
@@ -514,9 +618,101 @@ class Lowering:
                     plan['steps'].append({'op': 'wait_bytes', 'count': self.host_expr(st['count'], params)})
                 else:
                     raise LowerError('compiler', f'{name}: `{op}` in a function is not lowered yet (L3)')
+            for x in sorted(changed):
+                if f'{x}.done' not in waited_src:
+                    raise LowerError('compiler', f'{name}: the host changes {x} before the transaction but the call '
+                                     f'does not wait for `{x}.done`, so the next call could change it mid-word')
+            if mode:
+                self.fn_modes[name] = (mode, len(plan['steps']) > 1)
+            self.fn_runs[name] = (changed, bool(rx))
             if rx:
-                plan['steps'].append({'op': 'reply'})
+                if replies:                              # one received word: wait until it is in SRAM
+                    plan['steps'].append({'op': 'wait_bytes', 'count': 1})
+                plan['steps'].append({'op': 'reply', **({'mask': mask} if mask is not None else {})})
             self.plans[name] = plan
+        # A transaction on the result shifter receives a word even when the
+        # call returns nothing (a send also samples): the call drains it into
+        # SRAM before returning, so every call's result starts aligned.
+        for fn, (runs, returns) in self.fn_runs.items():
+            if not returns and runs & set(self.rx_via):
+                self.plans[fn]['steps'].append({'op': 'wait_bytes', 'count': 1})
+        self.mode_machine()
+
+    def const_bytes(self, e, where):
+        if e['kind'] == 'name' and e['name'] in self.lists:
+            e = self.lists[e['name']]
+        if e['kind'] != 'list':
+            raise LowerError('compiler', f'{where}: bytes that are not a constant list are not lowered yet')
+        out = [_int(v, self.env) for v in e['values']]
+        if any(not 0 <= v < 256 for v in out):
+            raise LowerError('compiler', f'{where}: a value outside a byte')
+        return out
+
+    def reply_shifter(self, name, replies):
+        if len(replies) != 1:
+            raise LowerError('compiler', f'{name}: a result needs one `reply` (or `-> bytes via <shifter>`)')
+        v, mask = replies[0]['value'], None
+        if v['kind'] == 'binary' and v['op'] == '&' and v['right']['kind'] == 'integer':
+            v, mask = v['left'], _int(v['right'], self.env)
+        x = v['object'].get('name') if v['kind'] == 'field' and v['field'] == 'received' else None
+        if x not in self.res or self.res[x]['resource_kind'] != 'shifter':
+            raise LowerError('compiler', f'{name}: a result other than a shifter\'s received word is not lowered yet')
+        return x, mask
+
+    def mode_machine(self):
+        """Routes and pad drive that calls `set` before their transaction
+        become a machine the host switches (a preconfigured context per
+        mode): one state per distinct mode, entered by a host event at the
+        start of a call. A call that sets nothing leaves the mode as it is."""
+        self.mode_route = {}
+        if not self.fn_modes:
+            return
+        keys = sorted({k for m, _ in self.fn_modes.values() for k in m})
+        modes, of = [], {}
+        for fn, (m, _) in self.fn_modes.items():
+            if set(m) != set(keys):
+                raise LowerError('compiler', f'{fn}: sets {sorted(m)} but other calls set {keys}; a call must set '
+                                 'every mode-selected route and pad drive (a partial mode is not lowered yet)')
+            sig = json.dumps([_strip(m[k]) for k in keys], sort_keys=True)
+            if sig not in modes:
+                modes.append(sig)
+            of[fn] = modes.index(sig)
+        values = [[json.loads(sig)[i] for sig in modes] for i in range(len(keys))]
+        for k, v in zip(keys, values):
+            if k[0] == 'sample' and len({json.dumps(x['left'], sort_keys=True) for x in v}) > 1:
+                raise LowerError('compiler', f'{k[1]}: calls sample different data; only the sampling event may '
+                                 'change by mode')
+        if len(modes) == 1:
+            for k, v in zip(keys, values):
+                self.mode_route[k] = (v[0]['left'], v[0]['right']) if k[0] == 'sample' else \
+                    {'kind': 'integer', 'value': str(v[0])}
+            return
+        n = len(modes)
+        if n > self.limits['states']:
+            raise LowerError('hardware', f'{n} distinct modes set by calls; a mode machine holds {self.limits["states"]}')
+        if n - 1 > self.limits['transitions']:
+            raise LowerError('hardware', f'{n} modes need {n - 1} transitions per state; this fabric takes '
+                             f'{self.limits["transitions"]}')
+        events = [f'_mode{i}' for i in range(n)]
+        self.machines['_mode'] = {'name': '_mode', 'states': [
+            {'name': f'M{j}', 'on': [{'event': {'kind': 'name', 'name': events[i]}, 'to': f'M{i}'}
+                                     for i in range(n) if i != j]} for j in range(n)]}
+        self.declared += [e for e in events if e not in self.declared]
+        for fn, j in of.items():
+            self.plans[fn]['steps'].insert(1, {'op': 'fire', 'event': events[j]})
+            if events[j] not in self.host_events:
+                self.host_events.append(events[j])
+
+        def select(vals):
+            e = vals[-1]
+            for j in range(n - 2, -1, -1):
+                e = {'kind': 'if', 'condition': {'kind': 'field', 'object': {'kind': 'name', 'name': '_mode'},
+                                                  'field': f'M{j}'},
+                     'yes': vals[j], 'no': e}
+            return e
+        for k, v in zip(keys, values):
+            self.mode_route[k] = (v[0]['left'], select([x['right'] for x in v])) if k[0] == 'sample' else \
+                select([{'kind': 'integer', 'value': str(x)} for x in v])
 
     # ---- resources
     def lower(self):
@@ -548,7 +744,8 @@ class Lowering:
                 d = f'{name}_out'
                 drivers[d] = {'pin': name, 'push_pull': p['mode'] == 'out'}
                 connect[f'{d}.value'] = self.signal(drive)
-                connect[f'{d}.enable'] = 1
+                en = self.mode_route.get(('drive', name))
+                connect[f'{d}.enable'] = 1 if en is None else self.expr_signal(en, f'pin {name} drive')
         words = self.streams(tiles)
         self.pin_reference(tiles, connect)
         for e in self.declared:
@@ -589,6 +786,7 @@ class Lowering:
                 connect[f'{name}.{sink}'] = self.signal(ports[port])
         if 'run' in f and f['run'] is not None and f['run']['kind'] == 'integer':
             connect[f'{name}.start'] = 1 if _int(f['run'], self.env) else 0
+            ports = {k: v for k, v in ports.items() if k != 'timer.run'}     # `run: 1` is the held start
         extra = set(ports) - {'timer.start', 'timer.stop'}
         if extra:
             raise LowerError('compiler', f'{name}: inputs {sorted(extra)} not lowered yet')
@@ -674,6 +872,16 @@ class Lowering:
         if 'shifter.shift' in ports:
             connect[f'{name}.shift'] = self.signal(ports['shifter.shift'])
             spec['step']['shift'] = 'shift'
+        route = self.mode_route.get(('sample', name))
+        if route is not None:                    # set by calls: the data, and the event by mode
+            connect[f'{name}.in'] = self.expr_signal(route[0], f'{name} sample data')
+            spec['io']['in'] = True
+            at = self.expr_signal(route[1], f'{name} sample event')
+            if at is None:
+                raise LowerError('hardware', f'{name}: the sampling event chosen by mode needs logic')
+            connect[f'{name}.sample'] = at
+            spec['step']['sample'] = 'sample'
+            ports = {k: v for k, v in ports.items() if k not in ('shifter.sample_at', 'shifter.sample_data')}
         if 'shifter.sample_at' in ports:
             at = self.signal(ports['shifter.sample_at'])
             if at == connect.get(f'{name}.shift'):
@@ -743,6 +951,11 @@ class Lowering:
                     self.connect['words.gate'] = gate[1]
             elif gate and gate[0]['from'].get('name') == sh:
                 raise LowerError('hardware', f'stream {gate[0]["name"]}: a gate only on the stream into the writer')
+        for sh in sorted(self.loaded):
+            if sh in tx_sh:
+                raise LowerError('hardware', f'{sh}: loaded by calls and fed by a stream; the word network feeds a '
+                                 'shifter or its holding register does, not both')
+            tiles[sh]['io']['auto_pull'] = True
         if tx_sh:
             sh = tx_sh[0]
             tiles[sh]['io']['auto_pull'] = True
@@ -797,6 +1010,7 @@ def model_ir(frontend, source):
 def lower(ir, name, pads, contract):
     lw = Lowering(ir, name, pads)
     lw.latency = contract['latency']
+    lw.registers = contract['registers']
     lw.limits = {'states': contract['layout']['contexts'], 'transitions': contract['layout']['transition_rows']}
     return lw.lower()
 

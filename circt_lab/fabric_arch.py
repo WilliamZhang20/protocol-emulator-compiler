@@ -92,6 +92,9 @@ REGISTERS = {
                                        'tail_length': [14, 9], 'manchester': [15, 15]}},
         'coder2': {'reg': 6, 'fields': {'stuff_gate_level': [4, 0], 'stuff_gated': [5, 5], 'crc_skip': [12, 6],
                                         'link_data_only': [13, 13]}},
+        # Not a configuration register: mesh.v's holding register, a loaded
+        # value the shifter sends when its transaction starts (param port only).
+        'load': {'reg': 7, 'fields': {'value': [7, 0]}},
     },
     'counter': {
         'limit': {'reg': 0, 'fields': {'limit': [7, 0]}},
