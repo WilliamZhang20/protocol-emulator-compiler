@@ -168,6 +168,7 @@ class Lowering:
         self.timer_cells = None    # the contract's timer cells (small timers become LUTs past them)
         self.sig_alias = {}        # tile output -> LUT, for tiles lowered to LUTs
         self.seq_flags, self.seq_events, self.drive_flag = {}, {}, {}
+        self.armed = {}            # (signal, event) -> (arm flag, fire LUT)
 
     # ---- signals
     def event(self, pin, edge, qual=None):
@@ -744,8 +745,8 @@ class Lowering:
             elif st['op'] == 'evaluate':
                 e = st['expression']
                 on = [a['value'].get('name') for a in e['args']]
-                cur = {f: int(f in on) for f in self.flag_init if not f.startswith('_drive')}
-                cur.update({f: v for f, v in self.flag_init.items() if f.startswith('_drive')})
+                cur = {f: int(f in on) for f in self.flag_init if not f.startswith('_')}
+                cur.update({f: v for f, v in self.flag_init.items() if f.startswith('_')})
             else:
                 raise LowerError('compiler', f'{where}: `{st["op"]}` in a wire-timed segment is not lowered yet')
         if cur != values[0]:
@@ -786,6 +787,45 @@ class Lowering:
         if last_fire is None:
             self.raw_lut(f'{tag}_fire{n - 1}', AND(K(q[n - 1]), K(c[n - 1])), where)
         return f'lut:{tag}_fire{n - 1}'
+
+    def free_running(self, sig):
+        """A timer output the host does not cause (its run and start are
+        constants): a time reference the fabric keeps on its own."""
+        if sig['kind'] != 'field' or sig['object'].get('kind') != 'name':
+            return False
+        o = sig['object']['name']
+        if o not in self.res or self.res[o]['resource_kind'] != 'timer':
+            return False
+        return all(not c['references'] for c in self.inputs
+                   if c['consumer'] == o and c['port'] in ('timer.start', 'timer.run'))
+
+    def armed_fire(self, fn, wait, event):
+        """`wait next T; fire E` with T a free-running timer: E is timed by
+        T, so it fires in the fabric on T's next output once the host arms
+        it (a host flag): fire' = arm && T && !done, done' = arm && (done ||
+        T), one pulse per arming, one clock after T. The host arms it after
+        its previous step (well inside T's period), waits for the fire and
+        disarms it: the host's latency moves no wire edge."""
+        K = lambda k: {'kind': 'key', 'key': k}
+        AND = lambda a, b: {'kind': 'binary', 'op': '&&', 'left': a, 'right': b}
+        where = f'{fn}: fire {event} after wait next'
+        tick = self.lkey(wait, where)
+        key = (json.dumps(tick, sort_keys=True), event)
+        if key not in self.armed:
+            if event in self.seq_events or event in self.host_events:
+                raise LowerError('compiler', f'{where}: {event} is also fired elsewhere (by the host or another '
+                                 'reference); one event has one source')
+            n = len(self.armed)
+            arm, fire, done = f'_arm{n}', f'_armfire{n}', f'_armdone{n}'
+            self.flag_init[arm] = 0
+            self.raw_lut(fire, AND(AND(K(f'flag:{arm}'), K(tick)), {'kind': 'unary', 'op': '!', 'value': K(f'lut:{done}')}), where)
+            self.raw_lut(done, AND(K(f'flag:{arm}'), {'kind': 'binary', 'op': '||', 'left': K(f'lut:{done}'), 'right': K(tick)}), where)
+            self.armed[key] = (arm, f'lut:{fire}')
+            self.seq_events[event] = f'lut:{fire}'
+            self.fired_in_fabric.append(event)
+        arm, fire = self.armed[key]
+        return [{'op': 'clear', 'keep': True}, {'op': 'flags', 'values': {arm: 1}},
+                {'op': 'wait', 'signal': fire, 'armed': True}, {'op': 'flags', 'values': {arm: 0}}]
 
     def drive_flags(self):
         """Pins a call drives and releases (both in one call): their pad
@@ -891,8 +931,18 @@ class Lowering:
             body = expand(fn['body'])
             seg = self.wire_segment(body, [t['via'] for t in params.values() if t.get('via')]) \
                 if self.logic else None
+            skip = set()
             for idx, st in enumerate(body):
                 op = st['op']
+                if idx in skip:
+                    continue
+                if self.logic and op == 'wait' and st.get('next') and idx + 1 < len(body) and \
+                        body[idx + 1]['op'] == 'fire' and self.free_running(st['signal']) and \
+                        not (seg and seg[0] <= idx <= seg[1]):
+                    plan['steps'] += self.armed_fire(name, st['signal'], body[idx + 1]['event'])
+                    fired = True
+                    skip.add(idx + 1)
+                    continue
                 if seg and idx == seg[0]:
                     done = self.sequencer(name, body[seg[0]:seg[1] + 1])
                     plan['steps'].append({'op': 'wait', 'signal': done})
@@ -938,7 +988,7 @@ class Lowering:
                         if any(f not in self.flag_init for f in on):
                             raise LowerError('compiler', f'{name}: {c["name"]} of an undeclared flag')
                         plan['steps'].append({'op': 'flags', 'values': {f: int(f in on) for f in self.flag_init
-                                                                        if not f.startswith('_drive')}})
+                                                                        if not f.startswith('_')}})
                         continue
                     if obj in self.drive_flag and meth in ('drive', 'release') and not e['args']:
                         v = {self.drive_flag[obj]: int(meth == 'drive')}
@@ -990,6 +1040,8 @@ class Lowering:
                     e = st['event']
                     if e not in self.declared:
                         raise LowerError('compiler', f'{name}: fire of unknown event {e}')
+                    if e in self.seq_events:
+                        raise LowerError('compiler', f'{name}: the host fires {e}, which the fabric also fires')
                     if e not in self.host_events:
                         self.host_events.append(e)
                     fired = True
@@ -1040,7 +1092,7 @@ class Lowering:
                     later = next((x for x in steps[i + 1:] if x['op'] in ('wait', 'clear')), None)
                     again = next((j for j in range(i + 1, len(steps))
                                   if steps[j]['op'] == 'wait' and steps[j]['signal'] == st['signal']), None)
-                    if again is not None and steps[again - 1]['op'] != 'clear' and \
+                    if again is not None and steps[again - 1]['op'] != 'clear' and not st.get('armed') and \
                             not (later and later['op'] == 'clear'):
                         out.append({'op': 'clear'})
             plan['steps'] = out
@@ -1054,8 +1106,9 @@ class Lowering:
             # came before the host got to the call still counts (the host's
             # latency is not the fabric's to hide).
             first = next((st['op'] for st in plan['steps'] if st['op'] in ('fire', 'wait', 'send')), None)
-            if first == 'wait' and not mode and plan['steps'][0]['op'] == 'clear':
+            if first == 'wait' and not mode and plan['steps'][0]['op'] == 'clear' and not plan['steps'][0].get('keep'):
                 plan['steps'] = plan['steps'][1:]            # only the call-start clear
+            plan['steps'] = [{k: v for k, v in st.items() if k not in ('keep', 'armed')} for st in plan['steps']]
             if mode:
                 self.fn_modes[name] = (mode, len(plan['steps']) > 1)
             self.fn_runs[name] = (changed, bool(rx))
