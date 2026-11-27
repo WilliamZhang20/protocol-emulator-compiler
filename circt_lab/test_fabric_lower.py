@@ -58,7 +58,7 @@ def main():
         try:
             r = build(contract, src, frontend)[3]
             compiled.add(src.stem)
-            result = f'compiled: {r["tracks_used"]} track segments, check passed'
+            result = f'compiled: {r["tracks_used"]} track segments, longest route {r["max_hops"]} hops, check passed'
         except LowerError as e:
             refused[e.cls] += 1
             result = f'refused ({e.cls}): {str(e).split(": ", 1)[-1]}'

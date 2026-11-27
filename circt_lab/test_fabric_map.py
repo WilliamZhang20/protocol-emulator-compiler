@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fabric_arch import DIRS, test_mesh, verilog_params
+from fabric_arch import DIRS, KINDS, test_mesh, verilog_params
 from fabric_map import MapError, Netlist, check, compile_designs, hexfile
 
 HERE = Path(__file__).resolve().parent
@@ -110,11 +110,26 @@ def main():
     u3['pins'] = {'rx': 4}
     print('refused:', refused('resources', C3, [design('uart_rx'), u2, u3, design('i2c_target')]))
 
+    # A shifter's stop into its own start: loop-free on this mesh (its
+    # outputs are registered at the cell boundary), and refused by the
+    # mapper's loop check if a kind presented the path combinationally.
     lp = design('uart_tx')
     lp['name'] = 'loop'
-    lp['connect']['tx.start'] = 'tx.stop'           # a shifter's combinational stop into its own start
+    lp['connect']['tx.start'] = 'tx.stop'
     lp['tiles']['tx'].setdefault('io', {})['start'] = 'start'
-    print('refused:', refused('rules', C3, [lp]))
+    compile_designs(C3, [lp], seeds=3, moves=500)
+    print('compiled: a shifter\'s stop into its own start (registered at the cell boundary)')
+    KINDS['shifter']['comb'] = {'stop': ['start']}
+    try:
+        print('refused:', refused('rules', C3, [lp]))
+    finally:
+        KINDS['shifter']['comb'] = {}
+
+    # The route-length bound (contract timing.max_route_hops) refuses a
+    # placement it cannot meet; the I2C target needs 2 hops or more.
+    tight = json.loads(json.dumps(C3))
+    tight['timing']['max_route_hops'] = 1
+    print('refused:', refused('timing', tight, [design('i2c_target')]))
 
     vectors = {'i2c_target+uart_rx': (bits, [[], ['+UART'], ['+UART', '+HALF=4', '+SETUP=1', '+HOLD=4']])}
     for name, mode in (('uart_tx', '+TX'), ('crc_tx', '+CRCTX')):

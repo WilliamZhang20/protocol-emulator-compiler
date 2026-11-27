@@ -38,6 +38,7 @@ Hardware rules the compiler enforces (FABRIC_REORG.md, criteria 1-2):
   consumed only at its FSM's own cell.
 """
 import heapq
+import re
 import itertools
 import json
 import random
@@ -48,7 +49,8 @@ from fabric_arch import DIRS, KINDS, RRG, ConfigSim, config_bits
 
 class MapError(Exception):
     """A mapping failure with its class: 'resources' (proven by counting),
-    'rules' (the source breaks a hardware rule), 'routing' (heuristic)."""
+    'rules' (the source breaks a hardware rule), 'routing' (heuristic),
+    'timing' (a route longer than the contract's max_route_hops)."""
 
     def __init__(self, cls, msg):
         super().__init__(f'{cls}: {msg}')
@@ -727,6 +729,35 @@ def route(rrg, prob, max_iterations=60, pres_fac=0.5, pres_mult=1.4, hist_fac=1.
     raise MapError('routing', f'congestion after {max_iterations} iterations ({len(overused)} overused nodes)')
 
 
+def route_hops(routed):
+    """The longest combinational route, in track segments (hops): per net,
+    the most segments from its source to a sink; a mux feeder continues
+    into the mux net it feeds (the X track carries the same wire), so its
+    hops add to that net's. Returns (hops, net name)."""
+    trees, memo = routed['trees'], {}
+
+    def longest(name, seen=()):
+        if name in memo:
+            return memo[name]
+        if name in seen:
+            raise MapError('rules', f'mux nets feed each other: {name}')
+        children = {}
+        for a, b in trees[name]:
+            children.setdefault(a, []).append(b)
+        sources = set(children) - {b for _, b in trees[name]}
+        best, stack = 0, [(n, 0) for n in sources]
+        while stack:
+            n, h = stack.pop()
+            if n[0] == 'feed' and n[1] in trees:
+                best = max(best, h + longest(n[1], seen + (name,)))
+            best = max(best, h)
+            stack += [(c, h + (c[0] == 'track')) for c in children.get(n, [])]
+        memo[name] = best
+        return best
+
+    return max(((longest(n), n) for n in trees), default=(0, None))
+
+
 # ------------------------------------------------------------------ emit
 
 def emit(arch, prob, routed):
@@ -1043,7 +1074,7 @@ def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries
     arch = RRG(contract)
     nl = Netlist(designs)
     pl = Placement(arch, nl)
-    last, n = None, 0
+    last, too_long, n = None, None, 0
     for binding, wl, how in candidates(pl, seeds, moves, samples):
         n += 1
         if n > tries:
@@ -1051,22 +1082,35 @@ def compile_designs(contract, designs, seeds=20, moves=4000, samples=3000, tries
         try:
             prob = Problem(arch, nl, pl, binding)
             routed = route(arch, prob)
+            hops, longest = route_hops(routed)
+            bound = contract.get('timing', {}).get('max_route_hops')
+            if bound is not None and hops > bound:
+                raise MapError('timing', f'{longest}: {hops} hops, the contract allows {bound}')
             fields = emit(arch, prob, routed)
             tiles, wn = tile_config(arch, nl, pl, binding)
         except MapError as e:
             if e.cls in ('resources',):
                 raise
             last = e
+            if e.cls == 'timing' and (too_long is None or _hops(e) < _hops(too_long)):
+                too_long = e
             continue
         bits = pack(arch, fields, tiles, wn)
         problems = check(contract, nl, prob, bits)
         if problems:
             raise MapError('compiler', 'check failed: ' + '; '.join(problems[:5]))
         tracks = {b for edges in routed['trees'].values() for _, b in edges if b[0] == 'track'}
-        return {'binding': binding, 'wirelength': wl, 'seed': how, 'tried': n, 'iterations': routed['iterations'],
+        return {'max_hops': hops, 'longest_net': longest,'binding': binding, 'wirelength': wl, 'seed': how, 'tried': n, 'iterations': routed['iterations'],
                 'tracks_used': len(tracks), 'bits': bits, 'prob': prob, 'routed': routed, 'netlist': nl,
                 'placement': pl, 'arch': arch}
-    raise MapError(last.cls if last else 'routing', f'no placement of {n - 1 if n > tries else n} tried routed; last: {last}')
+    tried = n - 1 if n > tries else n
+    if too_long:      # some placement routed, but none within the route-length bound
+        raise MapError('timing', f'no placement of {tried} tried meets the route-length bound; shortest: {too_long}')
+    raise MapError(last.cls if last else 'routing', f'no placement of {tried} tried routed; last: {last}')
+
+
+def _hops(e):
+    return int(re.search(r': (\d+) hops', str(e)).group(1))
 
 
 def hexfile(contract, bits):

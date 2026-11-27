@@ -33,10 +33,14 @@ KINDS = {
                 'sinks': ['start', 'shift', 'sample', 'abort', 'in'],
                 # fabric_shifter lines driven by the sinks; `in` is level 33.
                 'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33,
-                # combinational paths sink -> local (fabric_shifter word_pulse,
-                # stop_pulse); every other local output is a register
-                'comb': {'word': ['start', 'shift', 'sample', 'abort', 'in'],
-                         'stop': ['start', 'shift', 'sample', 'abort', 'in']}},
+                # combinational paths sink -> local, as the mesh cell presents
+                # them: none. fabric_shifter's word_pulse and stop_pulse are
+                # combinational in its lines, but the mesh registers them at
+                # the cell boundary (mesh.v REG=1, FABRIC_REORG.md step 5), one
+                # clock later, so every local output is a register and no
+                # configuration closes a loop. A kind that lists paths here
+                # is checked by the mapper (_no_comb_loop).
+                'comb': {}},
     # crc: fabric_crc; its direct link reaches the shifter west (link 0)
     # and east (link 1) of it. The word-port cell's locals 1-3 and sink 5
     # are the word network's bit port.
@@ -51,7 +55,9 @@ KINDS = {
     # marks counter cells with the CNT parameter.
     'counter': {'code': 4, 'locals': ['at_least', 'reached', 'unused2', 'unused3'],
                 'sinks': ['step', 'data', 'clear'], 'lines': {'step': 1, 'clear': 2}, 'levels': {'data': 33},
-                'comb': {'reached': ['step', 'data', 'clear']}},
+                # `reached` is combinational in fabric_counter, registered at
+                # the cell boundary like the shifter's word and stop.
+                'comb': {}},
 }
 
 ENCODING = {
@@ -106,6 +112,15 @@ REGISTERS = {
 # timer that shifts it.
 LATENCY = {'edge_to_sample': 1, 'start_to_shift': 2}
 
+# Route timing (FABRIC_REORG.md step 5). Routes are combinational across
+# switches. One hop measured 137 ps before layout (IHP liberty, a chain of
+# ctx_switch track paths); the tile and context-select logic around a route
+# is at most 8.9 ns over every configuration (the mesh synthesized with its
+# configuration free). The bound allows 0.5 ns per hop after layout within
+# the 20 ns clock (8.9 + 12 x 0.5 < 20); the mapper refuses a placement
+# whose longest route is longer. Step 6's post-layout STA recalibrates it.
+TIMING = {'clock_ps': 20000, 'hop_ps_synth': 137, 'max_route_hops': 12}
+
 LAYOUT = {'cell_bits': 512, 'track_lsb': 0, 'sink_lsb': 192, 'sink_slots': 6, 'trans_lsb': 312,
           'tile_lsb': 368, 'tile_bits': 144, 'wnet_bits': 128, 'contexts': 4, 'tracks': 4,
           'transition_rows': 2}
@@ -123,7 +138,7 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
             'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
             'kinds': KINDS, 'encoding': ENCODING, 'layout': LAYOUT, 'registers': REGISTERS,
-            'latency': LATENCY, 'pins': 8}
+            'latency': LATENCY, 'timing': TIMING, 'pins': 8}
 
 
 def verilog_params(contract):
