@@ -34,7 +34,10 @@ const FILES: [(&str, &str); 14] = [
     ("peers/swd.py", include_str!("../sim/peers/swd.py")),
     ("peers/jtag.py", include_str!("../sim/peers/jtag.py")),
     ("peers/i2c.py", include_str!("../sim/peers/i2c.py")),
-    ("peers/i2c_controller.py", include_str!("../sim/peers/i2c_controller.py")),
+    (
+        "peers/i2c_controller.py",
+        include_str!("../sim/peers/i2c_controller.py"),
+    ),
     ("peers/spi.py", include_str!("../sim/peers/spi.py")),
     ("peers/uart.py", include_str!("../sim/peers/uart.py")),
     ("peers/usb.py", include_str!("../sim/peers/usb.py")),

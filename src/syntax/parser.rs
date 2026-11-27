@@ -1,8 +1,8 @@
 //! Recursive-descent parser. Newlines are insignificant; every construct is
 //! self-delimiting, and commas between fields and statements are optional.
 use super::ast::{
-    Arg, ByteStage, MachineState, Expr, ExprKind, Field, Item, Name, Param, ProtocolTransition, Stmt, StmtKind,
-    Type,
+    Arg, ByteStage, Expr, ExprKind, Field, Item, MachineState, Name, Param, ProtocolTransition,
+    Stmt, StmtKind, Type,
 };
 use super::lexer::{Kind, Token};
 use crate::diagnostic::{Error, Result, Span};

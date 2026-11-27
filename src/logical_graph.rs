@@ -300,7 +300,9 @@ fn pin_qualifier(expr: &LogicalExpr, symbols: &BTreeMap<String, String>) -> Opti
                 _ => None,
             }
         }
-        LogicalExprKind::Name { name } if is_pin(name) => Some((name.clone(), LogicalSignalKind::Level)),
+        LogicalExprKind::Name { name } if is_pin(name) => {
+            Some((name.clone(), LogicalSignalKind::Level))
+        }
         _ => None,
     };
     for (a, b) in [(left, right), (right, left)] {
@@ -329,7 +331,8 @@ fn operand(expr: &LogicalExpr, symbols: &BTreeMap<String, String>) -> Operand {
                     if symbols.get(name).map(String::as_str) == Some("machine")));
             if !state {
                 return Operand::Invalid(
-                    "an `if` signal must select by a machine state (`if m.STATE { a } else { b }`)".into(),
+                    "an `if` signal must select by a machine state (`if m.STATE { a } else { b }`)"
+                        .into(),
                 );
             }
             let arms = [operand(then, symbols), operand(otherwise, symbols)];

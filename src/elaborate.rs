@@ -541,14 +541,22 @@ fn elaborate_inner<'a>(
                             "`{}` is a {}: it compiles only for the reorganised fabric \
                              (protocol-emulator-compiler circt_lab/fabric_build.py), not this chip",
                             name.text,
-                            if matches!(item, Item::Machine { .. }) { "machine" } else { "compare" }
+                            if matches!(item, Item::Machine { .. }) {
+                                "machine"
+                            } else {
+                                "compare"
+                            }
                         ),
                     ));
                 }
                 declare(name, None, &mut chip)?;
                 chip.fabric_only.insert(
                     name.text.clone(),
-                    if matches!(item, Item::Machine { .. }) { "machine" } else { "compare" },
+                    if matches!(item, Item::Machine { .. }) {
+                        "machine"
+                    } else {
+                        "compare"
+                    },
                 );
             }
         }
