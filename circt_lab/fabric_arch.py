@@ -463,8 +463,16 @@ def logic_meshes():
 
     def mesh(name, rows, cols, kinds, wp):
         return make_contract(rows, cols, kinds, [4 if k in (I, S, C) else 1 for k in kinds], wp, name)
-    return [mesh('mesh_3x5_L3', 3, 5, [T, L, I, L, T, S, C, S, C, I, T, K, L, K, T], 6),
-            mesh('mesh_3x4_L3', 3, 4, [T, L, I, L, S, C, S, I, T, K, L, K], 5)]
+    k35 = [T, L, I, L, T, S, C, S, C, I, T, K, L, K, T]
+    return [mesh('mesh_3x5_L3', 3, 5, k35, 6),
+            mesh('mesh_3x4_L3', 3, 4, [T, L, I, L, S, C, S, I, T, K, L, K], 5),
+            # The area-reduced 3 x 5 (FABRIC_REORG.md O3, single protocol):
+            # contexts only on the four cells programs switch (io (0,2),
+            # the word-port crc (1,1), shifter (1,2), io (1,4); the west
+            # shifter and east crc never use a second context), and only
+            # tracks 0 and 2 (one per turn class) held per context.
+            make_contract(3, 5, k35, [4 if i in (2, 6, 7, 9) else 1 for i in range(15)], 6, 'mesh_3x5_L3S',
+                          ctx_tracks=0b0101)]
 
 
 if __name__ == '__main__':
