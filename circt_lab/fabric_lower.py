@@ -151,6 +151,8 @@ class Lowering:
         self.machines = {i['name']: i for i in self.items if i['kind'] == 'machine'}
         self.bidirectional = set()
         self.compares = {i['name']: i for i in self.items if i['kind'] == 'compare'}
+        self.protocols = {p['name']: p for p in ir.get('protocols', [])}
+        self.proto_out, self.synth_tiles = {}, {}
 
     # ---- signals
     def event(self, pin, edge, qual=None):
@@ -243,6 +245,8 @@ class Lowering:
             return self.compare_out(name, out, where)
         if kind == 'event':
             return self.declared_event(name, where)
+        if kind == 'protocol':
+            return self.protocol(name, out, where)
         raise LowerError('compiler', f'{where}: a {kind} signal is not lowered yet (L3/L4)')
 
     def conns(self, consumer):
@@ -294,6 +298,85 @@ class Lowering:
             raise LowerError('compiler', f'{where}: {name} has no state {state}')
         self.machine(name)
         return {'fsm': name, 'cases': {state: 1}, 'default': 0}
+
+    def protocol(self, name, out, where):
+        """A protocol's action pulse, from its minimized machine (the
+        frontend's reachability and state classes). The mesh has no
+        Mealy-action tile, so a protocol lowers only where its minimized
+        shape is one the mesh has hardware for:
+          - a counting chain (each state advances on the input, holds
+            without it, the last state absorbs): action k on step i is a
+            counter tile counting the input, limit i+1, `reached` (the
+            saturating counter pulses once, as the absorbing chain does);
+          - a level tracker (two states following one input, which is low
+            at reset): an action on the low->high step is the input's rise,
+            on high->low its fall.
+        Anything else is refused: an action of a general machine needs a
+        pulse per transition, which the mesh's machines do not output."""
+        if (name, out) in self.proto_out:
+            return self.proto_out[(name, out)]
+        if not (out or '').startswith('action') or not out[6:].isdigit():
+            raise LowerError('compiler', f'{where}: protocol {name} has actions, not `.{out}`')
+        action = int(out[6:])
+        p = self.protocols.get(name)
+        if p is None:
+            raise LowerError('compiler', f'{where}: protocol {name} is not in the model IR')
+        if len(p['inputs']) != 1:
+            raise LowerError('hardware', f'protocol {name}: transitions on {len(p["inputs"])} inputs need logic '
+                             '(the mesh\'s machines take one signal per transition)')
+        reach = p['analysis']['reachable_states']
+        cls = {s: i for i, c in enumerate(p['analysis']['equivalence_classes']) for s in c}
+        rows = {}
+        for t in p['transitions']:
+            if t['from'] not in reach:
+                continue
+            key = (cls[t['from']], t['inputs'][0])
+            rows[key] = (cls[t['to']], t['action'])
+        n = len(p['analysis']['equivalence_classes'])
+
+        def step(c, v):            # unspecified rows hold silently
+            return rows.get((c, v), (c, None))
+        start = cls[p['initial_state']]
+        inp = p['inputs'][0]
+        if inp['kind'] != 'resource':
+            raise LowerError('hardware', f'protocol {name}: a constant input')
+        src = self.ref({'resolution': self.res[inp['name']]['resource_kind'] if inp['name'] in self.res
+                        else 'pin', 'name': inp['name'], 'output': inp['output']}, where)
+        # The chain order from the reset class.
+        order, c = [start], start
+        while len(order) <= n:
+            nxt = step(c, True)[0]
+            if nxt == c or nxt in order:
+                break
+            order.append(nxt)
+            c = nxt
+        chain = len(order) == n and all(step(c, False) == (c, None) for c in order) and \
+            step(order[-1], True) == (order[-1], None) and \
+            all(step(order[i], True)[0] == order[i + 1] for i in range(n - 1))
+        if chain:
+            at = [i for i in range(n - 1) if step(order[i], True)[1] == action]
+            if len(at) != 1:
+                raise LowerError('compiler', f'{where}: action {action} of protocol {name} is not on one step')
+            tile = f'_{name}_{out}'
+            self.synth_tiles[tile] = {'kind': 'counter', 'limit': at[0] + 1}
+            self.connect[f'{tile}.step'] = src
+            sig = f'{tile}.reached'
+        elif n == 2 and step(start, False) == (start, None) and step(1 - start, True) == (1 - start, None) \
+                and step(start, True)[0] == 1 - start and step(1 - start, False)[0] == start:
+            if inp['name'] not in self.res or self.res[inp['name']]['resource_kind'] != 'timer' \
+                    or inp['output'] != 'out':
+                raise LowerError('compiler', f'protocol {name}: a level tracker of {inp["name"]}.{inp["output"]} '
+                                 '(only a timer level, low at reset, is lowered)')
+            edges = {step(start, True)[1]: 'rise', step(1 - start, False)[1]: 'fall'}
+            if action not in edges:
+                raise LowerError('compiler', f'{where}: protocol {name} never fires action {action}')
+            sig = f'{inp["name"]}.{edges[action]}'
+        else:
+            raise LowerError('hardware', f'protocol {name}: {n} states after minimization, neither a counting '
+                             'chain nor a level tracker; its actions need a pulse per transition, which the '
+                             'mesh\'s machines do not output')
+        self.proto_out[(name, out)] = sig
+        return sig
 
     def compare_out(self, name, out, where):
         if out not in ('match', 'mismatch'):
@@ -357,6 +440,8 @@ class Lowering:
                 return self.state_level(n, out, where)
             if n in self.compares:
                 return self.compare_out(n, out, where)
+            if n in self.protocols:
+                return self.protocol(n, out, where)
             if n in self.pins and out in ('rise', 'fall'):
                 return self.event(n, out)
             if n in self.res:
@@ -622,6 +707,14 @@ class Lowering:
                 if f'{x}.done' not in waited_src:
                     raise LowerError('compiler', f'{name}: the host changes {x} before the transaction but the call '
                                      f'does not wait for `{x}.done`, so the next call could change it mid-word')
+            # A call that waits before it fires anything waits for an event it
+            # does not cause (a free-running or one-shot fabric output): its
+            # sticky flags are not cleared at the call's start, so an event that
+            # came before the host got to the call still counts (the host's
+            # latency is not the fabric's to hide).
+            first = next((st['op'] for st in plan['steps'] if st['op'] in ('fire', 'wait', 'send')), None)
+            if first == 'wait' and not mode:
+                plan['steps'] = [st for st in plan['steps'] if st['op'] != 'clear']
             if mode:
                 self.fn_modes[name] = (mode, len(plan['steps']) > 1)
             self.fn_runs[name] = (changed, bool(rx))
@@ -736,6 +829,7 @@ class Lowering:
                 tiles[name] = self.counter(name, fields, ports, connect)
             else:
                 raise LowerError('hardware', f'{name}: a {kind} resource has no fabric tile')
+        tiles.update(self.synth_tiles)
         for name, p in self.pins.items():
             if p['mode'] in ('out', 'open_drain'):
                 drive = self.conns(name).get('pin.drive')

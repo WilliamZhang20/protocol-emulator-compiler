@@ -1371,6 +1371,21 @@ fn run() -> AppResult<bool> {
             let mut document = serde_json::to_value(&program)?;
             document["requirements"] = serde_json::to_value(program.requirements())?;
             document["connections"] = serde_json::to_value(program.connection_graph())?;
+            // Each protocol's Mealy machine with its reachability and state
+            // classes, for backends that lower protocols themselves.
+            let protocols = spatial::extract_logical_protocols(&source).map_err(|error| {
+                Reported(error.render(&file.display().to_string(), &source, false))
+            })?;
+            document["protocols"] = protocols
+                .iter()
+                .map(|protocol| {
+                    let mut value = serde_json::to_value(protocol)?;
+                    value["analysis"] =
+                        serde_json::to_value(protocol.analyze().map_err(io::Error::other)?)?;
+                    Ok::<_, io::Error>(value)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into();
             println!("{}", serde_json::to_string_pretty(&document)?);
         }
         Command::ModelProtocol {
