@@ -44,7 +44,10 @@ KINDS = {
     # crc: fabric_crc; its direct link reaches the shifter west (link 0)
     # and east (link 1) of it. The word-port cell's locals 1-3 and sink 5
     # are the word network's bit port.
-    'crc': {'code': 3, 'locals': ['ok', 'avail', 'match', 'mismatch'],
+    # Local 1 is the crc's serial output `out` (a register: the inverted top
+    # bit); at the word port only with shape bit 10 (it is `avail` there
+    # otherwise).
+    'crc': {'code': 3, 'locals': ['ok', 'out', 'match', 'mismatch'],
             'sinks': ['init', 'absorb', 'emit', 'data', 'level', 'gate'],
             'lines': {'init': 1, 'absorb': 2, 'emit': 3}, 'levels': {'data': 33, 'level': 34},
             'links': ['west', 'east']},
@@ -58,6 +61,22 @@ KINDS = {
                 # `reached` is combinational in fabric_counter, registered at
                 # the cell boundary like the shifter's word and stop.
                 'comb': {}},
+    # logic: mesh_logic, eight 4-input LUTs with output registers (the
+    # source's `reg`s) and four host flags. LUTs are packed into logic tiles
+    # before placement (fabric_logic.py); a tile's external inputs are its
+    # six sinks, its own registers and flags are read inside the tile, and
+    # only q0-q3 leave it (the cell's four locals). Marked with the LOGIC
+    # parameter (its KINDS bits are ignored); one context: its LUT field
+    # (344 bits) is the tile field, the tracks of contexts 1-3 and the
+    # transition rows ('field').
+    'logic': {'code': 5, 'locals': ['q0', 'q1', 'q2', 'q3'], 'sinks': ['s0', 's1', 's2', 's3', 's4', 's5'],
+              'luts': 8, 'outputs': 4, 'flags': 4, 'lut_bits': 40, 'select_bits': 5,
+              'field': [['tile', 0, 144], ['track', 48, 144], ['trans', 0, 56]],
+              # LUT input select: sink k, LUT register q k, flag h k, constants
+              'select': {'sink_first': 0, 'q_first': 6, 'h_first': 14, 'zero': 18, 'one': 19},
+              # enable select: 0 every clock, 1 + k sink k, 7 never
+              'enable': {'always': 0, 'sink_first': 1, 'never': 7},
+              'comb': {}},
 }
 
 ENCODING = {
@@ -102,9 +121,16 @@ REGISTERS = {
                  'mode': {'count': 0, 'ones': 1, 'zeros': 2, 'equal': 3}},
         'clear': {'reg': 2, 'fields': {'clear_line': [4, 0]}},
     },
+    # A logic tile's host flags (param port while running: the flags in
+    # mask data[7:4] take data[3:0]).
+    'logic': {
+        'flags': {'reg': 0, 'fields': {'h': [3, 0], 'mask': [7, 4]}},
+    },
     'crc': {
         'shape': {'reg': 6, 'fields': {'width_minus_1': [4, 0], 'init_ones': [5, 5], 'linked': [6, 6],
-                                       'link_select': [7, 7], 'additive': [8, 8], 'twos_complement': [9, 9]}},
+                                       'link_select': [7, 7], 'additive': [8, 8], 'twos_complement': [9, 9],
+                                       # mesh.v: at the word port, local 1 is `out` (not `avail`)
+                                       'out_local': [10, 10]}},
     },
 }
 
@@ -137,6 +163,8 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
         raise ValueError('the word port must be a crc cell')
     if any(c not in (1, 4) for c in contexts):
         raise ValueError('contexts are 1 or 4')
+    if any(k == 'logic' and c != 1 for k, c in zip(kinds, contexts)):
+        raise ValueError('a logic cell has one context (its LUTs use the other contexts\' bits)')
     return {'schema': 'reorg.mesh.v1', 'name': name or f'mesh_{rows}x{cols}', 'rows': rows, 'cols': cols,
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
             'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
@@ -146,7 +174,7 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None):
 
 def verilog_params(contract):
     n = contract['rows'] * contract['cols']
-    code = lambda c: contract['kinds'][c['kind']]['code'] & 3 if c['kind'] != 'counter' else 1
+    code = lambda c: contract['kinds'][c['kind']]['code'] & 3 if c['kind'] not in ('counter', 'logic') else 1
     kinds = sum(code(c) << (2 * i) for i, c in enumerate(contract['cells']))
     ctx4 = sum((c['contexts'] == 4) << i for i, c in enumerate(contract['cells']))
     cnt = sum((c['kind'] == 'counter') << i for i, c in enumerate(contract['cells']))
@@ -154,6 +182,9 @@ def verilog_params(contract):
          'KINDS': f"{2 * n}'d{kinds}", 'CTX4': f"{n}'d{ctx4}"}
     if cnt:
         p['CNT'] = f"{n}'d{cnt}"
+    logic = sum((c['kind'] == 'logic') << i for i, c in enumerate(contract['cells']))
+    if logic:
+        p['LOGIC'] = f"{n}'d{logic}"
     return p
 
 
@@ -370,6 +401,20 @@ def test_mesh():
          'shifter', 'crc', 'shifter', 'crc', 'shifter',
          'timer', 'io', 'counter', 'io', 'timer']
     return make_contract(3, 5, k, [4 if x in ('io', 'crc', 'shifter') else 1 for x in k], 6, 'test_3x5c')
+
+
+def logic_meshes():
+    """The chips with logic cells (FABRIC_REORG.md: a little programmable
+    logic beside the coarse tiles; each branch's src/project.v is one):
+    3 x 5 with four timers (Ethernet's link timing), and 3 x 4 where the
+    small timers are LUTs. Contexts on io, shifter and crc cells; shifters
+    on both sides of the word-port crc (the I2C machines route only so)."""
+    T, I, S, C, K, L = 'timer', 'io', 'shifter', 'crc', 'counter', 'logic'
+
+    def mesh(name, rows, cols, kinds, wp):
+        return make_contract(rows, cols, kinds, [4 if k in (I, S, C) else 1 for k in kinds], wp, name)
+    return [mesh('mesh_3x5_L3', 3, 5, [T, L, I, L, T, S, C, S, C, I, T, K, L, K, T], 6),
+            mesh('mesh_3x4_L3', 3, 4, [T, L, I, L, S, C, S, I, T, K, L, K], 5)]
 
 
 if __name__ == '__main__':

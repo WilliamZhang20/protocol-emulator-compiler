@@ -17,7 +17,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from fabric_arch import REGISTERS, test_mesh
+from fabric_arch import REGISTERS, logic_meshes, test_mesh
 from fabric_build import FRONTEND, build, write
 from fabric_lower import LowerError
 from fabric_map import MapError
@@ -29,6 +29,9 @@ MUST_COMPILE = {'i2c_target', 'i2c_uart_tx', 'jtag', 'loopback', 'memory_bandwid
                 'memory_bandwidth_fast', 'protocol_control', 'protocol_control_controller',
                 'protocol_control_extended_actor', 'protocol_control_extended_actor_fast', 'ps2', 'spi',
                 'stored_bytes', 'swd', 'uart'}
+# With logic cells: everything above (no protocol is lost) and the programs
+# that need logic (USB, Ethernet).
+MUST_COMPILE_LOGIC = MUST_COMPILE | {'usb', 'ethernet_tx_coded', 'crc_link_trace'}
 
 
 def check_registers(rtl):
@@ -49,13 +52,9 @@ def check_registers(rtl):
     print(f'register maps agree with the hardware on {checked} fields')
 
 
-def main():
-    frontend = Path(os.environ.get('SPATIAL_FRONTEND', FRONTEND))
-    rtl = os.environ.get('RTL_ROOT')
-    rtl = Path(rtl) if rtl and (Path(rtl) / 'architecture/grid_5x3.json').exists() else None
-    if rtl:
-        check_registers(rtl)
-    contract = test_mesh()
+def coverage(contract, must, frontend, rtl):
+    """Every program on one contract: those in `must` compile, and the RTL
+    repository's committed programs for it (if any) match this compiler."""
     compiled, refused = set(), {'hardware': 0, 'compiler': 0}
     for src in sorted(EXAMPLES.glob('*.spt')) + sorted(EXAMPLES.glob('fabric/*.spt')):
         try:
@@ -70,16 +69,16 @@ def main():
             refused[f'map {e.cls}'] += 1
             result = f'map refused ({e.cls}): {e}'
         print(f'  {src.stem:38s} {result[:140]}')
-    missing = MUST_COMPILE - compiled
-    assert not missing, f'no longer compiles: {sorted(missing)}'
+    missing = must - compiled
+    assert not missing, f'{contract["name"]}: no longer compiles: {sorted(missing)}'
     print(f'coverage on {contract["name"]}: {len(compiled)} compiled, '
           + ', '.join(f'{n} refused ({k})' for k, n in refused.items()))
 
     committed = rtl / 'experiments/grid_fabric/reorg/compiled' if rtl else None
-    if committed and committed.exists():
-        plans = sorted(committed.glob(f'*.{contract["name"]}.plan.json'))
-        assert {p.name.split('.')[0] for p in plans} == MUST_COMPILE, \
-            f'RTL repository runs {[p.name for p in plans]}, expected {sorted(MUST_COMPILE)}'
+    plans = sorted(committed.glob(f'*.{contract["name"]}.plan.json')) if committed and committed.exists() else []
+    if plans:
+        assert {p.name.split('.')[0] for p in plans} == must, \
+            f'RTL repository runs {[p.name for p in plans]}, expected {sorted(must)}'
         with tempfile.TemporaryDirectory() as tmp:
             for p in plans:
                 name = p.name.split('.')[0]
@@ -89,9 +88,19 @@ def main():
                 for suffix in ('.hex', '.plan.json', '.mesh.json'):
                     assert (Path(tmp) / (stem + suffix)).read_text() == (committed / (stem + suffix)).read_text(), \
                         f'RTL repository holds a stale {stem}{suffix}: rerun fabric_build.py'
-        print(f'RTL repository programs match this compiler: {", ".join(sorted(MUST_COMPILE))}')
+        print(f'RTL repository programs for {contract["name"]} match this compiler: {", ".join(sorted(must))}')
     else:
-        print('RTL_ROOT not set or older hardware pin: committed-program check skipped')
+        print(f'{contract["name"]}: no committed programs in RTL_ROOT: committed-program check skipped')
+
+
+def main():
+    frontend = Path(os.environ.get('SPATIAL_FRONTEND', FRONTEND))
+    rtl = os.environ.get('RTL_ROOT')
+    rtl = Path(rtl) if rtl and (Path(rtl) / 'architecture/grid_5x3.json').exists() else None
+    if rtl:
+        check_registers(rtl)
+    for contract, must in [(test_mesh(), MUST_COMPILE)] + [(c, MUST_COMPILE_LOGIC) for c in logic_meshes()]:
+        coverage(contract, must, frontend, rtl)
     print('PASS fabric lowering')
 
 

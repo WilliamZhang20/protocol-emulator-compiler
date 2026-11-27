@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fabric_arch import verilog_params
 from fabric_lower import LowerError, lower, model_ir
-from fabric_map import compile_designs, hexfile
+from fabric_map import MapError, compile_designs, hexfile
 
 HERE = Path(__file__).resolve().parent
 FRONTEND = HERE.parent / 'target/debug/spatial'
@@ -62,7 +62,16 @@ def build(contract, source, frontend=FRONTEND):
     p = plan(frontend, source)
     ir = model_ir(frontend, source)
     design = lower(ir, Path(source).stem, p['pins'], contract)
-    r = compile_designs(contract, [design])
+    try:
+        r = compile_designs(contract, [design])
+    except MapError:
+        # With logic cells, registers can be LUTs instead of FSMs on contexted
+        # switches (exact, and no context-selected routes): the second choice
+        # when the first does not place or route.
+        if not any(c['kind'] == 'logic' for c in contract['cells']):
+            raise
+        design = lower(ir, Path(source).stem, p['pins'], contract, prefer_lut=True)
+        r = compile_designs(contract, [design])
     name = design['name']
     streams = {}
     for i in ir['items']:

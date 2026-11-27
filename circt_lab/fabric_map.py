@@ -103,9 +103,9 @@ class Netlist:
         for name, t in d.get('tiles', {}).items():
             b = q(name)
             self.blocks[b] = dict(t, design=dn)
-            if t['kind'] not in ('timer', 'shifter', 'crc', 'counter'):
+            if t['kind'] not in ('timer', 'shifter', 'crc', 'counter', 'logic'):
                 raise MapError('rules', f'{dn}: {name}: unknown tile kind {t["kind"]}')
-            locals_ = ['ok'] if t['kind'] == 'crc' else KINDS[t['kind']]['locals']
+            locals_ = ['ok', 'out'] if t['kind'] == 'crc' else KINDS[t['kind']]['locals']
             for k, local in enumerate(locals_):
                 self.signals[f'{b}.{local}'] = {'type': 'base', 'block': b, 'local': k}
         for name, f in d.get('fsms', {}).items():
@@ -334,15 +334,17 @@ class Placement:
     def __init__(self, arch, nl):
         self.arch, self.nl = arch, nl
         a = arch
-        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k] for k in ('io', 'timer', 'shifter', 'crc', 'counter')}
+        self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k]
+                         for k in ('io', 'timer', 'shifter', 'crc', 'counter', 'logic')}
         self.ctx_cells = [c for c in range(a.n) if a.contexts(c) == 4]
         self.wp = a.c['word_port']['cell']
-        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'counter': 0, 'fsm': 0}
+        need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'counter': 0, 'logic': 0, 'fsm': 0}
         for v in nl.blocks.values():
             need[v['kind']] += 1
         have = {'io_out': 4 * len(self.cells_of['io']), 'io_drv': 2 * len(self.cells_of['io']),
                 'timer': len(self.cells_of['timer']), 'shifter': len(self.cells_of['shifter']),
-                'crc': len(self.cells_of['crc']), 'counter': len(self.cells_of['counter']), 'fsm': len(self.ctx_cells)}
+                'crc': len(self.cells_of['crc']), 'counter': len(self.cells_of['counter']),
+                'logic': len(self.cells_of['logic']), 'fsm': len(self.ctx_cells)}
         short = [f'{k} {need[k]} > {have[k]}' for k in need if need[k] > have[k]]
         if short:
             raise MapError('resources', 'not enough ' + ', '.join(short))
@@ -371,6 +373,20 @@ class Placement:
                 raise MapError('rules', f'{crc}: link {sh} is not a shifter')
         if nl.words and self.wp not in self.cells_of['crc']:
             raise MapError('rules', 'the word port is not a crc cell')
+        # A crc whose serial `out` is read cannot sit at the word port (its
+        # local 1 is the word network's `avail` there).
+        read = {c['sig'] for c in nl.consumers}
+        for b, v in nl.blocks.items():
+            if v['kind'] == 'fsm':
+                read |= {sig for _, sig, _ in v['on']}
+        for sig in list(read):
+            if nl.signals[sig]['type'] == 'mux':
+                read |= set(nl.mux_alts(sig))
+        # A crc whose `out` is read may sit at the word port (shape bit 10
+        # selects out onto local 1) unless the word network's `avail` is read.
+        self.off_wp = {b for b, v in nl.blocks.items() if v['kind'] == 'crc' and f'{b}.out' in read} \
+            if '#avail' in read else set()
+        nl.crc_out = {b for b, v in nl.blocks.items() if v['kind'] == 'crc' and f'{b}.out' in read}
 
     def _links(self):
         """(block, block) pairs whose cells should be close: every signal
@@ -428,6 +444,8 @@ class Placement:
             return self.ctx_cells
         if k in ('io_out', 'io_drv'):
             return self.cells_of['io']
+        if k == 'crc' and b in self.off_wp:
+            return [c for c in self.cells_of['crc'] if c != self.wp]
         return self.cells_of[k]
 
     def capacity(self, b):
@@ -447,7 +465,7 @@ class Placement:
 
     def group(self, b):
         k = self.nl.blocks[b]['kind']
-        return 'tile' if k in ('timer', 'shifter', 'counter') else k
+        return 'tile' if k in ('timer', 'shifter', 'counter', 'logic') else k
 
     def random_binding(self, rng):
         for _ in range(1000):
@@ -905,6 +923,18 @@ def tile_config(arch, nl, pl, binding):
                                              'data_level': ck['levels']['data'] - 32, 'mode': mode}),
                     field_word(reg['clear'], {'clear_line': ck['lines']['clear']})]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
+        elif k == 'logic':
+            lk = arch.c['kinds']['logic']
+            sb, lb = lk['select_bits'], lk['lut_bits']
+            word = 0
+            for j, lut in enumerate(v['luts']):
+                f = int(lut['truth']) & 0xffff
+                for i, sel in enumerate(lut['select']):
+                    f |= int(sel) << (16 + sb * i)
+                f |= int(lut['enable']) << (16 + 4 * sb)
+                f |= int(bool(lut.get('init'))) << (lb - 1)
+                word |= f << (lb * j)
+            tiles[binding[b]] = word
         elif k == 'crc':
             ck = arch.c['kinds']['crc']
             ln = lambda name: ck['lines'][name] if name else 0
@@ -917,7 +947,8 @@ def tile_config(arch, nl, pl, binding):
                     raise MapError('routing', f'{b}: linked shifter is not beside it')
                 linked = (1 << 6) | (li << 7)
             shape = (int(v['width']) - 1) | (int(bool(v.get('init_ones'))) << 5) | linked | \
-                (int(bool(v.get('additive'))) << 8) | (int(bool(v.get('twos'))) << 9)
+                (int(bool(v.get('additive'))) << 8) | (int(bool(v.get('twos'))) << 9) | \
+                (int(b in getattr(nl, 'crc_out', ())) << 10)
             gates = (lv(v.get('absorb_gate')) | (int(bool(v.get('absorb_gate'))) << 5) |
                      (lv(v.get('emit_gate')) << 6) | (int(bool(v.get('emit_gate'))) << 11))
             regs = [poly & 0xffff, poly >> 16, check & 0xffff, check >> 16,
@@ -966,6 +997,8 @@ def pack(arch, fields, tiles, wnet):
     bits = 0
     for key, v in fields.items():
         cell, what, ctx = key[:3]
+        if ctx and arch.kind(cell) == 'logic':
+            continue           # one context: contexts 1-3's bits are the LUT field
         base = cell * lay['cell_bits']
         if what == 'track':
             d, t = key[3:]
@@ -976,7 +1009,15 @@ def pack(arch, fields, tiles, wnet):
             (ea, na), (eb, nb) = v
             bits |= (ea | (na << 5) | (eb << 7) | (nb << 12)) << (base + lay['trans_lsb'] + 14 * ctx)
     for cell, v in tiles.items():
-        bits |= v << (cell * lay['cell_bits'] + lay['tile_lsb'])
+        base = cell * lay['cell_bits']
+        if arch.kind(cell) == 'logic':
+            # the LUT field: the tile field, then context 1-3 tracks, then transitions
+            off = 0
+            for part, lsb, width in arch.c['kinds']['logic']['field']:
+                bits |= ((v >> off) & ((1 << width) - 1)) << (base + lay[f'{part}_lsb'] + lsb)
+                off += width
+        else:
+            bits |= v << (base + lay['tile_lsb'])
     bits |= wnet << (arch.n * lay['cell_bits'])
     return bits
 
