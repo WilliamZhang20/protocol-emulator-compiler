@@ -1,0 +1,99 @@
+// Two protocols at once, each through its own SRAM-backed stream (roadmap 2):
+// the I2C target of i2c_target.spt passes the bytes written to it into SRAM
+// through the stream writer, while a UART transmitter sends bytes from SRAM
+// through the stream reader. The two streams, and the host's own SRAM
+// accesses, contend for the memory.
+//
+// I2C target (peripheral) at address 0x48, clocked by an external controller.
+//
+// It acknowledges its address and every byte written to it, passes the data
+// bytes to the host, and leaves other addresses (and reads) unacknowledged.
+// A repeated START begins a new address phase; a STOP ends the transaction.
+// Everything here reacts on the bus's own clock: the host only reads bytes.
+
+clock 50 MHz
+const ADDRESS = 0x48
+
+pin scl: in
+pin sda: open_drain = if ack.DRIVE { 0 } else { 1 }
+
+// The address byte: 7-bit address and the write bit (a read is not answered).
+compare addressed on rx { value: ADDRESS << 1, mask: 0xFF }
+
+// START is SDA falling while SCL is high, STOP is SDA rising while SCL is high.
+machine bus {
+    state IDLE { on sda.fall && scl -> STARTED }
+    state STARTED {                         // after a START, before the first bit
+        on scl.fall -> ADDRESS
+        on sda.rise && scl -> IDLE
+    }
+    state ADDRESS {
+        on addressed.match -> SELECTED
+        on addressed.mismatch -> IDLE
+    }
+    state SELECTED {
+        on sda.fall && scl -> STARTED       // a repeated START
+        on sda.rise && scl -> IDLE          // STOP
+    }
+}
+
+// Drive SDA low for the acknowledge bit: from the SCL fall after the byte to
+// the next SCL fall.
+machine ack {
+    state RELEASED {
+        on if bus.ADDRESS { addressed.match } else { if bus.SELECTED { rx.word } else { 0 } } -> WAIT
+    }
+    state WAIT { on scl.fall -> DRIVE }
+    state DRIVE { on scl.fall -> RELEASED }
+}
+
+// A byte starts at the first SCL fall after a START, or as the acknowledge
+// bit ends. Outside a transaction (bus idle, SCL high) the shifter is held
+// idle; a repeated START abandons the byte that was starting.
+shifter rx {
+    frame: [data(8, msb_first)],
+    start: if bus.STARTED { scl.fall } else { if bus.SELECTED { if ack.DRIVE { scl.fall } else { 0 } } else { 0 } },
+    shift: scl.rise,
+    sample: sda at scl.rise,
+    abort: if bus.IDLE { scl } else { if bus.SELECTED { sda.fall && scl } else { 0 } },
+}
+
+// Only bytes received while addressed reach the host.
+export stream data: rx -> host { gate { open: bus.SELECTED } }
+
+
+// UART transmit, 8N1, on its own pad.
+const BIT = 20 cycles   // 2.5 Mbaud: the reader feeds a byte every 200 clocks
+pin tx: out = sender.out
+pin terminal_rx: in     // the terminal's transmit line (unused by this program)
+timer tx_bit { every: BIT, first: BIT, pulse, run: sender.busy until sender.done }
+shifter sender {
+    frame: [0, data(8), 1],
+    idle: 1,
+    shift: tx_bit.tick,
+}
+export stream send: host -> sender
+
+// ─── tests ───────────────────────────────────────────────
+
+test "I2C writes and a UART transmission at the same time" {
+    attach i2c_controller(scl: scl, sda: sda, half: 5, hold: 1) as ctl
+    attach uart_device(from_chip: tx, to_chip: terminal_rx, bit: BIT) as terminal
+    ctl.write([0x90, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])
+    ctl.write([0x92, 0x99])
+    ctl.write([0x90, 0x88, 0x99, 0xAA])
+    send.write([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30])
+    expect terminal.read(10) == [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30]
+    expect ctl.read(13) == [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]   // 0x92 is refused, its byte not sent
+    expect data.read(10) == [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA]
+}
+
+test "a slow I2C bus beside a long UART stream" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    attach uart_device(from_chip: tx, to_chip: terminal_rx, bit: BIT) as terminal
+    ctl.write([0x90, 0xA5, 0x5A])
+    send.write([0x00, 0xFF, 0x55, 0xAA, 0x01, 0x80, 0x7E, 0x81, 0x10, 0x20, 0x40, 0x08, 0x04, 0x02, 0xC3, 0x3C])
+    expect terminal.read(16) == [0x00, 0xFF, 0x55, 0xAA, 0x01, 0x80, 0x7E, 0x81, 0x10, 0x20, 0x40, 0x08, 0x04, 0x02, 0xC3, 0x3C]
+    expect ctl.read(3) == [0, 0, 0]
+    expect data.read(2) == [0xA5, 0x5A]
+}
