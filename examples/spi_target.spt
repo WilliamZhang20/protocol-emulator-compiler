@@ -1,0 +1,57 @@
+// SPI target (peripheral), mode 0, MSB first, clocked by an external
+// controller. While CS is low it receives MOSI on SCK rises and drives MISO
+// with the bytes the host armed, each bit changing after SCK falls (the
+// first as CS falls); MISO is released while CS is high (a shared bus).
+// Each transaction (CS low to CS high) reaches the host as one packet.
+
+clock 50 MHz
+
+pin cs: in
+pin sck: in
+pin mosi: in
+pin miso: out = tx.out while selected
+
+reg selected = !cs
+
+// Receive: words back to back while CS is low; CS rising marks the
+// transaction's last byte (held until the next word's first bit or CS).
+shifter rx {
+    frame: [data(8, msb_first)],
+    start: cs.fall,
+    shift: sck.rise,
+    sample: mosi at sck.rise,
+    burst, end: cs, end_follows,
+}
+export packets frames: rx -> host
+
+// Transmit: the armed bytes, back to back, from CS falling; CS rising
+// abandons the rest. Unarmed bytes go out as ones (the idle level).
+shifter tx {
+    frame: [data(8, msb_first)],
+    idle: 1,
+    start: cs.fall,
+    shift: sck.fall,
+    burst, end: cs,
+    abort: cs,
+}
+export stream reply: host -> tx
+
+// ─── tests ───────────────────────────────────────────────
+
+test "answers a command with the armed bytes" {
+    attach spi_controller(cs: cs, sck: sck, mosi: mosi, miso: miso, half: 10) as ctl
+    reply.write([0xC2, 0x20, 0x18])
+    ctl.write([0x9F, 0x00, 0x00])
+    expect ctl.read(3) == [0xC2, 0x20, 0x18]
+    expect frames.read_packet() == packet([0x9F, 0x00, 0x00], error: 0)
+}
+
+test "transactions back to back, each its own packet" {
+    attach spi_controller(cs: cs, sck: sck, mosi: mosi, miso: miso, half: 10) as ctl
+    reply.write([0x11, 0x22])
+    ctl.write([0x01, 0x02])
+    ctl.write([0xA5])
+    expect ctl.read(3) == [0x11, 0x22, 0xFF]
+    expect frames.read_packet() == packet([0x01, 0x02], error: 0)
+    expect frames.read_packet() == packet([0xA5], error: 0)
+}
