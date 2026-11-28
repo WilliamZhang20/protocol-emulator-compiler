@@ -336,6 +336,11 @@ class Placement:
         a = arch
         self.cells_of = {k: [c for c in range(a.n) if a.kind(c) == k]
                          for k in ('io', 'timer', 'shifter', 'crc', 'counter', 'logic')}
+        # ACTOR_FABRIC.md A3: the merged timer/counter PE; a counter takes a
+        # timer cell (one tile per cell: the 'tile' group).
+        merged = a.c['layout'].get('merged_tc')
+        if merged:
+            self.cells_of['counter'] = self.cells_of['timer']
         self.ctx_cells = [c for c in range(a.n) if a.contexts(c) == 4]
         self.wp = a.c['word_port']['cell']
         need = {'io_out': 0, 'io_drv': 0, 'timer': 0, 'shifter': 0, 'crc': 0, 'counter': 0, 'logic': 0, 'fsm': 0}
@@ -346,6 +351,8 @@ class Placement:
                 'crc': len(self.cells_of['crc']), 'counter': len(self.cells_of['counter']),
                 'logic': len(self.cells_of['logic']), 'fsm': len(self.ctx_cells)}
         short = [f'{k} {need[k]} > {have[k]}' for k in need if need[k] > have[k]]
+        if merged and need['timer'] + need['counter'] > have['timer']:
+            short.append(f"timer + counter {need['timer'] + need['counter']} > {have['timer']} (merged)")
         if short:
             raise MapError('resources', 'not enough ' + ', '.join(short))
         self.need, self.have = need, have
@@ -919,6 +926,11 @@ def tile_config(arch, nl, pl, binding):
                     enc('burst', v.get('burst', 0)) | (ln(v.get('abort')) << 7),
                     enc('coder', v.get('coder', v.get('coder5', 0))), enc('coder2', v.get('coder2', v.get('coder6', 0)))]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
+        elif k == 'counter' and arch.c['layout'].get('merged_tc'):
+            # grid_timer's counter function: first = limit, mode bit 2 and
+            # the step rule; period 1 (unused), phase 0.
+            rule = arch.c['registers']['counter']['step']['mode'][v.get('mode', 'count')]
+            tiles[binding[b]] = int(v.get('limit', 0)) | (1 << 16) | ((4 | rule) << 32)
         elif k == 'counter':
             ck, reg = arch.c['kinds']['counter'], arch.c['registers']['counter']
             mode = reg['step']['mode'][v.get('mode', 'count')]

@@ -45,11 +45,11 @@ def host_plans(contract, design, r):
             elif st['op'] == 'wait':
                 tile, local = st['signal'].rsplit('.', 1)
                 cell = binding[f'{name}/{tile}']
-                kind = contract['cells'][cell]['kind']
+                kind = nl.blocks[f'{name}/{tile}']['kind']   # a counter may sit in a timer cell (merged_tc)
                 st['flag'] = 4 * cell + contract['kinds'][kind]['locals'].index(local)
             elif st['op'] == 'param':
                 cell = binding[f'{name}/{st["tile"]}']
-                kind = contract['cells'][cell]['kind']
+                kind = nl.blocks[f'{name}/{st["tile"]}']['kind']
                 st['cell'] = cell
                 st['addr'] = contract['registers'][kind][st['reg']]['reg']
             steps.append(st)

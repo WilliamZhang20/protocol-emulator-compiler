@@ -180,11 +180,14 @@ ACTOR = {'states': 4, 'rows': 2, 'inputs': 8, 'outputs': 4, 'row_lsb': 0, 'row_b
          'event': {'none': 0, 'input_first': 1}, 'select': {'zero': 0, 'one': 1, 'input_first': 2}}
 
 
-def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0, ctx_tracks=0b1111, actor=False):
+def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0, ctx_tracks=0b1111, actor=False,
+                  merged_tc=False):
     """kinds: list of kind names, row-major; contexts: list of 1 or 4;
     dyn_slots: 0 (every selector per context) or D dynamic slots per
     contexted cell (SLOT); actor: logic cells also offer the control-actor
-    mode (ACTOR; eight sinks, LUTs still read six)."""
+    mode (ACTOR; eight sinks, LUTs still read six); merged_tc: every timer
+    cell is the merged timer/counter PE (ACTOR_FABRIC.md A3: grid_timer
+    mode bit 2), so timers and counters share one pool."""
     if len(kinds) != rows * cols or len(contexts) != rows * cols:
         raise ValueError('one kind and one context count per cell')
     if kinds[word_port] != 'crc':
@@ -201,6 +204,10 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0
             raise ValueError('ctx_tracks is the fixed split; dyn_slots the indexed one: not both')
         layout = dict(LAYOUT, ctx_tracks=ctx_tracks)
     kinds_ = KINDS
+    if merged_tc:
+        if 'counter' in kinds:
+            raise ValueError('merged_tc: counters live in timer cells; no counter cells')
+        layout = dict(layout, merged_tc=True)
     if actor:
         layout = dict(layout, actor=ACTOR)
         kinds_ = dict(KINDS, logic=dict(KINDS['logic'], sinks=[f's{k}' for k in range(ACTOR['inputs'])],
@@ -497,7 +504,11 @@ def logic_meshes():
             # ACTOR_FABRIC.md A2: the same tiles, every switch static; the
             # logic cells also offer the control-actor mode, so a machine is
             # one actor (a logic cell) instead of switch contexts.
-            make_contract(3, 5, k35, [1] * 15, 6, 'mesh_3x5_A2', actor=True)]
+            make_contract(3, 5, k35, [1] * 15, 6, 'mesh_3x5_A2', actor=True),
+            # ACTOR_FABRIC.md A3: A2 with the merged timer/counter PE (the
+            # counter cells become timer cells: one pool of six).
+            make_contract(3, 5, [T if k == K else k for k in k35], [1] * 15, 6, 'mesh_3x5_A3', actor=True,
+                          merged_tc=True)]
 
 
 if __name__ == '__main__':
