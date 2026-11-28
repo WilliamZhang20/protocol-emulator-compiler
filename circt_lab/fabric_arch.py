@@ -104,7 +104,7 @@ REGISTERS = {
                   'parity': {'none': 0, 'even': 1, 'odd': 2}},
         'step': {'reg': 2, 'fields': {'shift_line': [5, 0], 'sample_line': [11, 6]}},
         'io': {'reg': 3, 'fields': {'start_line': [5, 0], 'in_level': [10, 6], 'auto_pull': [11, 11],
-                                    'auto_push': [12, 12]}},
+                                    'auto_push': [12, 12], 'crc_tag': [13, 13]}},
         'burst': {'reg': 4, 'fields': {'end_level': [4, 0], 'burst': [5, 5], 'eop_ends_burst': [6, 6],
                                        'abort_line': [12, 7], 'end_follows': [13, 13]}},
         'coder': {'reg': 5, 'fields': {'stuff_run': [2, 0], 'runs_of_ones': [3, 3], 'nrzi': [4, 4], 'receive': [5, 5],

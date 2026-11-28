@@ -475,6 +475,8 @@ class Lowering:
     # ---- logic tiles
     def lkey(self, e, where, me=None):
         """A LUT leaf key for a non-operator expression."""
+        if e['kind'] == 'event':                      # a qualified pin edge (`qualified`)
+            return e['name']
         if e['kind'] == 'name':
             n = e['name']
             if me is not None and n == me:
@@ -493,8 +495,25 @@ class Lowering:
             raise LowerError('hardware', f'{where}: {e["kind"]} {e.get("name", "")} is not a 1-bit signal')
         return mux_key(v) if isinstance(v, dict) else v
 
+    def qualified(self, e):
+        """The expression with each `pin.edge && other_pin` replaced by the
+        I/O cell's qualified edge (one LUT input instead of two, as the
+        machines read START/STOP)."""
+        q = self.qualifier(e)
+        if q:
+            return {'kind': 'event', 'name': self.event(*q)}
+        k = e['kind']
+        if k == 'unary':
+            return dict(e, value=self.qualified(e['value']))
+        if k == 'binary':
+            return dict(e, left=self.qualified(e['left']), right=self.qualified(e['right']))
+        if k == 'if':
+            return dict(e, condition=self.qualified(e['condition']), yes=self.qualified(e['yes']), no=self.qualified(e['no']))
+        return e
+
     def make_lut(self, name, expr, where, **kw):
         me = None if name.startswith('~') else name          # a register may read itself
+        expr = self.qualified(expr)
         try:
             lut = make_lut(name, expr, lambda e: self.lkey(e, where, me), flag_init=self.flag_init,
                            inputs=4, **kw)
@@ -941,7 +960,7 @@ class Lowering:
             if sig not in ins[m]:
                 ins[m].append(sig)
             if len(ins[m]) > ac['inputs']:
-                raise LowerError('hardware', f'machine {m}: {len(ins[m])} input signals; a control actor reads {ac["inputs"]}')
+                raise LowerError('hardware', f'machine {m}: {len(ins[m])} input signals ({", ".join(map(str, ins[m]))}); a control actor reads {ac["inputs"]}')
             return ins[m].index(sig)
         # outputs referenced from outside the machines
         for k in list(connect):
@@ -1914,6 +1933,12 @@ class Lowering:
                 raise LowerError('hardware', f'{name}: end_follows needs words of two bits or more '
                                  '(a held word is pushed at the next word\'s first sample, never at its end)')
             burst['end_follows'] = 1
+        # `check_crc`: the packet's last byte is tagged err when the CRC
+        # linked to this shifter fails its check (Ethernet's FCS).
+        if flag('check_crc'):
+            if 'end_follows' not in burst:
+                raise LowerError('hardware', f'{name}: check_crc tags the byte the end lookahead marks; it needs end_follows')
+            spec['io']['crc_tag'] = 1
         if burst:
             spec['burst'] = burst
         # Inputs.

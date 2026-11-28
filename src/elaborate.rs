@@ -2251,6 +2251,7 @@ impl Chip<'_> {
                 "end_on_packet",
                 "end",
                 "end_follows",
+                "check_crc",
                 "abort",
                 "stuff_after",
                 "stuff_ones",
@@ -2329,6 +2330,22 @@ impl Chip<'_> {
             .transpose()?
             .unwrap_or(Line::ZERO);
         let input = input.map_or(0, Line::level_select);
+        // `check_crc`: the packet's last byte (the one the end lookahead
+        // marks) is tagged err when the linked CRC fails its check
+        // (fabric_shifter io [13]; Ethernet's FCS).
+        let check_crc = match f.get("check_crc") {
+            None => 0u16,
+            Some(field) => match &field.value {
+                None => 1,
+                Some(expr) => self.bit(expr)?,
+            },
+        };
+        if check_crc != 0 && !f.contains_key("end_follows") {
+            return Err(Error::new(
+                name.span,
+                "`check_crc` tags the byte the end lookahead marks; it needs `end_follows`",
+            ));
+        }
         let mut writes = vec![
             (config::shifter(k, 1), frame),
             (
@@ -2337,7 +2354,11 @@ impl Chip<'_> {
             ),
             (
                 config::shifter(k, 3),
-                u16::from(start.0) | input << 6 | u16::from(pull) << 11 | u16::from(push) << 12,
+                u16::from(start.0)
+                    | input << 6
+                    | u16::from(pull) << 11
+                    | u16::from(push) << 12
+                    | check_crc << 13,
             ),
         ];
         if ["burst", "end_on_packet", "end", "end_follows", "abort"]

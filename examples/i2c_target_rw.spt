@@ -1,0 +1,129 @@
+// I2C target (peripheral) at address 0x48, both directions, clocked by an
+// external controller (I2C-bus specification UM10204, sections 3.1.10-3.1.11).
+//
+// Writes: it acknowledges its address and every byte written to it and
+// passes the bytes to the host. Reads: it acknowledges its address with the
+// R/W bit set, then sends the bytes the host armed, MSB first, each changing
+// after SCL falls, and releases SDA for the controller's acknowledge (the
+// controller NAKs the last byte it wants, then ends with STOP or a repeated
+// START). Other addresses are not acknowledged. Everything reacts on the
+// bus's own clock: the host only moves bytes.
+//
+// The host arms exactly the bytes the controller reads (a register read of
+// known length): the target sends while armed bytes remain, so a controller
+// that NAKs early, with bytes still armed, would find SDA driven.
+
+clock 50 MHz
+const ADDRESS = 0x48
+
+pin scl: in
+pin sda: open_drain = if ack.DRIVE { 0 } else { tx.out }   // tx idles released (1)
+
+// The address byte: 7-bit address, either direction.
+compare addressed on rx { value: ADDRESS << 1, mask: 0xFE }
+
+// START is SDA falling while SCL is high, STOP is SDA rising while SCL is high.
+machine bus {
+    state IDLE { on sda.fall && scl -> STARTED }
+    state STARTED {                         // after a START, before the first bit
+        on scl.fall -> ADDRESS
+        on sda.rise && scl -> IDLE
+    }
+    state ADDRESS {
+        on addressed.match -> SELECTED
+        on addressed.mismatch -> IDLE
+    }
+    state SELECTED {
+        on sda.fall && scl -> STARTED       // a repeated START
+        on sda.rise && scl -> IDLE          // STOP
+    }
+}
+
+// The direction: the R/W bit is SDA at the address byte's eighth SCL rise,
+// the last before the address is matched. A read lasts until the next START
+// or STOP. (Registers here read pins and events only, not machine states: a
+// logic cell of the contexted fabric has one context.)
+reg rw on scl.rise = sda
+reg start_stop = (sda.fall && scl) || (sda.rise && scl)
+reg reading = (addressed.match && rw) || (reading && !start_stop)
+
+// Drive SDA low for the acknowledge bit: from the SCL fall after the byte to
+// the next SCL fall. A read acknowledges only its address (the controller
+// acknowledges the bytes it reads; the receiver is held idle meanwhile).
+machine ack {
+    state RELEASED {
+        on if bus.ADDRESS { addressed.match } else { if bus.SELECTED { rx.word } else { 0 } } -> WAIT
+    }
+    state WAIT { on scl.fall -> DRIVE }
+    state DRIVE { on scl.fall -> RELEASED }
+}
+
+// A received byte starts at the first SCL fall after a START, or as the
+// acknowledge bit ends. A START or STOP abandons a byte in progress (one
+// started by the last acknowledge), and the shifter is held idle while
+// reading.
+reg hold_rx = start_stop || reading
+shifter rx {
+    frame: [data(8, msb_first)],
+    start: if bus.STARTED { scl.fall } else { if bus.SELECTED { if ack.DRIVE { scl.fall } else { 0 } } else { 0 } },
+    shift: scl.rise,
+    sample: sda at scl.rise,
+    abort: hold_rx,
+}
+
+// A sent byte starts on an SCL fall while reading with an armed byte: the
+// fall that ends the address acknowledge (`armed` follows `reading` at each
+// fall, so the fall that starts the acknowledge does not send), then the
+// fall that ends the controller's acknowledge slot (the frame's released
+// ninth bit). Each bit changes after SCL falls.
+reg armed on scl.fall = reading
+reg send = scl.fall && armed && reading
+shifter tx {
+    frame: [data(8, msb_first), 1],
+    idle: 1,
+    start: send,
+    shift: scl.fall,
+}
+
+// Bytes written while addressed reach the host; the host arms the bytes to read.
+export stream data: rx -> host { gate { open: bus.SELECTED } }
+export stream reply: host -> tx
+
+// ─── tests ───────────────────────────────────────────────
+
+test "acknowledges its address and passes the data bytes written" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    ctl.write([0x90, 0x11, 0x22])
+    expect ctl.read(3) == [0, 0, 0]
+    expect data.read(2) == [0x11, 0x22]
+}
+
+test "sends the armed bytes to a read" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    reply.write([0xA5, 0x3C, 0x81])
+    ctl.write([0x91, 0, 0, 0])
+    expect ctl.read(4) == [0, 0xA5, 0x3C, 0x81]
+}
+
+test "a register read: write the register number, repeated START, read" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    reply.write([0x5A, 0xFF])
+    ctl.write([0x90, 0x07])
+    ctl.write([0x91, 0, 0])
+    expect ctl.read(5) == [0, 0, 0, 0x5A, 0xFF]
+    expect data.read(1) == [0x07]
+    ctl.write([0x90, 0x42])
+    expect ctl.read(2) == [0, 0]
+    expect data.read(1) == [0x42]
+}
+
+test "another address is answered neither way" {
+    attach i2c_controller(scl: scl, sda: sda, half: 40, hold: 10) as ctl
+    ctl.write([0x93, 0])
+    expect ctl.read(1) == [1]
+    ctl.write([0x92, 0x33])
+    expect ctl.read(1) == [1]
+    ctl.write([0x90, 0x44])
+    expect ctl.read(2) == [0, 0]
+    expect data.read(1) == [0x44]
+}

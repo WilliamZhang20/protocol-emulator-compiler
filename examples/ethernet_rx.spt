@@ -1,0 +1,84 @@
+// 10BASE-T receiver (IEEE 802.3 clause 14, digital side): frames from the
+// line, Manchester decoded, to the host with their boundaries, the FCS
+// included. Digital waveforms only; the receive pair comes through an
+// external squelch/comparator (rd_p high: the pair is positive).
+//
+// The receiver finds its bit grid on the line: every rise of rd_p is on the
+// half-bit grid (a 1's middle or the edge before a 0), so the half-bit clock
+// samples the middle of the half bit after each rise (three clocks on). In the preamble (1010...) rd_p rises
+// once every two bits; the SFD ends with two 1s, whose rises come one bit
+// apart: the data starts a half bit later. The end of the frame is the line
+// going quiet (TP_IDL): the first bit after the last byte has equal halves,
+// a Manchester code violation, which ends the burst and marks the held last
+// byte (`end_follows` with Manchester receive).
+// The FCS check (CRC32) runs beside the receiver over the CRC link; a frame
+// whose FCS is wrong arrives tagged with an error.
+
+clock 40 MHz
+const BIT = 4 cycles   // 10 Mb/s
+
+pin rd_p: in
+pin rd_n: in
+
+timer half { every: 2 cycles, first: 3 cycles, pulse, run: rd_p.rise until rx.done, resync: rd_p.rise }
+
+// SFD: a rise within a bit and a half of the previous one.
+timer gap { every: 6 cycles, pulse, run: rd_p.rise until gap.tick }
+reg recent = (rd_p.rise || recent) && !gap.tick
+reg sfd = rd_p.rise && recent
+
+flag no_end = 0
+shifter rx {
+    frame: [data(8)],
+    start: sfd,
+    shift: half.tick,
+    sample: rd_p at half.tick,
+    manchester, code_received,
+    burst, end: no_end, end_follows,
+    check_crc,                         // the last byte is tagged err on a bad FCS
+}
+// The FCS check over the frame (destination address to FCS); it restarts as
+// each frame ends, ready for the next.
+crc fcs { width: 32, poly: 0x04C11DB7, check: 0xC704DD7B, link: rx, restart: rx.done }
+export packets frames: rx -> host
+
+// ─── tests ───────────────────────────────────────────────
+
+const FRAME = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x08, 0x00,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D]
+const SHORT = [0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x88, 0xB5, 0xAA, 0x55]
+// As received: the frame and its FCS (CRC32, least significant byte first).
+const FRAME_FCS = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x08, 0x00, 0x00, 0x01,
+    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11,
+    0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21,
+    0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x18, 0x82, 0x24, 0x36]
+const SHORT_FCS = [0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x88, 0xB5, 0xAA, 0x55,
+    0x8B, 0x97, 0x10, 0x18]
+
+test "receives a frame with its boundary and FCS" {
+    attach ethernet_station(positive: rd_p, negative: rd_n) as station
+    station.write(FRAME)
+    expect frames.read_packet() == packet(FRAME_FCS, error: 0)
+}
+
+test "receives frames back to back" {
+    attach ethernet_station(positive: rd_p, negative: rd_n) as station
+    station.write(SHORT)
+    station.write(FRAME)
+    station.write(SHORT)
+    expect frames.read_packet() == packet(SHORT_FCS, error: 0)
+    expect frames.read_packet() == packet(FRAME_FCS, error: 0)
+    expect frames.read_packet() == packet(SHORT_FCS, error: 0)
+}
+
+test "flags a frame whose FCS is wrong" {
+    attach ethernet_station(positive: rd_p, negative: rd_n, bad_fcs: 1) as station
+    station.write(SHORT)
+    station.write(SHORT)
+    expect frames.read_packet() == packet([0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x88, 0xB5, 0xAA, 0x55,
+        0x74, 0x68, 0xEF, 0xE7], error: 1)
+    expect frames.read_packet() == packet([0x02, 0x12, 0x34, 0x56, 0x78, 0x9A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x88, 0xB5, 0xAA, 0x55,
+        0x74, 0x68, 0xEF, 0xE7], error: 1)
+}

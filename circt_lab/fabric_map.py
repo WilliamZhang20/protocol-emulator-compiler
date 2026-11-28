@@ -11,7 +11,7 @@ context number):
             | {host: true}}  a host event (io output mode 3; at most 4 on the mesh)
   drivers  {name: {pin, push_pull?, invert?}}  consumers name.value, name.enable (default open drain)
   tiles    {name: {kind: timer, first, period, mode?, phase?}
-                 | {kind: shifter, frame, step: {shift, sample}, io: {start?, in?, auto_push?,
+                 | {kind: shifter, frame, step: {shift, sample}, io: {start?, in?, auto_push?, crc_tag?,
                     auto_pull?}, abort?, burst?, coder5?, coder6?, rx_port?, tx_port?}
                  | {kind: crc, width, poly, check?, init_ones?, link?: shifter, additive?, twos?,
                     absorb?, emit?, init?, data?, absorb_gate?, emit_gate?}
@@ -672,7 +672,10 @@ def route(rrg, prob, max_iterations=60, pres_fac=0.5, pres_mult=1.4, hist_fac=1.
             feed_from.setdefault(a, []).append((('feed', m), None))
 
     def route_net(net, pres):
-        in_tree, edges, missing = {net['source']}, [], []
+        # The tree's nodes in the order they joined (a dict: a set's order
+        # follows string hashing, which changes per process, and the search
+        # breaks ties by this order: routes must not depend on it).
+        in_tree, edges, missing = {net['source']: None}, [], []
         src_cell = node_cell(net['source'])
         for sink in sorted(net['sinks'], key=lambda s: rrg.manhattan(src_cell, node_cell(s))):
             target = node_cell(sink)
@@ -705,7 +708,7 @@ def route(rrg, prob, max_iterations=60, pres_fac=0.5, pres_mult=1.4, hist_fac=1.
             while n not in in_tree:
                 p = parent[n]
                 edges.append((p, n))
-                in_tree.add(n)
+                in_tree[n] = None
                 n = p
         return edges, missing
 
@@ -911,7 +914,8 @@ def tile_config(arch, nl, pl, binding):
             regs = [enc('frame', v.get('frame', 0)),
                     ln(step.get('shift')) | (ln(step.get('sample')) << 6),
                     ln(io.get('start')) | ((arch.c['kinds']['shifter']['in_level'] - 32 if io.get('in') else 0) << 6) |
-                    (int(bool(io.get('auto_pull'))) << 11) | (int(bool(io.get('auto_push'))) << 12),
+                    (int(bool(io.get('auto_pull'))) << 11) | (int(bool(io.get('auto_push'))) << 12) |
+                    (int(bool(io.get('crc_tag'))) << 13),
                     enc('burst', v.get('burst', 0)) | (ln(v.get('abort')) << 7),
                     enc('coder', v.get('coder', v.get('coder5', 0))), enc('coder2', v.get('coder2', v.get('coder6', 0)))]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))

@@ -1,0 +1,113 @@
+// Low-speed USB device function, the IN direction (USB 2.0 chapter 8.5):
+// the host sends an IN token; the device answers, by itself, inside the
+// bus turnaround, with the data packet its firmware armed, the fabric
+// adding NRZI, bit stuffing, the CRC16 and the end of packet; the host
+// then acknowledges it. Every packet on the bus goes to the host with its
+// boundary, the device's own data packet included (its receiver hears it),
+// so the firmware sees the whole transaction, the host's ACK last.
+//
+// Not yet: the device address and the token's CRC5 (the receiver's CRC
+// cell would be the transmitter's; ACTOR_FABRIC.md section 10), a NAK
+// when nothing is armed (the transmitter always appends the CRC16: an
+// armed handshake would get one).
+
+clock 50 MHz
+const BIT = 33 cycles   // 1.5 Mb/s
+
+// ── receive ──────────────────────────────────────────────
+reg se0 = !dp && !dm
+timer bit { every: BIT, first: 16 cycles, pulse, run: dp.rise until rx.done, resync: dp.rise }
+shifter rx {
+    frame: [data(8)],
+    start: dp.rise,
+    shift: bit.tick,
+    sample: dp at bit.tick,
+    nrzi, code_received, stuff_after: 6, stuff_ones,
+    burst, end: se0, end_follows,
+}
+export packets packets: rx -> host
+
+// The PID classifier (the compare tap lags the line by up to a word:
+// SYNC first, always a mismatch, then the PID); back to SYNC one bit after
+// the turnaround, before the next packet's SYNC byte.
+compare is_in on rx { value: 0x69, mask: 0xFF }
+machine link {
+    state SYNC { on is_in.mismatch -> PID }
+    state PID {
+        on is_in.match -> IN
+        on is_in.mismatch -> OTHER
+    }
+    state IN { on tx_bit.tick -> SYNC }
+    state OTHER { on tx_bit.tick -> SYNC }
+}
+
+// ── answer ───────────────────────────────────────────────
+// Every packet ends with a turnaround: the rest of its EOP (SE0, SE0, J)
+// and three idle bit times, then a bit time on the transmit bit clock. After
+// an IN token the device sends the armed data packet (SYNC, PID, data),
+// then the CRC16 of the data.
+timer turn { every: 6 * BIT, pulse, run: rx.done until turn.tick }
+flag no_end = 0   // the armed packet's last byte (eop tag) ends the burst
+// The bit clock runs from the turnaround to the end of the EOP (three bit
+// times when nothing is sent).
+timer tx_bit { every: BIT, pulse, run: turn.tick until eop.reached }
+shifter tx {
+    frame: [data(8)],
+    start: if link.IN { tx_bit.tick } else { 0 },   // on the bit clock's first tick: on the grid by construction
+    shift: tx_bit.tick,
+    nrzi, stuff_after: 6, stuff_ones,
+    burst, end: no_end, end_on_packet,
+    crc_tail_bits: 16,
+    crc_skip_bits: 16,                 // the CRC covers the data field, after SYNC and PID
+}
+crc fcs { width: 16, poly: 0x8005, check: 0x800D, link: tx, restart: turn.tick }
+export packets reply: host -> tx
+
+// EOP: bit ticks since the shifter went idle; two of SE0, then one of J.
+counter eop { count: tx_bit.tick, streak: zeros(tx.busy), limit: 3, clear: turn.tick }
+counter eop_j { count: tx_bit.tick, streak: zeros(tx.busy), limit: 2, clear: turn.tick }
+// tx.out is the NRZI line: 1 is K (D+ high), the idle 0 is J.
+reg dp_out = tx.busy && tx.out
+reg dm_out = if tx.busy { !tx.out } else { eop_j.at_least }
+// The device drives the bus from its first bit to the end of the EOP.
+reg driving = tx.busy || (driving && !eop.reached)
+
+pin dp: out = dp_out while driving
+pin dm: out = dm_out while driving
+
+// ─── tests ───────────────────────────────────────────────
+
+const IN = 0x69
+const OUT = 0xE1
+const DATA0 = 0xC3
+const DATA1 = 0x4B
+const ACK = 0xD2
+
+test "answers an IN token with the armed data packet and its CRC16" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT, timeout: 18) as host
+    reply.write_packet([0x80, DATA0, 0x01, 0x02, 0x03])
+    host.write([IN, 5, 1])
+    expect host.read(4) == [DATA0, 0x01, 0x02, 0x03]
+    host.write([ACK])
+    expect packets.read_packet() == packet([0x80, IN, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA0, 0x01, 0x02, 0x03, 0x9E, 0x9E], error: 0)
+    expect packets.read_packet() == packet([0x80, ACK], error: 0)
+}
+
+test "answers only IN, with stuffed data and an empty data packet" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT, timeout: 18) as host
+    reply.write_packet([0x80, DATA1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+    host.write([OUT, 5, 1])
+    host.write([IN, 5, 1])
+    expect host.read(9) == [DATA1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+    host.write([ACK])
+    expect packets.read_packet() == packet([0x80, OUT, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, IN, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0x70], error: 0)
+    expect packets.read_packet() == packet([0x80, ACK], error: 0)
+    reply.write_packet([0x80, DATA0])
+    host.write([IN, 5, 1])
+    expect host.read(1) == [DATA0]
+    expect packets.read_packet() == packet([0x80, IN, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA0, 0x00, 0x00], error: 0)
+}
