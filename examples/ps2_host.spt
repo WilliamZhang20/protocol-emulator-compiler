@@ -1,0 +1,80 @@
+// PS/2 host, both directions: scan codes from the keyboard, and commands
+// to it (set the LEDs, reset, ...). The keyboard supplies the clock either
+// way. A command the host arms goes out on its own:
+//  - the request to send: the fabric holds CLK low (100 us) with DATA
+//    low (the start bit), then releases CLK;
+//  - the keyboard clocks the frame in, sampling DATA on its rising edges;
+//    the fabric changes DATA after each falling edge (start, eight data
+//    bits LSB first, odd parity, stop released);
+//  - the keyboard acknowledges with DATA low in a twelfth clock, then
+//    answers the command (0xFA) as an ordinary scan code.
+// The receiver is held idle while a command goes out.
+
+clock 50 MHz
+// The request to send holds CLK low for 100 us, which the keyboard times
+// from when it lets go of CLK: a command armed as a scan code ends may start
+// in the keyboard's last low half period (at most 50 us), so 150 us.
+const INHIBIT = 7500 cycles
+
+pin psclk: open_drain = if rts.INHIBIT { 0 } else { 1 }
+pin psdata: open_drain = cmd.out
+
+// Receive: start, eight LSB-first bits, odd parity, stop, on CLK falls.
+shifter receiver {
+    frame: [0, data(8), odd, 1],
+    start: 1,
+    shift: psclk.fall,
+    sample: psdata at psclk.fall,
+    abort: cmd.busy,
+}
+export stream scan_codes: receiver -> host
+
+// Send: an armed byte starts the frame at once (`cmd.busy` is the request).
+// CLK falls during the inhibit do not shift (the fabric's own fall, if CLK
+// was not already low from the keyboard's last bit): the first pre bit is the
+// start bit held through the inhibit, the second follows the keyboard's
+// first fall (sampled on its first rise as the start bit).
+shifter cmd {
+    frame: [0, 0, data(8), odd, 1],
+    idle: 1,
+    shift: if rts.INHIBIT { 0 } else { psclk.fall },
+}
+export stream commands: host -> cmd
+
+// The request to send: CLK low for INHIBIT from the frame's start.
+reg was_busy = cmd.busy
+reg request = cmd.busy && !was_busy
+timer inhibit { every: INHIBIT, pulse, run: request until inhibit.tick }
+machine rts {
+    state IDLE { on request -> INHIBIT }
+    state INHIBIT { on inhibit.tick -> IDLE }
+}
+
+// ─── tests ───────────────────────────────────────────────
+
+test "scan codes still arrive" {
+    attach ps2_keyboard(clk: psclk, data: psdata, half: 2000 cycles) as keyboard
+    keyboard.write([0x1C, 0xF0, 0x1C])
+    expect scan_codes.read(3) == [0x1C, 0xF0, 0x1C]
+}
+
+test "sends a command and gets the keyboard's acknowledge" {
+    attach ps2_keyboard(clk: psclk, data: psdata, half: 2000 cycles) as keyboard
+    commands.write([0xED])
+    expect keyboard.read(1) == [0xED]
+    expect scan_codes.read(1) == [0xFA]
+    commands.write([0x07])
+    expect keyboard.read(1) == [0x07]
+    expect scan_codes.read(1) == [0xFA]
+}
+
+test "commands between scan codes" {
+    attach ps2_keyboard(clk: psclk, data: psdata, half: 1500 cycles) as keyboard
+    keyboard.write([0x5A])
+    expect scan_codes.read(1) == [0x5A]
+    commands.write([0xFF])
+    expect keyboard.read(1) == [0xFF]
+    expect scan_codes.read(1) == [0xFA]
+    keyboard.write([0x00, 0xAA])
+    expect scan_codes.read(2) == [0x00, 0xAA]
+}

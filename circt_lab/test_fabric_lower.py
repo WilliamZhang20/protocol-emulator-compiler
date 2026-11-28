@@ -33,7 +33,7 @@ MUST_COMPILE = {'i2c_target', 'i2c_uart_tx', 'jtag', 'loopback', 'memory_bandwid
 # that need logic (USB, Ethernet).
 MUST_COMPILE_LOGIC = MUST_COMPILE | {'usb', 'ethernet_tx_coded', 'crc_link_trace',
                                      # the full-protocol workload (ACTOR_FABRIC.md section 10)
-                                     'usb_device_rx', 'usb_device', 'usb_device_in', 'ethernet_rx', 'i2c_target_rw', 'spi_target'}
+                                     'usb_device_rx', 'usb_device', 'usb_device_in', 'ethernet_rx', 'i2c_target_rw', 'spi_target', 'ps2_host'}
 # Proven resource limits (the lowering's hardware refusals), by contract:
 # the USB device's answers (OUT, IN) need a third timer (receive bit clock,
 # turnaround, transmit bit clock) and 3 x 4 has two.
