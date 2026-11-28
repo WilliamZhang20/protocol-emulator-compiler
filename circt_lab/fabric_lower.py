@@ -167,6 +167,7 @@ class Lowering:
         self.prefer_lut = False    # registers as LUTs even where an FSM would do
         self.static_control = False  # ACTOR_FABRIC.md A1: machines as LUT state machines, static routes
         self.control_report = {}   # static control: per machine, transition latency and output delays
+        self.actor = None          # contract's control-actor mode (ACTOR_FABRIC.md A2), if any
         self.timer_cells = None    # the contract's timer cells (small timers become LUTs past them)
         self.sig_alias = {}        # tile output -> LUT, for tiles lowered to LUTs
         self.seq_flags, self.seq_events, self.drive_flag = {}, {}, {}
@@ -897,6 +898,115 @@ class Lowering:
                 self.ctl_depth[nk] = self.ctl_depth.get(key, 0) + 1
             key = nk
         return key
+
+    def machines_to_actors(self, tiles, connect):
+        """ACTOR_FABRIC.md A2: every machine becomes one control actor (a
+        logic cell in its actor mode, mesh.v ACTOR): its rows read its
+        inputs (sinks), its four locals are per-state selections among its
+        inputs and constants, combinational, so a transition takes one clock
+        and a selected signal none, as on a contexted switch, with the
+        routing static. A selection by another machine is that machine's
+        actor output, routed here as an input. Limits (states, rows per
+        state, inputs, outputs) are the actor's; beyond them: 'hardware'."""
+        ac = self.actor
+        fsms = self.fsms
+        name = {m: f'_ctl{i}' for i, m in enumerate(fsms)}
+        outs = {m: [] for m in fsms}             # per actor: its output muxes (dicts)
+        ins = {m: [] for m in fsms}              # per actor: its input signals
+
+        def out_of(d):
+            m = d['fsm']
+            key = json.dumps(d, sort_keys=True)
+            ks = [json.dumps(x, sort_keys=True) for x in outs[m]]
+            if key not in ks:
+                outs[m].append(d)
+                ks.append(key)
+            j = ks.index(key)
+            if j >= ac['outputs']:
+                raise LowerError('hardware', f'machine {m}: {j + 1} selected signals; a control actor has {ac["outputs"]}')
+            return f'{name[m]}.q{j}'
+
+        def value(v, m, st):
+            """A case value or event as read by actor m in state st: 0, 1 or a signal."""
+            if isinstance(v, str) and v.startswith('@mux:'):
+                v = unkey(v)
+            if isinstance(v, dict) and 'fsm' in v:
+                if v['fsm'] == m:
+                    return value(v['cases'].get(st, v.get('default', 0)), m, st)
+                return out_of(v)
+            return v
+
+        def inp(m, sig):
+            if sig not in ins[m]:
+                ins[m].append(sig)
+            if len(ins[m]) > ac['inputs']:
+                raise LowerError('hardware', f'machine {m}: {len(ins[m])} input signals; a control actor reads {ac["inputs"]}')
+            return ins[m].index(sig)
+        # outputs referenced from outside the machines
+        for k in list(connect):
+            if isinstance(connect[k], dict) and 'fsm' in connect[k]:
+                connect[k] = out_of(connect[k])
+        for n in list(self.signals):
+            if isinstance(self.signals[n], dict) and 'fsm' in self.signals[n]:
+                self.signals[n] = out_of(self.signals[n])
+        for lut in self.luts.values():
+            lut['leaves'] = [out_of(unkey(k)) if isinstance(k, str) and k.startswith('@mux:') else k for k in lut['leaves']]
+            if isinstance(lut.get('enable'), str) and lut['enable'].startswith('@mux:'):
+                lut['enable'] = out_of(unkey(lut['enable']))
+        for pl in self.plans.values():
+            for st in pl['steps']:
+                if isinstance(st.get('signal'), dict) and 'fsm' in st['signal']:
+                    st['signal'] = out_of(st['signal'])
+        # rows, then outputs (an output may add outputs to other actors: to a fixed point)
+        rows = {}
+        for m, f in fsms.items():
+            if len(f['states']) > ac['states']:
+                raise LowerError('hardware', f'machine {m}: {len(f["states"])} states; a control actor has {ac["states"]}')
+            rows[m] = [[] for _ in f['states']]
+            for src, sig, to in f['on']:
+                s = f['states'].index(src)
+                v = value(sig, m, src)
+                if v == 0:
+                    continue
+                if v == 1:
+                    raise LowerError('compiler', f'machine {m}: a row of {src} always fires (no event)')
+                rows[m][s].append((ac['event']['input_first'] + inp(m, v), f['states'].index(to)))
+                if len(rows[m][s]) > ac['rows']:
+                    raise LowerError('hardware', f'machine {m}: state {src} has {len(rows[m][s])} rows; '
+                                                 f'a control actor has {ac["rows"]}')
+        sel = {m: None for m in fsms}
+        while True:
+            before = {m: len(outs[m]) for m in fsms}
+            for m, f in fsms.items():
+                table = []
+                for st in f['states']:
+                    row = []
+                    for d in outs[m]:
+                        v = value(d['cases'].get(st, d.get('default', 0)), m, st)
+                        row.append(ac['select']['zero'] if v == 0 else ac['select']['one'] if v == 1
+                                   else ac['select']['input_first'] + inp(m, v))
+                    table.append(row + [ac['select']['zero']] * (ac['outputs'] - len(row)))
+                sel[m] = table
+            if before == {m: len(outs[m]) for m in fsms}:
+                break
+        report = {}
+        for m, f in fsms.items():
+            t = name[m]
+            tiles[t] = {'kind': 'logic', 'mode': 'control', 'machine': m, 'states': f['states'],
+                        'rows': [r + [(ac['event']['none'], 0)] * (ac['rows'] - len(r)) for r in rows[m]],
+                        'outs': sel[m] + [[ac['select']['zero']] * ac['outputs']] * (ac['states'] - len(f['states'])),
+                        'luts': [], 'flags': [],
+                        # each local passes the inputs it selects in some state (rows only
+                        # change the state, a register): loop-checked by the mapper
+                        'comb': {f'q{j}': sorted({f's{sl - ac["select"]["input_first"]}' for row in sel[m]
+                                                  for sl in [row[j]] if sl >= ac['select']['input_first']})
+                                 for j in range(len(outs[m]))}}
+            for k, sig in enumerate(ins[m]):
+                connect[f'{t}.s{k}'] = sig
+            report[m] = {'transition_clocks': 1, 'states': len(f['states']), 'inputs': len(ins[m]),
+                         'outputs': len(outs[m]), 'actor': t}
+        self.fsms = {}
+        self.control_report = report
 
     def machines_to_luts(self, connect):
         """Every machine becomes one-hot state registers in logic tiles and
@@ -1665,7 +1775,9 @@ class Lowering:
         self._timer_first = {n: t['first'] for n, t in tiles.items() if t['kind'] == 'timer'}
         self._timer_period = {n: t['period'] for n, t in tiles.items() if t['kind'] == 'timer'}
         self.lut_timers(tiles, connect)
-        if self.static_control:
+        if self.static_control and self.actor:
+            self.machines_to_actors(tiles, connect)
+        elif self.static_control:
             self.machines_to_luts(connect)
         self.resolve_luts(tiles, connect, self.logic)
         for e in self.declared:
@@ -1952,6 +2064,7 @@ def lower(ir, name, pads, contract, prefer_lut=False, static_control=False):
     lw = Lowering(ir, name, pads)
     lw.prefer_lut = prefer_lut
     lw.static_control = static_control
+    lw.actor = contract['layout'].get('actor')
     lw.latency = contract['latency']
     lw.registers = contract['registers']
     lw.limits = {'states': contract['layout']['contexts'], 'transitions': contract['layout']['transition_rows']}

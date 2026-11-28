@@ -124,7 +124,7 @@ def fits(luts, kind, read_outside):
     ext = {k for l in luts for k in external(l, members)}
     flags = {k for l in luts for k in l['leaves'] if k.startswith('flag:')}
     outs = [l for l in luts if read_outside(l['name'], members)]
-    return len(luts) <= kind['luts'] and len(ext) <= len(kind['sinks']) and len(flags) <= kind['flags'] and \
+    return len(luts) <= kind['luts'] and len(ext) <= kind.get('lut_sinks', len(kind['sinks'])) and len(flags) <= kind['flags'] and \
         len(outs) <= kind.get('outputs', kind['luts'])
 
 

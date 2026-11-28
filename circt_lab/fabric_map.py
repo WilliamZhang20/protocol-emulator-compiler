@@ -283,7 +283,7 @@ class Netlist:
                         for loc in KINDS['shifter']['comb']]
             else:
                 kind = self.blocks[blk]['kind']
-                comb = KINDS.get(kind, {}).get('comb', {})
+                comb = self.blocks[blk].get('comb') or KINDS.get(kind, {}).get('comb', {})
                 outs = [f'{blk}.{loc}' for loc, ins in comb.items() if c['sink'] in ins]
             for src in sources(c['sig']):
                 edges.setdefault(src, set()).update(o for o in outs if o in self.signals)
@@ -923,6 +923,16 @@ def tile_config(arch, nl, pl, binding):
                                              'data_level': ck['levels']['data'] - 32, 'mode': mode}),
                     field_word(reg['clear'], {'clear_line': ck['lines']['clear']})]
             tiles[binding[b]] = sum(r << (16 * i) for i, r in enumerate(regs))
+        elif k == 'logic' and v.get('mode') == 'control':
+            ac = arch.c['layout']['actor']
+            word = 1 << ac['mode_bit']
+            for s, rows in enumerate(v['rows']):
+                for r, (ev, nxt) in enumerate(rows):
+                    word |= (ev | (nxt << 4)) << (ac['row_lsb'] + 2 * ac['row_bits'] * s + ac['row_bits'] * r)
+            for s, outs in enumerate(v['outs']):
+                for j, sel in enumerate(outs):
+                    word |= sel << (ac['out_lsb'] + 4 * ac['out_bits'] * s + ac['out_bits'] * j)
+            tiles[binding[b]] = word
         elif k == 'logic':
             lk = arch.c['kinds']['logic']
             sb, lb = lk['select_bits'], lk['lut_bits']

@@ -167,10 +167,23 @@ SLOT = {'bits': 20, 'lsb': 48, 'track_first': 1, 'sink_first': 17}
 # the others read context 0's selector in every context. Sinks per context.
 
 
-def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0, ctx_tracks=0b1111):
+# Control actor (ACTOR_FABRIC.md A2; mesh.v ACTOR=1): a logic cell's second
+# mode, a state machine of `states` states over `inputs` sinks, `rows`
+# transition rows per state, its four locals selected per state from the
+# inputs and constants, combinationally. Sinks 6-7 sit where context 1's
+# sinks 0-1 would be. Field (in the 344-bit logic field L): rows at
+# [12s + 6r +: 6] = {next[5:4], event[3:0]} (0 none, 1-8 input 0-7);
+# outputs at [48 + 16s + 4k +: 4] (0 zero, 1 one, 2-9 input 0-7); mode L[343].
+ACTOR = {'states': 4, 'rows': 2, 'inputs': 8, 'outputs': 4, 'row_lsb': 0, 'row_bits': 6,
+         'out_lsb': 48, 'out_bits': 4, 'mode_bit': 343,
+         'event': {'none': 0, 'input_first': 1}, 'select': {'zero': 0, 'one': 1, 'input_first': 2}}
+
+
+def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0, ctx_tracks=0b1111, actor=False):
     """kinds: list of kind names, row-major; contexts: list of 1 or 4;
     dyn_slots: 0 (every selector per context) or D dynamic slots per
-    contexted cell (SLOT)."""
+    contexted cell (SLOT); actor: logic cells also offer the control-actor
+    mode (ACTOR; eight sinks, LUTs still read six)."""
     if len(kinds) != rows * cols or len(contexts) != rows * cols:
         raise ValueError('one kind and one context count per cell')
     if kinds[word_port] != 'crc':
@@ -186,10 +199,15 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0
         if dyn_slots:
             raise ValueError('ctx_tracks is the fixed split; dyn_slots the indexed one: not both')
         layout = dict(LAYOUT, ctx_tracks=ctx_tracks)
+    kinds_ = KINDS
+    if actor:
+        layout = dict(layout, actor=ACTOR)
+        kinds_ = dict(KINDS, logic=dict(KINDS['logic'], sinks=[f's{k}' for k in range(ACTOR['inputs'])],
+                                        lut_sinks=len(KINDS['logic']['sinks'])))
     return {'schema': 'reorg.mesh.v1', 'name': name or f'mesh_{rows}x{cols}', 'rows': rows, 'cols': cols,
             'cells': [{'kind': k, 'contexts': c} for k, c in zip(kinds, contexts)],
             'word_port': {'cell': word_port, 'locals': {'avail': 1, 'match': 2, 'mismatch': 3}, 'sinks': {'gate': 5}},
-            'kinds': KINDS, 'encoding': ENCODING, 'layout': layout, 'registers': REGISTERS,
+            'kinds': kinds_, 'encoding': ENCODING, 'layout': layout, 'registers': REGISTERS,
             'latency': LATENCY, 'timing': TIMING, 'pins': 8}
 
 
@@ -210,6 +228,8 @@ def verilog_params(contract):
         p['DSLOTS'] = contract['layout']['dyn_slots']
     if contract['layout'].get('ctx_tracks', 0b1111) != 0b1111:
         p['CTX_TRACKS'] = f"4'd{contract['layout']['ctx_tracks']}"
+    if contract['layout'].get('actor'):
+        p['ACTOR'] = 1
     return p
 
 
@@ -472,7 +492,11 @@ def logic_meshes():
             # shifter and east crc never use a second context), and only
             # tracks 0 and 2 (one per turn class) held per context.
             make_contract(3, 5, k35, [4 if i in (2, 6, 7, 9) else 1 for i in range(15)], 6, 'mesh_3x5_L3S',
-                          ctx_tracks=0b0101)]
+                          ctx_tracks=0b0101),
+            # ACTOR_FABRIC.md A2: the same tiles, every switch static; the
+            # logic cells also offer the control-actor mode, so a machine is
+            # one actor (a logic cell) instead of switch contexts.
+            make_contract(3, 5, k35, [1] * 15, 6, 'mesh_3x5_A2', actor=True)]
 
 
 if __name__ == '__main__':
