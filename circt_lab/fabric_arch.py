@@ -70,6 +70,9 @@ KINDS = {
     # parameter (its KINDS bits are ignored); one context: its LUT field
     # (344 bits) is the tile field, the tracks of contexts 1-3 and the
     # transition rows ('field').
+    # none: a switch-only cell (no tile; its switch still routes). mesh.v
+    # marks it with the NONE parameter (its KINDS bits are ignored).
+    'none': {'code': 6, 'locals': [], 'sinks': []},
     'logic': {'code': 5, 'locals': ['q0', 'q1', 'q2', 'q3'], 'sinks': ['s0', 's1', 's2', 's3', 's4', 's5'],
               'luts': 8, 'outputs': 4, 'flags': 4, 'lut_bits': 40, 'select_bits': 5,
               'field': [['tile', 0, 144], ['track', 48, 144], ['trans', 0, 56]],
@@ -171,7 +174,9 @@ SLOT = {'bits': 20, 'lsb': 48, 'track_first': 1, 'sink_first': 17}
 # Control actor (ACTOR_FABRIC.md A2; mesh.v ACTOR=1): a logic cell's second
 # mode, a state machine of `states` states over `inputs` sinks, `rows`
 # transition rows per state, its four locals selected per state from the
-# inputs and constants, combinationally. Sinks 6-7 sit where context 1's
+# inputs and constants, registered: the combinational selection one clock
+# later (state and inputs paired as selected; no combinational path).
+# Sinks 6-7 sit where context 1's
 # sinks 0-1 would be. Field (in the 344-bit logic field L): rows at
 # [12s + 6r +: 6] = {next[5:4], event[3:0]} (0 none, 1-8 input 0-7);
 # outputs at [48 + 16s + 4k +: 4] (0 zero, 1 one, 2-9 input 0-7); mode L[343].
@@ -221,7 +226,7 @@ def make_contract(rows, cols, kinds, contexts, word_port, name=None, dyn_slots=0
 
 def verilog_params(contract):
     n = contract['rows'] * contract['cols']
-    code = lambda c: contract['kinds'][c['kind']]['code'] & 3 if c['kind'] not in ('counter', 'logic') else 1
+    code = lambda c: contract['kinds'][c['kind']]['code'] & 3 if c['kind'] not in ('counter', 'logic', 'none') else 1
     kinds = sum(code(c) << (2 * i) for i, c in enumerate(contract['cells']))
     ctx4 = sum((c['contexts'] == 4) << i for i, c in enumerate(contract['cells']))
     cnt = sum((c['kind'] == 'counter') << i for i, c in enumerate(contract['cells']))
@@ -229,6 +234,9 @@ def verilog_params(contract):
          'KINDS': f"{2 * n}'d{kinds}", 'CTX4': f"{n}'d{ctx4}"}
     if cnt:
         p['CNT'] = f"{n}'d{cnt}"
+    none = sum((c['kind'] == 'none') << i for i, c in enumerate(contract['cells']))
+    if none:
+        p['NONE'] = f"{n}'d{none}"
     logic = sum((c['kind'] == 'logic') << i for i, c in enumerate(contract['cells']))
     if logic:
         p['LOGIC'] = f"{n}'d{logic}"
@@ -508,7 +516,13 @@ def logic_meshes():
             # ACTOR_FABRIC.md A3: A2 with the merged timer/counter PE (the
             # counter cells become timer cells: one pool of six).
             make_contract(3, 5, [T if k == K else k for k in k35], [1] * 15, 6, 'mesh_3x5_A3', actor=True,
-                          merged_tc=True)]
+                          merged_tc=True),
+            # The physical baseline (the actor chip's first GDS): A3 with
+            # the merged pool cut to five, the workload's peak (cell 0 is
+            # switch-only: every program maps with any one of the six
+            # removed).
+            make_contract(3, 5, ['none'] + [T if k == K else k for k in k35][1:], [1] * 15, 6, 'mesh_3x5_A3B',
+                          actor=True, merged_tc=True)]
 
 
 if __name__ == '__main__':

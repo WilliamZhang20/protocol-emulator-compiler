@@ -1016,11 +1016,9 @@ class Lowering:
                         'rows': [r + [(ac['event']['none'], 0)] * (ac['rows'] - len(r)) for r in rows[m]],
                         'outs': sel[m] + [[ac['select']['zero']] * ac['outputs']] * (ac['states'] - len(f['states'])),
                         'luts': [], 'flags': [],
-                        # each local passes the inputs it selects in some state (rows only
-                        # change the state, a register): loop-checked by the mapper
-                        'comb': {f'q{j}': sorted({f's{sl - ac["select"]["input_first"]}' for row in sel[m]
-                                                  for sl in [row[j]] if sl >= ac['select']['input_first']})
-                                 for j in range(len(outs[m]))}}
+                        # every local is a register (mesh_logic: the state's selection,
+                        # one clock later): no combinational path
+                        'comb': {}}
             for k, sig in enumerate(ins[m]):
                 connect[f'{t}.s{k}'] = sig
             report[m] = {'transition_clocks': 1, 'states': len(f['states']), 'inputs': len(ins[m]),
