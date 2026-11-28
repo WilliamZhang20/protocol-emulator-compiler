@@ -165,6 +165,8 @@ class Lowering:
         self.luts, self.lut_regs, self.lags, self.comb = {}, set(), [], {}
         self.logic = None          # the contract's logic kind, if it has logic cells
         self.prefer_lut = False    # registers as LUTs even where an FSM would do
+        self.static_control = False  # ACTOR_FABRIC.md A1: machines as LUT state machines, static routes
+        self.control_report = {}   # static control: per machine, transition latency and output delays
         self.timer_cells = None    # the contract's timer cells (small timers become LUTs past them)
         self.sig_alias = {}        # tile output -> LUT, for tiles lowered to LUTs
         self.seq_flags, self.seq_events, self.drive_flag = {}, {}, {}
@@ -827,6 +829,241 @@ class Lowering:
         return [{'op': 'clear', 'keep': True}, {'op': 'flags', 'values': {arm: 1}},
                 {'op': 'wait', 'signal': fire, 'armed': True}, {'op': 'flags', 'values': {arm: 0}}]
 
+    # ---- static control (ACTOR_FABRIC.md A1): machines as registered-LUT state machines
+    def sop(self, name, prods, depth_of):
+        """A registered sum of products of literals [(key, polarity)], packed
+        into 4-input LUTs. Every LUT output is a register, so a function of
+        more than four signals takes more than one level: the result is
+        (key, depth), depth the clocks from its inputs to it. Leaves of
+        different depths are delayed to the deepest first (identity LUTs),
+        so every product sees one instant. Constant results are 0 / 1."""
+        K = lambda k: {'kind': 'key', 'key': k}
+        prods = [p for p in prods if p is not None]
+        if not prods:
+            return 0, 0
+        if any(p == [] for p in prods):
+            return 1, 0
+        if len(prods) == 1 and len(prods[0]) == 1 and prods[0][0][1]:
+            k = prods[0][0][0]
+            return k, depth_of(k)
+        for p in prods:
+            if len({k for k, _ in p}) > 4:
+                raise LowerError('hardware', f'{name}: a product of {len(p)} signals; a LUT has 4 inputs')
+        d0 = max(depth_of(k) for p in prods for k, _ in p)
+        prods = [[(self.delay(k, d0 - depth_of(k)), pol) for k, pol in p] for p in prods]
+
+        def expr(group):
+            terms = []
+            for p in group:
+                t = None
+                for k, pol in p:
+                    lit = K(k) if pol else {'kind': 'unary', 'op': '!', 'value': K(k)}
+                    t = lit if t is None else {'kind': 'binary', 'op': '&&', 'left': t, 'right': lit}
+                terms.append(t)
+            e = terms[0]
+            for t in terms[1:]:
+                e = {'kind': 'binary', 'op': '||', 'left': e, 'right': t}
+            return e
+        groups, cur, leaves = [], [], set()
+        for p in prods:
+            ks = {k for k, _ in p}
+            if cur and len(leaves | ks) > 4:
+                groups.append(cur)
+                cur, leaves = [], set()
+            cur.append(p)
+            leaves |= ks
+        groups.append(cur)
+        level = [self.raw_lut(f'{name}_g{i}' if len(groups) > 1 else name, expr(g), name) for i, g in enumerate(groups)]
+        for k in level:
+            self.ctl_depth[k] = d0 + 1
+        depth = d0 + 1
+        n = 0
+        while len(level) > 1:                     # an OR tree, four at a time, balanced
+            chunks = [level[i:i + 4] for i in range(0, len(level), 4)]
+            level = [self.raw_lut(f'{name}_o{n}_{i}', expr([[(k, 1)] for k in c]), name) if len(c) > 1
+                     else self.delay(c[0], 1) for i, c in enumerate(chunks)]
+            depth, n = depth + 1, n + 1
+        for k in level:
+            self.ctl_depth[k] = depth
+        self.ctl_depth[level[0]] = depth
+        return level[0], depth
+
+    def delay(self, key, n):
+        """`key` n clocks later (identity LUTs, shared)."""
+        for i in range(n):
+            nk = f'lut:~dly{abs(hash(key)) % 10**8}_{i + 1}'
+            if nk[4:] not in self.luts:
+                self.raw_lut(nk[4:], {'kind': 'key', 'key': key}, f'delay of {key}')
+                self.ctl_depth[nk] = self.ctl_depth.get(key, 0) + 1
+            key = nk
+        return key
+
+    def machines_to_luts(self, connect):
+        """Every machine becomes one-hot state registers in logic tiles and
+        every machine-selected signal a registered LUT output on a static
+        route: no contexted switch. A transition row is a product (source
+        state, its event, no higher-priority event of that state); a state
+        enters on any row into it and holds unless a row out of it fires.
+        The rows' products are balanced to one depth D per machine, so a
+        transition takes D + 1 clocks (a contexted switch: 1) and an event
+        within D clocks of the previous transition sees the old state.
+        Selected signals lag by their own depth. Reported per machine in
+        `control_report` (and the design's `control`)."""
+        if not self.fsms:
+            return
+        self.ctl_depth = getattr(self, 'ctl_depth', {})
+        before = set(self.luts)
+        fsms = self.fsms
+        q = {m: {st: f'lut:~{m}_{st}' for st in f['states']} for m, f in fsms.items()}
+        for m in fsms:
+            for st in fsms[m]['states']:
+                self.ctl_depth[q[m][st]] = 0
+        depth_of = lambda k: self.ctl_depth.get(k, 0)
+        cache, report = {}, {}
+
+        def ref(v, m=None, st=None):
+            """A reference as a key (or 0/1). A selection by machine m's own
+            state, read in state st, is its case there."""
+            if isinstance(v, dict) and 'fsm' in v:
+                if v['fsm'] == m:
+                    return ref(v['cases'].get(st, v.get('default', 0)), m, st)
+                return mux_out(v)
+            return v
+
+        def mux_out(d):
+            key = json.dumps(d, sort_keys=True)
+            if key in cache:
+                return cache[key]
+            f = d['fsm']
+            prods = []
+            for st in fsms[f]['states']:
+                v = ref(d['cases'].get(st, d.get('default', 0)))
+                if v == 1:
+                    prods.append([(q[f][st], 1)])
+                elif v != 0:
+                    prods.append([(q[f][st], 1), (v, 1)])
+            k, dep = self.sop(f'~{f}_sel{len(cache)}', prods, depth_of)
+            cache[key] = k
+            report.setdefault(f, {'outputs': {}})['outputs'][f'sel{len(cache) - 1}'] = dep
+            return k
+        rows_of = {}
+        for m, f in fsms.items():
+            t_in, t_out = {st: [] for st in f['states']}, {st: [] for st in f['states']}
+            seen = {}
+            for src, sig, to in f['on']:
+                sk = ref(sig, m, src)
+                if sk == 0:
+                    continue
+                prev = seen.setdefault(src, [])
+                prod = [(q[m][src], 1)] + ([] if sk == 1 else [(sk, 1)]) + [(k, 0) for k in prev if k != 1]
+                if 1 in prev:
+                    prod = None                      # a higher-priority row always fires first
+                prev.append(sk)
+                if prod is None or src == to:
+                    continue
+                t_in[to].append(prod)
+                t_out[src].append(prod)
+            rows_of[m] = (t_in, t_out)
+        def lits(prods):
+            e = None
+            for p in prods:
+                t = None
+                for k, pol in p:
+                    lit = {'kind': 'key', 'key': k} if pol else {'kind': 'unary', 'op': '!', 'value': {'kind': 'key', 'key': k}}
+                    t = lit if t is None else {'kind': 'binary', 'op': '&&', 'left': t, 'right': lit}
+                t = t or {'kind': 'integer', 'value': '1'}
+                e = t if e is None else {'kind': 'binary', 'op': '||', 'left': e, 'right': t}
+            return e
+        for m, f in fsms.items():
+            t_in, t_out = rows_of[m]
+            # Direct: every state's next value reads at most four signals, all
+            # available now: one LUT per state, a one-clock transition (as a
+            # contexted switch).
+            leaves = {st: {q[m][st]} | {k for p in t_in[st] + t_out[st] for k, _ in p} for st in f['states']}
+            if all(len(v) <= 4 and all(depth_of(k) == 0 for k in v) for v in leaves.values()):
+                for i, st in enumerate(f['states']):
+                    K = {'kind': 'key', 'key': q[m][st]}
+                    hold = K if not t_out[st] else {'kind': 'binary', 'op': '&&', 'left': K,
+                                                    'right': {'kind': 'unary', 'op': '!', 'value': lits(t_out[st])}}
+                    e = hold if not t_in[st] else {'kind': 'binary', 'op': '||', 'left': lits(t_in[st]), 'right': hold}
+                    self.raw_lut(q[m][st][4:], e, f'machine {m} state {st}', init=int(i == 0))
+                report.setdefault(m, {'outputs': {}})['transition_clocks'] = 1
+                report[m]['states'] = len(f['states'])
+                report[m]['direct'] = True
+                continue
+            built = {}
+            for st in f['states']:
+                built[st] = (self.sop(f'~{m}_{st}_in', t_in[st], depth_of), self.sop(f'~{m}_{st}_out', t_out[st], depth_of))
+            dmax = max([dep for pair in built.values() for (k, dep) in pair if k not in (0, 1)] + [1])
+            K = lambda k: {'kind': 'key', 'key': k}
+            for i, st in enumerate(f['states']):
+                (ki, di), (ko, do) = built[st]
+                ki = ki if ki in (0, 1) else self.delay(ki, dmax - di)
+                ko = ko if ko in (0, 1) else self.delay(ko, dmax - do)
+                hold = K(q[m][st]) if ko == 0 else {'kind': 'binary', 'op': '&&', 'left': K(q[m][st]),
+                                                     'right': {'kind': 'unary', 'op': '!', 'value': K(ko)}}
+                e = hold if ki == 0 else {'kind': 'binary', 'op': '||', 'left': K(ki), 'right': hold}
+                self.raw_lut(q[m][st][4:], e, f'machine {m} state {st}', init=int(i == 0))
+            report.setdefault(m, {'outputs': {}})['transition_clocks'] = dmax + 1
+            report[m]['states'] = len(f['states'])
+        # every reference to a machine: connections, named signals, LUT leaves
+        for k in list(connect):
+            if isinstance(connect[k], dict) and 'fsm' in connect[k]:
+                connect[k] = ref(connect[k])
+        # Latency balance: a block whose bit timing (shift, sample, data in,
+        # CRC absorb/data/emit) reads a selected output (registered, d clocks
+        # late) gets its other inputs d clocks late too, so it sees them in
+        # their original relative timing (a sample against its shift). Frame
+        # controls (start, abort) and pad levels are left late: one clock is
+        # within their protocols' slack and the delays cost LUTs.
+        timing = {'shift', 'sample', 'in', 'absorb', 'data', 'emit'}
+        blocks = {}
+        for k, v in connect.items():
+            if '.' in k:
+                blocks.setdefault(k.rsplit('.', 1)[0], []).append(k)
+        balanced = {}
+        for b, ks in blocks.items():
+            lag = max((self.ctl_depth.get(connect[k], 0) for k in ks
+                       if isinstance(connect[k], str) and k.rsplit('.', 1)[1] in timing), default=0)
+            if lag == 0:
+                continue
+            for k in ks:
+                v = connect[k]
+                if isinstance(v, str) and self.ctl_depth.get(v, 0) < lag:
+                    connect[k] = self.delay(v, lag - self.ctl_depth.get(v, 0))
+            balanced[b] = lag
+        if balanced:
+            report['_balanced'] = balanced
+        for n in list(self.signals):
+            if isinstance(self.signals[n], dict) and 'fsm' in self.signals[n]:
+                self.signals[n] = ref(self.signals[n])
+        for lut in list(self.luts.values()):
+            new = []
+            for k in lut['leaves']:
+                if isinstance(k, str) and k.startswith('@mux:'):
+                    k = ref(unkey(k))
+                new.append(k)
+            lut['leaves'] = new
+        for pl in self.plans.values():
+            for st in pl['steps']:
+                if isinstance(st.get('signal'), dict) and 'fsm' in st['signal']:
+                    st['signal'] = ref(st['signal'])
+        # Start every derived register at its value in the reset states (its
+        # inputs idle at 0): a selected output must not glitch after reset.
+        new = [n for n in self.luts if n not in before and not any(n == q[m][st][4:] for m in q for st in q[m])]
+        val = {n: l['init'] for n, l in self.luts.items()}
+        for _ in range(len(new) + 2):
+            nxt = dict(val)
+            for n in new:
+                l = self.luts[n]
+                idx = sum((val.get(k[4:], 0) if k.startswith('lut:') else 0) << i for i, k in enumerate(l['leaves']))
+                nxt[n] = (l['truth'] >> idx) & 1
+            val = nxt
+        for n in new:
+            self.luts[n]['init'] = val[n]
+        self.fsms = {}
+        self.control_report = report
+
     def drive_flags(self):
         """Pins a call drives and releases (both in one call): their pad
         enable is a host flag in a logic tile (a host step at a quiescent
@@ -1428,6 +1665,8 @@ class Lowering:
         self._timer_first = {n: t['first'] for n, t in tiles.items() if t['kind'] == 'timer'}
         self._timer_period = {n: t['period'] for n, t in tiles.items() if t['kind'] == 'timer'}
         self.lut_timers(tiles, connect)
+        if self.static_control:
+            self.machines_to_luts(connect)
         self.resolve_luts(tiles, connect, self.logic)
         for e in self.declared:
             if e not in self.host_events and e not in self.fired_in_fabric:
@@ -1443,6 +1682,8 @@ class Lowering:
             design['signals'] = self.signals
         if self.plans:
             design['functions'] = self.plans
+        if self.control_report:
+            design['control'] = self.control_report
         if words:
             design['words'] = words
         if self.lags:
@@ -1707,12 +1948,15 @@ def model_ir(frontend, source):
     return ir
 
 
-def lower(ir, name, pads, contract, prefer_lut=False):
+def lower(ir, name, pads, contract, prefer_lut=False, static_control=False):
     lw = Lowering(ir, name, pads)
     lw.prefer_lut = prefer_lut
+    lw.static_control = static_control
     lw.latency = contract['latency']
     lw.registers = contract['registers']
     lw.limits = {'states': contract['layout']['contexts'], 'transitions': contract['layout']['transition_rows']}
+    if static_control:
+        lw.limits = {'states': 64, 'transitions': 64}   # LUT state machines: no context or row bound
     if any(c['kind'] == 'logic' for c in contract['cells']):
         lw.logic = contract['kinds']['logic']
     lw.timer_cells = sum(1 for c in contract['cells'] if c['kind'] == 'timer')

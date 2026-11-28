@@ -93,12 +93,82 @@ def coverage(contract, must, frontend, rtl):
         print(f'{contract["name"]}: no committed programs in RTL_ROOT: committed-program check skipped')
 
 
+def static_control(frontend):
+    """ACTOR_FABRIC.md A1: machines lowered to registered-LUT state machines
+    (static routes, no contexts). Each LUT machine must follow its source
+    machine exactly, `transition_clocks` late, whenever events are at least
+    that far apart (random single events, every input); a machine whose
+    states each read at most four signals takes one clock (as a contexted
+    switch); derived registers start at their reset-state values."""
+    import random
+    from fabric_arch import make_contract
+    from fabric_build import model_ir, plan
+    from fabric_lower import Lowering, lower
+    from fabric_logic import unkey
+    T, I, S, C, K, L = 'timer', 'io', 'shifter', 'crc', 'counter', 'logic'
+    con = make_contract(3, 5, [L, L, I, L, T, S, C, S, C, I, L, K, L, K, L], [1] * 15, 6, 'a1_static')
+    expect = {'i2c_target': {'bus': 3, 'ack': 3}, 'spi': {'open_fsm': 2, 'selected_fsm': 1}, 'swd': {'_mode': 1}}
+    for prog, clocks in expect.items():
+        src = next(p for p in (EXAMPLES / f'{prog}.spt', EXAMPLES / 'fabric' / f'{prog}.spt') if p.exists())
+        cap, orig = {}, Lowering.machines_to_luts
+
+        def hook(self, connect, cap=cap, orig=orig):
+            cap['fsms'] = json.loads(json.dumps(self.fsms))
+            orig(self, connect)
+            cap['luts'] = json.loads(json.dumps(self.luts))
+        Lowering.machines_to_luts = hook
+        try:
+            d = lower(model_ir(frontend, src), prog, plan(frontend, src)['pins'], con, static_control=True)
+        finally:
+            Lowering.machines_to_luts = orig
+        assert not d.get('fsms'), f'{prog}: machines left for contexted switches'
+        got = {m: r['transition_clocks'] for m, r in d['control'].items() if m != '_balanced'}
+        assert got == clocks, f'{prog}: transition clocks {got}, expected {clocks}'
+        fsms, luts = cap['fsms'], cap['luts']
+        inputs = sorted({k for l in luts.values() for k in l['leaves'] if not k.startswith('lut:')})
+        gap = max(clocks.values())
+
+        def ref(v, cur, env):
+            if isinstance(v, int):
+                return v
+            if isinstance(v, str) and v.startswith('@mux:'):
+                v = unkey(v)
+            if isinstance(v, dict):
+                return ref(v['cases'].get(cur[v['fsm']], v.get('default', 0)), cur, env)
+            return env[v]
+        q = {n: l['init'] for n, l in luts.items()}
+        cur = {m: f['states'][0] for m, f in fsms.items()}
+        hist, rng = [], random.Random(7)
+        for t in range(3000):
+            env = {k: 0 for k in inputs}
+            if t % gap == 0:
+                env[rng.choice([k for k in inputs if not k.startswith('flag:')])] = 1
+            nxt = {}
+            for m, f in fsms.items():
+                nxt[m] = next((b for a, sig, b in f['on'] if a == cur[m] and ref(sig, cur, env)), cur[m])
+            q = {n: (l['truth'] >> sum((q[k[4:]] if k.startswith('lut:') else env[k]) << i
+                                         for i, k in enumerate(l['leaves']))) & 1 for n, l in luts.items()}
+            hist.append(cur)
+            cur = nxt
+            for m, f in fsms.items():
+                hot = [st for st in f['states'] if q[f'~{m}_{st}']]
+                assert len(hot) == 1, f'{prog} {m}: states {hot} at clock {t}'
+                if t > gap + 2:
+                    want = (hist + [cur])[-clocks[m]][m]
+                    assert hot[0] == want, f'{prog} {m}: {hot[0]} at clock {t}, source machine {want}'
+        if prog == 'i2c_target':   # SDA released (value 1) in the reset state: no glitch at start
+            sda = next(n for n, l in luts.items() if n.startswith('~ack_sel') and l['init'] == 1)
+            assert sda
+    print('PASS static control (A1): LUT machines follow their machines; SWD one clock, I2C three')
+
+
 def main():
     frontend = Path(os.environ.get('SPATIAL_FRONTEND', FRONTEND))
     rtl = os.environ.get('RTL_ROOT')
     rtl = Path(rtl) if rtl and (Path(rtl) / 'architecture/grid_5x3.json').exists() else None
     if rtl:
         check_registers(rtl)
+    static_control(frontend)
     for contract, must in [(test_mesh(), MUST_COMPILE)] + [(c, MUST_COMPILE_LOGIC) for c in logic_meshes()]:
         coverage(contract, must, frontend, rtl)
     print('PASS fabric lowering')

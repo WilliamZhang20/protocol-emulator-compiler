@@ -61,7 +61,10 @@ def build(contract, source, frontend=FRONTEND):
     """Returns (vector bits, plan, interface, compile result)."""
     p = plan(frontend, source)
     ir = model_ir(frontend, source)
-    design = lower(ir, Path(source).stem, p['pins'], contract)
+    # A fabric without contexted switches (ACTOR_FABRIC.md): machines become
+    # LUT state machines on static routes.
+    static = all(c['contexts'] == 1 for c in contract['cells'])
+    design = lower(ir, Path(source).stem, p['pins'], contract, static_control=static)
     try:
         r = compile_designs(contract, [design])
     except MapError:
@@ -70,7 +73,7 @@ def build(contract, source, frontend=FRONTEND):
         # when the first does not place or route.
         if not any(c['kind'] == 'logic' for c in contract['cells']):
             raise
-        design = lower(ir, Path(source).stem, p['pins'], contract, prefer_lut=True)
+        design = lower(ir, Path(source).stem, p['pins'], contract, prefer_lut=True, static_control=static)
         r = compile_designs(contract, [design])
     name = design['name']
     streams = {}
