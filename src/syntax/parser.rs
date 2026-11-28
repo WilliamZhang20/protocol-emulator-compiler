@@ -230,11 +230,17 @@ impl Parser {
                 } else {
                     None
                 };
+                let enable = if self.eat("while") {
+                    Some(self.expr()?)
+                } else {
+                    None
+                };
                 Item::Pin {
                     name,
                     pads,
                     mode,
                     source,
+                    enable,
                 }
             }
             "timer" | "shifter" | "counter" | "crc" => Item::Tile {

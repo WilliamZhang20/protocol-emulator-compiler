@@ -31,7 +31,13 @@ MUST_COMPILE = {'i2c_target', 'i2c_uart_tx', 'jtag', 'loopback', 'memory_bandwid
                 'stored_bytes', 'swd', 'uart'}
 # With logic cells: everything above (no protocol is lost) and the programs
 # that need logic (USB, Ethernet).
-MUST_COMPILE_LOGIC = MUST_COMPILE | {'usb', 'ethernet_tx_coded', 'crc_link_trace'}
+MUST_COMPILE_LOGIC = MUST_COMPILE | {'usb', 'ethernet_tx_coded', 'crc_link_trace',
+                                     # the full-protocol workload (ACTOR_FABRIC.md section 10)
+                                     'usb_device_rx', 'usb_device'}
+# Proven resource limits (the lowering's hardware refusals), by contract:
+# the USB device's answer needs a third timer (receive bit clock,
+# turnaround, transmit bit clock) and 3 x 4 has two.
+HARDWARE_REFUSED = {'mesh_3x4_L3': {'usb_device'}}
 
 
 def check_registers(rtl):
@@ -169,7 +175,8 @@ def main():
     if rtl:
         check_registers(rtl)
     static_control(frontend)
-    for contract, must in [(test_mesh(), MUST_COMPILE)] + [(c, MUST_COMPILE_LOGIC) for c in logic_meshes()]:
+    for contract, must in [(test_mesh(), MUST_COMPILE)] + [(c, MUST_COMPILE_LOGIC - HARDWARE_REFUSED.get(c['name'], set()))
+                                                            for c in logic_meshes()]:
         coverage(contract, must, frontend, rtl)
     print('PASS fabric lowering')
 

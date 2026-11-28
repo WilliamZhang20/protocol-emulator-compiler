@@ -30,9 +30,10 @@ KINDS = {
            'sinks': ['a_value', 'a_enable', 'b_value', 'b_enable'], 'pads': 2},
     'timer': {'code': 1, 'locals': ['tick', 'level', 'rise', 'fall'], 'sinks': ['start', 'stop', 'aux']},
     'shifter': {'code': 2, 'locals': ['word', 'stop', 'out', 'active'],
-                'sinks': ['start', 'shift', 'sample', 'abort', 'in'],
-                # fabric_shifter lines driven by the sinks; `in` is level 33.
-                'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33,
+                'sinks': ['start', 'shift', 'sample', 'abort', 'in', 'end'],
+                # fabric_shifter lines driven by the sinks; `in` is level 33,
+                # `end` (the burst-end level) level 34.
+                'lines': {'start': 1, 'shift': 2, 'abort': 3, 'sample': 4}, 'in_level': 33, 'end_level': 34,
                 # combinational paths sink -> local, as the mesh cell presents
                 # them: none. fabric_shifter's word_pulse and stop_pulse are
                 # combinational in its lines, but the mesh registers them at
@@ -105,7 +106,7 @@ REGISTERS = {
         'io': {'reg': 3, 'fields': {'start_line': [5, 0], 'in_level': [10, 6], 'auto_pull': [11, 11],
                                     'auto_push': [12, 12]}},
         'burst': {'reg': 4, 'fields': {'end_level': [4, 0], 'burst': [5, 5], 'eop_ends_burst': [6, 6],
-                                       'abort_line': [12, 7]}},
+                                       'abort_line': [12, 7], 'end_follows': [13, 13]}},
         'coder': {'reg': 5, 'fields': {'stuff_run': [2, 0], 'runs_of_ones': [3, 3], 'nrzi': [4, 4], 'receive': [5, 5],
                                        'arm_at_first_zero': [6, 6], 'tail_invert': [7, 7], 'bit_strobe': [8, 8],
                                        'tail_length': [14, 9], 'manchester': [15, 15]}},

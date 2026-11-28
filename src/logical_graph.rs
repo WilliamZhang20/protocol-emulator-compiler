@@ -407,6 +407,7 @@ fn contract(port: &str) -> Option<Contract> {
         "register.value" => Formula,
         "register.enable" => Pulse,
         "pin.drive" => PinDrive,
+        "pin.enable" => Level,
         "context.select" => Level,
         "stage.end" | "stage.error" => Any,
         "stage.open" => Level,
@@ -717,8 +718,14 @@ fn collect_item(
         LogicalItem::Pin {
             name,
             source: Some(source),
+            enable,
             ..
-        } => add(name, "pin.drive", context, source, symbols, graph),
+        } => {
+            add(name, "pin.drive", context, source, symbols, graph);
+            if let Some(enable) = enable {
+                add(name, "pin.enable", context, enable, symbols, graph);
+            }
+        }
         LogicalItem::Resource {
             name,
             resource_kind,

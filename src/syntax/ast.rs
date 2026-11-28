@@ -17,12 +17,15 @@ pub(crate) enum Item {
     Clock(Expr),
     /// `const BIT = 64 cycles`
     Const { name: Name, value: Expr },
-    /// `pin tx @ [1, 2]: out = sender.out`
+    /// `pin tx @ [1, 2]: out = sender.out`, or `pin dp: out = d_plus while
+    /// sending`: driven only while the fabric level after `while` is high
+    /// (the mesh's pad enable), and read as an input otherwise.
     Pin {
         name: Name,
         pads: Option<Vec<Expr>>,
         mode: Name,
         source: Option<Expr>,
+        enable: Option<Expr>,
     },
     /// `timer bit { ... }`, `shifter sender { ... }`, `counter sent { ... }`
     Tile {

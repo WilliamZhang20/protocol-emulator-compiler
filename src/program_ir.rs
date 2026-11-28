@@ -456,6 +456,8 @@ pub enum LogicalItem {
         pads: Option<Vec<LogicalExpr>>,
         mode: String,
         source: Option<LogicalExpr>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        enable: Option<LogicalExpr>,
     },
     Resource {
         name: String,
@@ -762,11 +764,13 @@ fn item(source: &Item, env: &Env, is_context_override: bool) -> LogicalItem {
             pads,
             mode,
             source,
+            enable,
         } => LogicalItem::Pin {
             name: name.text.clone(),
             pads: pads.as_ref().map(|p| p.iter().map(expr).collect()),
             mode: mode.text.clone(),
             source: source.as_ref().map(expr),
+            enable: enable.as_ref().map(expr),
         },
         Item::Tile {
             kind,

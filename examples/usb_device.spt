@@ -1,0 +1,129 @@
+// Low-speed USB device function, the OUT direction with its handshake
+// (USB 2.0 chapter 8.5): the host sends a token and a data packet; when the
+// data packet's CRC16 is good the device answers with the handshake its
+// firmware armed (ACK, NAK or STALL), on its own, inside the bus turnaround
+// time; a bad data packet gets no answer. Every received packet also goes to
+// the host with its boundary.
+//
+// The answer needs no host action while the bus is running: the host arms
+// the handshake bytes (SYNC and PID) ahead of time, as a USB interface
+// engine's endpoint state, and the fabric sends them, NRZI coded and
+// stuffed, then the end of packet (two bits of SE0, one of J), and
+// releases the bus.
+//
+// Not yet: the device address. The word network has one compare tap and
+// it classifies the PID here, so this device answers every address
+// (ACTOR_FABRIC.md section 10: a word-actor capacity finding).
+
+clock 50 MHz
+const BIT = 33 cycles   // 1.5 Mb/s
+
+// ── receive ──────────────────────────────────────────────
+reg se0 = !dp && !dm
+timer bit { every: BIT, first: 16 cycles, pulse, run: dp.rise until rx.done, resync: dp.rise }
+shifter rx {
+    frame: [data(8)],
+    start: dp.rise,
+    shift: bit.tick,
+    sample: dp at bit.tick,
+    nrzi, code_received, stuff_after: 6, stuff_ones,
+    burst, end: se0, end_follows,
+    crc_skip_bits: 16,                 // the CRC covers the data field, after SYNC and PID
+}
+export packets packets: rx -> host
+
+// The PID classifier. The compare tap sees each byte as it leaves for the
+// host, so it lags the line by up to a word: SYNC (always a mismatch), then
+// the PID. DATA0 and DATA1 (0xC3, 0x4B) are the PIDs whose bits 0x77 are
+// 0x43. The machine returns to SYNC one bit after the turnaround, after
+// the packet's last tap and the answer, before the next packet's SYNC byte.
+compare is_data on rx { value: 0x43, mask: 0x77 }
+machine link {
+    state SYNC { on is_data.mismatch -> PID }
+    state PID {
+        on is_data.match -> DATA
+        on is_data.mismatch -> OTHER
+    }
+    state DATA { on tx_bit.tick -> SYNC }
+    state OTHER { on tx_bit.tick -> SYNC }
+}
+
+// ── answer ───────────────────────────────────────────────
+// Every packet ends with a turnaround: the rest of its EOP (SE0, SE0, J)
+// and three idle bit times. Then, if it was a data packet with a good
+// CRC16, the device sends the armed handshake.
+timer turn { every: 6 * BIT, pulse, run: rx.done until turn.tick }
+crc check { width: 16, poly: 0x8005, check: 0x800D, link: rx, restart: turn.tick }
+// A good CRC at the turnaround tick; the transmitter starts on it only in
+// a data packet (written at the shifter, the cell that holds the machine's
+// states on a contexted fabric).
+reg go = turn.tick && check.ok
+
+flag no_end = 0   // the armed packet's last byte (eop tag) ends the burst
+// The bit clock runs from the turnaround to the end of the EOP (three bit
+// times when nothing is sent).
+timer tx_bit { every: BIT, pulse, run: turn.tick until eop.reached }
+shifter tx {
+    frame: [data(8)],
+    start: if link.DATA { go } else { 0 },
+    shift: tx_bit.tick,
+    nrzi, stuff_after: 6, stuff_ones,
+    burst, end: no_end, end_on_packet,
+}
+export packets reply: host -> tx
+
+// EOP: bit ticks since the shifter went idle; two of SE0, then one of J.
+counter eop { count: tx_bit.tick, streak: zeros(tx.busy), limit: 3, clear: turn.tick }
+counter eop_j { count: tx_bit.tick, streak: zeros(tx.busy), limit: 2, clear: turn.tick }
+// tx.out is the NRZI line: 1 is K (D+ high), the idle 0 is J.
+reg dp_out = tx.busy && tx.out
+reg dm_out = if tx.busy { !tx.out } else { eop_j.at_least }
+// The device drives the bus from its first bit to the end of the EOP.
+reg driving = tx.busy || (driving && !eop.reached)
+
+pin dp: out = dp_out while driving
+pin dm: out = dm_out while driving
+
+// ─── tests ───────────────────────────────────────────────
+
+const OUT = 0xE1
+const DATA0 = 0xC3
+const ACK = 0xD2
+const NAK = 0x5A
+
+test "acknowledges a good data packet on its own" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT, timeout: 18) as host
+    reply.write_packet([0x80, ACK])
+    host.write([OUT, 5, 1])
+    host.write([DATA0, 1, 2, 3])
+    expect host.read(1) == [ACK]
+    expect packets.read_packet() == packet([0x80, OUT, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA0, 0x01, 0x02, 0x03, 0x9E, 0x9E], error: 0)
+}
+
+test "answers with whatever the firmware armed" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT, timeout: 18) as host
+    reply.write_packet([0x80, NAK])
+    host.write([OUT, 5, 1])
+    host.write([DATA0, 7])
+    expect host.read(1) == [NAK]
+    reply.write_packet([0x80, ACK])
+    host.write([OUT, 5, 1])
+    host.write([DATA0, 8])
+    expect host.read(1) == [ACK]
+}
+
+test "answers only data packets: every packet on the bus, the answer included" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT, timeout: 18) as host
+    reply.write_packet([0x80, ACK])
+    host.write([OUT, 5, 1])
+    host.write([ACK])
+    host.write([OUT, 5, 1])
+    host.write([DATA0, 0x42])
+    expect packets.read_packet() == packet([0x80, OUT, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, ACK], error: 0)
+    expect packets.read_packet() == packet([0x80, OUT, 0x85, 0x60], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA0, 0x42, 0xC0, 0x8E], error: 0)
+    expect host.read(1) == [ACK]
+    expect packets.read_packet() == packet([0x80, ACK], error: 0)
+}

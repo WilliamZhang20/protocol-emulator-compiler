@@ -492,6 +492,7 @@ fn elaborate_inner<'a>(
                 pads,
                 mode,
                 source,
+                ..
             } => {
                 declare(name, Some(Kind::Pin), &mut chip)?;
                 chip.pin_decls
@@ -899,8 +900,20 @@ fn elaborate_inner<'a>(
     for item in items {
         let writes = match item {
             Item::Pin {
-                name, mode, source, ..
-            } => chip.pin(name, mode, source.as_ref())?,
+                name,
+                mode,
+                source,
+                enable,
+                ..
+            } => {
+                if let (Some(enable), false) = (enable, chip.plan_only) {
+                    return Err(Error::new(
+                        enable.span,
+                        "this chip's pins have no fabric drive enable; a `while` pin needs the mesh (circt_lab/fabric_build.py)",
+                    ));
+                }
+                chip.pin(name, mode, source.as_ref())?
+            }
             Item::Tile { name, fields, .. } => {
                 let fields: Vec<&Field> = fields.iter().collect();
                 chip.tile(name, &fields)?
@@ -958,6 +971,7 @@ fn elaborate_inner<'a>(
                     pads,
                     mode,
                     source,
+                    ..
                 } => {
                     let decl = chip.decls.get(&name.text).ok_or_else(|| {
                         Error::new(
@@ -1610,8 +1624,8 @@ fn collect_item_edges<'a>(item: &'a Item, uses: &mut Vec<(&'a str, bool, Span)>)
                 collect_item_edges(item, uses);
             }
         }
-        Item::Pin { source, .. } => {
-            if let Some(expr) = source {
+        Item::Pin { source, enable, .. } => {
+            for expr in source.iter().chain(enable.iter()) {
                 collect_expr_edges(expr, uses);
             }
         }
@@ -2236,6 +2250,7 @@ impl Chip<'_> {
                 "burst",
                 "end_on_packet",
                 "end",
+                "end_follows",
                 "abort",
                 "stuff_after",
                 "stuff_ones",
@@ -2325,7 +2340,7 @@ impl Chip<'_> {
                 u16::from(start.0) | input << 6 | u16::from(pull) << 11 | u16::from(push) << 12,
             ),
         ];
-        if ["burst", "end_on_packet", "end", "abort"]
+        if ["burst", "end_on_packet", "end", "end_follows", "abort"]
             .iter()
             .any(|key| f.contains_key(key))
         {
@@ -2350,6 +2365,16 @@ impl Chip<'_> {
                 return Err(Error::new(
                     name.span,
                     "`end` and `end_on_packet` need `burst`",
+                ));
+            }
+            // `end_follows`: the end level comes after the last word (USB's
+            // SE0): each word is held until the next word's first bit or the
+            // end level, which tags it as the last (fabric_shifter [13]).
+            let follows = enabled("end_follows")?;
+            if follows != 0 && (burst == 0 || !f.contains_key("end") || !push) {
+                return Err(Error::new(
+                    name.span,
+                    "`end_follows` needs `burst`, an `end` level and a receive FIFO connection",
                 ));
             }
             if packet != 0 && !pull {
@@ -2378,7 +2403,8 @@ impl Chip<'_> {
                 end.map_or(0, Line::level_select)
                     | burst << 5
                     | packet << 6
-                    | u16::from(abort.0) << 7,
+                    | u16::from(abort.0) << 7
+                    | follows << 13,
             ));
         }
         let coder_fields = [
@@ -2418,10 +2444,13 @@ impl Chip<'_> {
             let nrzi = flag("nrzi")?;
             let manchester = flag("manchester")?;
             let received = flag("code_received")?;
-            if manchester != 0 && (nrzi != 0 || received != 0) {
+            // Manchester codes either direction (`code_received`: the sample
+            // line ticks every half bit and the second half is the bit); it
+            // cannot be combined with NRZI.
+            if manchester != 0 && nrzi != 0 {
                 return Err(Error::new(
                     name.span,
-                    "Manchester transmit cannot be combined with NRZI or receive coding",
+                    "Manchester coding cannot be combined with NRZI",
                 ));
             }
             let coder = number("stuff_after", 7)?

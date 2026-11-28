@@ -17,7 +17,8 @@ Rules (L1, L2):
 - An output pin is a push-pull pad driven by the signal it names (enable
   1); `open_drain` pins drive low when the signal is 0.
 - Timers: `every` -> period, `first` -> first (default `every`), `run: A
-  until B` -> start A, stop B, `run: 1` -> started at once. Source times
+  until B` -> start A, stop B, `run: 1` -> started at once, `resync: E`
+  -> the aux sink in resync mode (the next tick `first` after E). Source times
   are measured at the pins: a timer started by a pin edge whose tick
   samples a shifter that samples a pin is shortened by the contract's
   edge_to_sample; one started by a shifter's `busy` that shifts it, by
@@ -1217,6 +1218,8 @@ class Lowering:
                               for e in [st['expression']] if e['kind'] == 'call'
                               and e['callee'].get('kind') == 'field' and e['callee']['field'] in ('drive', 'release')
                               and e['callee']['object'].get('kind') == 'name'}
+        # ... and so are pins driven `while` a fabric level is high.
+        self.bidirectional |= {c['consumer'] for c in self.inputs if c['port'] == 'pin.enable' and c['consumer'] in self.pins}
         for fn in self.items:
             if fn['kind'] != 'function':
                 continue
@@ -1765,7 +1768,12 @@ class Lowering:
                 drivers[d] = {'pin': name, 'push_pull': p['mode'] == 'out'}
                 connect[f'{d}.value'] = drive
                 en = self.mode_route.get(('drive', name))
-                if name in self.drive_flag:
+                fabric_en = next((c for c in self.inputs if c['consumer'] == name and c['port'] == 'pin.enable'), None)
+                if fabric_en is not None:
+                    if en is not None or name in self.drive_flag:
+                        raise LowerError('compiler', f'pin {name}: a `while` enable and host drive()/release()')
+                    connect[f'{d}.enable'] = self.signal(fabric_en)
+                elif name in self.drive_flag:
                     connect[f'{d}.enable'] = self.comb_lut({'kind': 'name', 'name': self.drive_flag[name]},
                                                            f'pin {name} enable')
                 else:
@@ -1823,7 +1831,14 @@ class Lowering:
         if 'run' in f and f['run'] is not None and f['run']['kind'] == 'integer':
             connect[f'{name}.start'] = 1 if _int(f['run'], self.env) else 0
             ports = {k: v for k, v in ports.items() if k != 'timer.run'}     # `run: 1` is the held start
-        extra = set(ports) - {'timer.start', 'timer.stop'}
+        if 'timer.resync' in ports:
+            # grid_timer mode 3 (resync, no limit): an aux pulse while
+            # running moves the next tick `phase` clocks after it. The edge
+            # comes over the same pin path as a start edge, so phase is the
+            # corrected `first` (pin_reference sets it).
+            connect[f'{name}.aux'] = self.signal(ports['timer.resync'])
+            spec['mode'] = 3
+        extra = set(ports) - {'timer.start', 'timer.stop', 'timer.resync'}
         if extra:
             raise LowerError('compiler', f'{name}: inputs {sorted(extra)} not lowered yet')
         return spec
@@ -1894,10 +1909,11 @@ class Lowering:
             burst['burst'] = 1
         if 'end_on_packet' in f:
             burst['eop_ends_burst'] = 1
-        if 'end' in f:
-            e = f['end']
-            if not (e['kind'] == 'integer' or (e['kind'] == 'name' and e['name'] not in self.pins and e['name'] not in self.res)):
-                raise LowerError('compiler', f'{name}: a burst-end level from a signal is not lowered yet')
+        if 'end_follows' in f and (f['end_follows'] is None or _int(f['end_follows'], self.env)):
+            if spec['frame']['length_minus_1'] < 1:
+                raise LowerError('hardware', f'{name}: end_follows needs words of two bits or more '
+                                 '(a held word is pushed at the next word\'s first sample, never at its end)')
+            burst['end_follows'] = 1
         if burst:
             spec['burst'] = burst
         # Inputs.
@@ -1940,8 +1956,9 @@ class Lowering:
                  not any(st['op'] == 'flags' and st['values'].get(e['name'])
                          for pl in self.plans.values() for st in pl['steps']))
             if not const0:
-                raise LowerError('hardware', f'{name}: a burst-end level from a signal (the mesh shifter has no '
-                                 'end sink)')
+                # the shifter's `end` sink (level 34)
+                connect[f'{name}.end'] = self.signal(ports['shifter.end'])
+                spec.setdefault('burst', {})['end_level'] = self.kinds['shifter']['end_level'] - 32
             ports = {k: v for k, v in ports.items() if k != 'shifter.end'}
         extra = set(ports) - {'shifter.start', 'shifter.shift', 'shifter.sample_at', 'shifter.sample_data',
                               'shifter.abort'}
@@ -2049,6 +2066,8 @@ class Lowering:
                 t['first'] -= lat['start_to_shift']
             if t['first'] < 1:
                 raise LowerError('hardware', f'{name}: first {t["first"]} after the pin latency correction')
+            if t.get('mode') == 3:
+                t['phase'] = t['first']
 
 
 def model_ir(frontend, source):
@@ -2066,6 +2085,7 @@ def lower(ir, name, pads, contract, prefer_lut=False, static_control=False):
     lw.static_control = static_control
     lw.actor = contract['layout'].get('actor')
     lw.latency = contract['latency']
+    lw.kinds = contract['kinds']
     lw.registers = contract['registers']
     lw.limits = {'states': contract['layout']['contexts'], 'transitions': contract['layout']['transition_rows']}
     if static_control:

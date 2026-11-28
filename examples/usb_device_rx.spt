@@ -1,0 +1,61 @@
+// Low-speed USB device, receive side (USB 2.0 chapters 7-8). The host's
+// packets (tokens, data packets, handshakes) arrive NRZI coded and bit
+// stuffed after SYNC and end with two bits of SE0. The fabric decodes them
+// and hands each packet to the host with its boundary: SYNC, PID, payload
+// and CRC bytes as sent, tagged with an error if a stuffed bit was wrong.
+//
+// The receiver's bit clock starts on the first edge of SYNC (J to K, D+
+// rising) and samples mid-bit; every D+ rise moves it back onto the
+// sender's grid (bit stuffing guarantees an edge at least every seven bits).
+// SE0 is the end of packet, and it arrives after the last byte: the shifter
+// holds each byte until the next byte's first bit or the end, which marks
+// the held byte as the packet's last (`end_follows`).
+
+clock 50 MHz
+const BIT = 33 cycles   // 1.5 Mb/s
+
+pin dp: in
+pin dm: in
+
+reg se0 = !dp && !dm
+
+timer bit { every: BIT, first: 16 cycles, pulse, run: dp.rise until rx.done, resync: dp.rise }
+shifter rx {
+    frame: [data(8)],
+    start: dp.rise,
+    shift: bit.tick,
+    sample: dp at bit.tick,
+    nrzi, code_received, stuff_after: 6, stuff_ones,
+    burst, end: se0, end_follows,
+}
+
+export packets packets: rx -> host
+
+// ─── tests ───────────────────────────────────────────────
+
+const OUT = 0xE1
+const IN = 0x69
+const SETUP = 0x2D
+const DATA0 = 0xC3
+const DATA1 = 0x4B
+const ACK = 0xD2
+
+test "receives tokens, data and a handshake with their boundaries" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT) as host
+    host.write([OUT, 5, 1])
+    expect packets.read_packet() == packet([0x80, OUT, 0x85, 0x60], error: 0)
+    host.write([DATA0, 1, 2, 3])
+    expect packets.read_packet() == packet([0x80, DATA0, 0x01, 0x02, 0x03, 0x9E, 0x9E], error: 0)
+    host.write([ACK])
+    expect packets.read_packet() == packet([0x80, ACK], error: 0)
+}
+
+test "a SETUP transaction and a stuffed data packet back to back" {
+    attach usb_host(dp: dp, dm: dm, bit: BIT) as host
+    host.write([SETUP, 0, 0])
+    host.write([DATA1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+    host.write([IN, 5, 1])
+    expect packets.read_packet() == packet([0x80, SETUP, 0x00, 0x10], error: 0)
+    expect packets.read_packet() == packet([0x80, DATA1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0x70], error: 0)
+    expect packets.read_packet() == packet([0x80, IN, 0x85, 0x60], error: 0)
+}
