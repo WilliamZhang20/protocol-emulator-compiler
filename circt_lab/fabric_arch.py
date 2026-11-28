@@ -174,9 +174,8 @@ SLOT = {'bits': 20, 'lsb': 48, 'track_first': 1, 'sink_first': 17}
 # Control actor (ACTOR_FABRIC.md A2; mesh.v ACTOR=1): a logic cell's second
 # mode, a state machine of `states` states over `inputs` sinks, `rows`
 # transition rows per state, its four locals selected per state from the
-# inputs and constants, registered: the combinational selection one clock
-# later (state and inputs paired as selected; no combinational path).
-# Sinks 6-7 sit where context 1's
+# inputs and constants, combinationally (registering them breaks
+# wire-timed programs). Sinks 6-7 sit where context 1's
 # sinks 0-1 would be. Field (in the 344-bit logic field L): rows at
 # [12s + 6r +: 6] = {next[5:4], event[3:0]} (0 none, 1-8 input 0-7);
 # outputs at [48 + 16s + 4k +: 4] (0 zero, 1 one, 2-9 input 0-7); mode L[343].
